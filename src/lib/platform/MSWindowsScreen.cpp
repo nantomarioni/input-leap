@@ -518,6 +518,12 @@ MSWindowsScreen::resetOptions()
 }
 
 void
+MSWindowsScreen::setLocalInputCallback(const LocalInputCallback& callback)
+{
+    m_localInputCallback = callback;
+}
+
+void
 MSWindowsScreen::setOptions(const OptionsList& options)
 {
     m_desks->setOptions(options);
@@ -1118,6 +1124,13 @@ bool MSWindowsScreen::onMark(std::uint32_t mark)
 bool
 MSWindowsScreen::onKey(WPARAM wParam, LPARAM lParam)
 {
+    // check for local input detection when dimmed
+    if (m_isDimmed && m_localInputCallback) {
+        LOG_DEBUG("local keyboard input detected while dimmed, triggering callback");
+        m_localInputCallback();
+        return true;  // consume the event
+    }
+
     static const KeyModifierMask s_ctrlAlt =
         KeyModifierControl | KeyModifierAlt;
 
@@ -1293,6 +1306,13 @@ MSWindowsScreen::onHotKey(WPARAM wParam, LPARAM lParam)
 bool
 MSWindowsScreen::onMouseButton(WPARAM wParam, LPARAM lParam)
 {
+    // check for local input detection when dimmed
+    if (m_isDimmed && m_localInputCallback) {
+        LOG_DEBUG("local mouse input detected while dimmed, triggering callback");
+        m_localInputCallback();
+        return true;  // consume the event
+    }
+
     // get which button
     bool pressed    = mapPressFromEvent(wParam, lParam);
     ButtonID button = mapButtonFromEvent(wParam, lParam);
@@ -1346,6 +1366,13 @@ MSWindowsScreen::onMouseButton(WPARAM wParam, LPARAM lParam)
 //   5. sends the delta movement to the client (could be +1,+1 or -1,+4 for example)
 bool MSWindowsScreen::onMouseMove(std::int32_t mx, std::int32_t my)
 {
+    // check for local input detection when dimmed
+    if (m_isDimmed && m_localInputCallback) {
+        LOG_DEBUG("local mouse movement detected while dimmed, triggering callback");
+        m_localInputCallback();
+        return true;  // consume the event
+    }
+
     // compute motion delta (relative to the last known
     // mouse position)
     std::int32_t x = mx - m_xCursor;

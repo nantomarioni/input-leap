@@ -996,6 +996,12 @@ OSXScreen::setOptions(const OptionsList&)
 	// no options
 }
 
+void
+OSXScreen::setLocalInputCallback(const LocalInputCallback& callback)
+{
+    m_localInputCallback = callback;
+}
+
 void OSXScreen::setSequenceNumber(std::uint32_t seqNum)
 {
 	m_sequenceNumber = seqNum;
@@ -1099,6 +1105,13 @@ void OSXScreen::handle_system_event(const Event& event)
 bool
 OSXScreen::onMouseMove(CGFloat mx, CGFloat my)
 {
+    // check for local input detection when dimmed
+    if (m_isDimmed && m_localInputCallback) {
+        LOG_DEBUG("local mouse movement detected while dimmed, triggering callback");
+        m_localInputCallback();
+        return true;  // consume the event
+    }
+
 	LOG_DEBUG2("mouse move %+f,%+f", mx, my);
 
 	CGFloat x = mx - m_xCursor;
@@ -1163,6 +1176,13 @@ OSXScreen::onMouseMove(CGFloat mx, CGFloat my)
 
 bool OSXScreen::onMouseButton(bool pressed, std::uint16_t macButton)
 {
+    // check for local input detection when dimmed
+    if (m_isDimmed && m_localInputCallback) {
+        LOG_DEBUG("local mouse button input detected while dimmed, triggering callback");
+        m_localInputCallback();
+        return true;  // consume the event
+    }
+
 	// Buttons 2 and 3 are inverted on the mac
     ButtonID button = map_button_from_osx(macButton);
 
@@ -1256,6 +1276,13 @@ OSXScreen::displayReconfigurationCallback(CGDirectDisplayID displayID, CGDisplay
 bool
 OSXScreen::onKey(CGEventRef event)
 {
+    // check for local input detection when dimmed
+    if (m_isDimmed && m_localInputCallback) {
+        LOG_DEBUG("local keyboard input detected while dimmed, triggering callback");
+        m_localInputCallback();
+        return true;  // consume the event
+    }
+
 	CGEventType eventKind = CGEventGetType(event);
 
 	// get the key and active modifiers

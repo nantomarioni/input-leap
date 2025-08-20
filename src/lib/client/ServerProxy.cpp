@@ -396,6 +396,13 @@ ServerProxy::sendInfo(const ClientInfo& info)
                                 info.m_mx, info.m_my);
 }
 
+void
+ServerProxy::requestUndim()
+{
+    LOG_DEBUG1("sending undim request to server");
+    ProtocolUtil::writef(m_stream, kMsgDUndimRequest);
+}
+
 KeyID
 ServerProxy::translateKey(KeyID id) const
 {

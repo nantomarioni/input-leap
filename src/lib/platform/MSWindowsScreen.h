@@ -26,6 +26,7 @@
 #include "platform/synwinhk.h"
 #include <map>
 #include <string>
+#include <functional>
 
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
@@ -124,6 +125,9 @@ public:
     virtual std::string& getDraggingFilename();
     virtual const std::string& getDropTarget() const;
     virtual void setDropTarget(const std::string&);
+
+    // set callback for local input detection when dimmed
+    void setLocalInputCallback(const LocalInputCallback& callback) override;
 
 protected:
     // IPlatformScreen overrides
@@ -348,6 +352,9 @@ private:
     Thread* m_sendDragThread;
 
     PrimaryKeyDownList m_primaryKeyDownList;
+    
+    // local input detection when dimmed
+    LocalInputCallback m_localInputCallback;
 };
 
 } // namespace inputleap

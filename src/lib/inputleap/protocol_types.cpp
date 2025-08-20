@@ -32,6 +32,7 @@ const char*                kMsgCResetOptions    = "CROP";
 const char*                kMsgCInfoAck        = "CIAK";
 const char*                kMsgCKeepAlive        = "CALV";
 const char*                kMsgCDimScreen        = "CDIM%1i";
+const char*                kMsgDUndimRequest    = "DUNR";
 const char*                kMsgDKeyDown        = "DKDN%2i%2i%2i";
 const char*                kMsgDKeyDown1_0        = "DKDN%2i%2i";
 const char*                kMsgDKeyRepeat        = "DKRP%2i%2i%2i%2i";

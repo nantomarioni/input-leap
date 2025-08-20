@@ -93,6 +93,7 @@ public:
     virtual void closeScreensaver();
     virtual void screensaver(bool activate);
     virtual void dimScreen(bool dim);
+    virtual void setLocalInputCallback(const LocalInputCallback& callback);
     virtual void resetOptions();
     virtual void setOptions(const OptionsList& options);
     virtual void setSequenceNumber(std::uint32_t);
@@ -351,6 +352,9 @@ private:
     CGGammaValue m_originalBlue[256];
     bool m_gammaStored;
     bool m_isDimmed;
+    
+    // local input detection when dimmed
+    LocalInputCallback m_localInputCallback;
 
 #if defined(MAC_OS_X_VERSION_10_7)
     mutable std::mutex carbon_loop_mutex_;

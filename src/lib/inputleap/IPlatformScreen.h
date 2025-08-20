@@ -25,8 +25,12 @@
 #include "inputleap/ISecondaryScreen.h"
 #include "inputleap/IKeyState.h"
 #include "inputleap/option_types.h"
+#include <functional>
 
 namespace inputleap {
+
+// callback type for local input detection
+typedef std::function<void()> LocalInputCallback;
 
 //! Screen interface
 /*!
@@ -123,6 +127,13 @@ public:
     original brightness is restored.
     */
     virtual void dimScreen(bool dim) = 0;
+
+    //! Set local input detection callback
+    /*!
+    Set a callback function to be called when local input is detected
+    while the screen is dimmed. Pass nullptr to disable.
+    */
+    virtual void setLocalInputCallback(const LocalInputCallback& callback) = 0;
 
     //! Notify of options changes
     /*!

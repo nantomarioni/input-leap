@@ -88,6 +88,7 @@ protected:
     virtual void addHeartbeatTimer();
     virtual void removeHeartbeatTimer();
     virtual bool recvClipboard();
+    virtual bool recvUndimRequest();
     virtual void keepAlive();
 
     void fileChunkReceived();

@@ -186,6 +186,12 @@ Screen::dimScreen(bool dim)
 }
 
 void
+Screen::setLocalInputCallback(const LocalInputCallback& callback)
+{
+    m_screen->setLocalInputCallback(callback);
+}
+
+void
 Screen::keyDown(KeyID id, KeyModifierMask mask, KeyButton button)
 {
     // check for ctrl+alt+del emulation

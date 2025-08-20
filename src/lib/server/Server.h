@@ -308,6 +308,7 @@ private:
     void handle_screensaver_deactivated_event();
     void handle_switch_wait_event();
     void handle_client_disconnected(BaseClientProxy* client);
+    void handle_client_local_input_detected(BaseClientProxy* client);
     void handle_client_close_timeout(BaseClientProxy* client);
     void handle_switch_to_screen_event(const Event& event);
     void handle_toggle_screen_event(const Event& event);

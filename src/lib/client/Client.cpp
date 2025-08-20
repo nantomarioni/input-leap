@@ -71,7 +71,8 @@ Client::Client(IEventQueue* events, const std::string& name, const NetworkAddres
     m_useSecureNetwork(args.m_enableCrypto),
     m_args(args),
     m_enableClipboard(true),
-    m_maximumClipboardSize(INT_MAX)
+    m_maximumClipboardSize(INT_MAX),
+    m_isDimmed(false)
 {
     assert(m_socketFactory != nullptr);
     assert(m_screen != nullptr);
@@ -332,7 +333,34 @@ Client::screensaver(bool activate)
 void
 Client::dimScreen(bool dim)
 {
-     m_screen->dimScreen(dim);
+    LOG_DEBUG("Client::dimScreen called with dim=%d, current m_isDimmed=%d", dim ? 1 : 0, m_isDimmed ? 1 : 0);
+    m_isDimmed = dim;
+    
+    // set up local input detection callback for platform screen
+    if (dim) {
+        // when dimmed, set callback to request undim on local input
+        m_screen->setLocalInputCallback([this]() {
+            requestUndim();
+        });
+    } else {
+        // when not dimmed, clear the callback
+        m_screen->setLocalInputCallback(nullptr);
+    }
+    
+    m_screen->dimScreen(dim);
+}
+
+void
+Client::requestUndim()
+{
+    if (m_isDimmed && m_server != nullptr) {
+        LOG_DEBUG("Client::requestUndim - requesting undim from server");
+        m_server->requestUndim();
+        m_isDimmed = false;  // We assume the server will undim us
+    } else {
+        LOG_DEBUG("Client::requestUndim - not requesting undim (m_isDimmed=%d, m_server=%p)", 
+                  m_isDimmed ? 1 : 0, m_server);
+    }
 }
 
 void

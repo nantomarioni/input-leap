@@ -413,6 +413,22 @@ XWindowsScreen::screensaver(bool activate)
 }
 
 void
+XWindowsScreen::dimScreen(bool dim)
+{
+	// TODO: Implement actual screen dimming for X11
+	// This is a placeholder implementation
+	LOG_DEBUG("XWindowsScreen::dimScreen called with dim=%d (not implemented)", dim ? 1 : 0);
+}
+
+void
+XWindowsScreen::setLocalInputCallback(const LocalInputCallback& callback)
+{
+	// TODO: Implement local input detection for X11
+	// This is a placeholder implementation
+	LOG_DEBUG("XWindowsScreen::setLocalInputCallback called (not implemented)");
+}
+
+void
 XWindowsScreen::resetOptions()
 {
 	m_xtestIsXineramaUnaware = true;

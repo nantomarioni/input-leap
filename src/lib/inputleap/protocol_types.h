@@ -187,6 +187,11 @@ extern const char*        kMsgCKeepAlive;
 // used for automatically dimming inactive screens when switching between computers.
 extern const char*        kMsgCDimScreen;
 
+// undim request:  secondary -> primary
+// sent by secondary when local input is detected on a dimmed screen.
+// requests the primary to undim this client.
+extern const char*        kMsgDUndimRequest;
+
 //
 // data codes
 //

@@ -101,6 +101,7 @@ private:
     void mouseWheel();
     void screensaver();
     void dimScreen();
+    void requestUndim();
     void resetOptions();
     void setOptions();
     void queryInfo();

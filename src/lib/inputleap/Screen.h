@@ -112,6 +112,13 @@ public:
     */
     void screensaver(bool activate);
     void dimScreen(bool dim);
+    
+    //! Set local input detection callback
+    /*!
+    Set a callback function to be called when local input is detected
+    while the screen is dimmed. Pass nullptr to disable.
+    */
+    void setLocalInputCallback(const LocalInputCallback& callback);
 
     //! Notify of key press
     /*!

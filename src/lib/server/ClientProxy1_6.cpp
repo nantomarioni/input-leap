@@ -245,6 +245,9 @@ bool ClientProxy1_6::parseMessage(const std::uint8_t* code)
     else if (memcmp(code, kMsgDClipboard, 4) == 0) {
         return recvClipboard();
     }
+    else if (memcmp(code, kMsgDUndimRequest, 4) == 0) {
+        return recvUndimRequest();
+    }
     return false;
 }
 
@@ -505,6 +508,16 @@ bool ClientProxy1_6::recvGrabClipboard()
     m_events->add_event(EventType::CLIPBOARD_GRABBED, get_event_target(),
                         create_event_data<ClipboardInfo>(info));
 
+    return true;
+}
+
+bool ClientProxy1_6::recvUndimRequest()
+{
+    LOG_DEBUG("received undim request from client \"%s\"", getName().c_str());
+    
+    // notify server to switch to this client
+    m_events->add_event(EventType::CLIENT_LOCAL_INPUT_DETECTED, get_event_target());
+    
     return true;
 }
 
