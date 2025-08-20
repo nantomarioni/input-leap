@@ -736,6 +736,9 @@ QString MainWindow::configFilename()
             return "";
         }
 
+        // Sync dimming settings from AppConfig to ServerConfig before saving
+        serverConfig().syncDimmingSettings();
+        
         serverConfig().save(*m_pTempConfigFile);
         filename = m_pTempConfigFile->fileName();
 

@@ -726,6 +726,12 @@ Config::readSectionOptions(ConfigReadContext& s)
 		else if (name == "clipboardSharingSize") {
 			addOption("", kOptionClipboardSharingSize, s.parseInt(value));
 		}
+		else if (name == "screenDimmingEnabled") {
+			addOption("", kOptionScreenDimmingEnabled, s.parseBoolean(value));
+		}
+		else if (name == "screenDimmingPercentage") {
+			addOption("", kOptionScreenDimmingPercentage, s.parseInt(value));
+		}
 
 		else {
 			handled = false;
@@ -1338,6 +1344,12 @@ Config::getOptionName(OptionID id)
 	if (id == kOptionClipboardSharingSize) {
 		return "clipboardSharingSize";
 	}
+	if (id == kOptionScreenDimmingEnabled) {
+		return "screenDimmingEnabled";
+	}
+	if (id == kOptionScreenDimmingPercentage) {
+		return "screenDimmingPercentage";
+	}
 	return nullptr;
 }
 
@@ -1355,7 +1367,7 @@ std::string Config::getOptionValue(OptionID id, OptionValue value)
 		id == kOptionWin32KeepForeground ||
 		id == kOptionScreenPreserveFocus ||
 		id == kOptionClipboardSharing ||
-		id == kOptionClipboardSharingSize) {
+		id == kOptionScreenDimmingEnabled) {
 		return (value != 0) ? "true" : "false";
 	}
 	if (id == kOptionModifierMapForShift ||
@@ -1387,7 +1399,9 @@ std::string Config::getOptionValue(OptionID id, OptionValue value)
 			return "none";
 		}
 	}
-	if (id == kOptionHeartbeat ||
+	if (id == kOptionClipboardSharingSize ||
+		id == kOptionScreenDimmingPercentage ||
+		id == kOptionHeartbeat ||
 		id == kOptionScreenSwitchCornerSize ||
 		id == kOptionScreenSwitchDelay ||
 		id == kOptionScreenSwitchTwoTap) {
