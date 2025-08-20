@@ -19,6 +19,11 @@ jobs:
       fail-fast: false
       matrix:
        include:
+         - name: macOS-x86_64
+           os: macos-14
+           qt-version: 5.15
+           min-macOS-version: 10.9
+           arch: 'x86_64'
          - name: macOS-Apple_Silicon
            os: macos-14
            qt-version: 6.6
