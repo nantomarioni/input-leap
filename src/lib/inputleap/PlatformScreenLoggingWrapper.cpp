@@ -91,6 +91,12 @@ void PlatformScreenLoggingWrapper::dimScreen(bool dim)
     screen_->dimScreen(dim);
 }
 
+void PlatformScreenLoggingWrapper::setLocalInputCallback(const LocalInputCallback& callback)
+{
+    LOG_DEBUG("setLocalInputCallback called");
+    screen_->setLocalInputCallback(callback);
+}
+
 void PlatformScreenLoggingWrapper::resetOptions()
 {
     LOG_DEBUG1("PlatformScreen::resetOptions()");

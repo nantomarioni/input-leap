@@ -74,7 +74,7 @@ public:
     Dim or restore the screen brightness. When dim=true, reduces brightness to 70%.
     When dim=false, restores original brightness. Windows implementation only.
     */
-    virtual void dimScreen(bool dim) = 0;
+    virtual void dimScreen(bool dim) override = 0;
 
 private:
     std::string m_name;
