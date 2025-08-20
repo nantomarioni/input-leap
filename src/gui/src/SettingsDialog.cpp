@@ -92,6 +92,13 @@ void SettingsDialog::accept()
     app_config_.setMinimizeToTray(ui_->m_pCheckBoxMinimizeToTray->isChecked());
     app_config_.setScreenDimmingEnabled(ui_->m_pCheckBoxScreenDimmingEnabled->isChecked());
     app_config_.setScreenDimmingPercentage(ui_->m_pSpinBoxDimmingPercentage->value());
+    
+    // Debug: Let's trace what values we're setting
+    qDebug() << "DEBUG: SettingsDialog::accept - Setting values: enabled=" << ui_->m_pCheckBoxScreenDimmingEnabled->isChecked() 
+             << ", percentage=" << ui_->m_pSpinBoxDimmingPercentage->value();
+    qDebug() << "DEBUG: SettingsDialog::accept - After setting, AppConfig values: enabled=" << app_config_.getScreenDimmingEnabled() 
+             << ", percentage=" << app_config_.getScreenDimmingPercentage();
+    
     app_config_.saveSettings();
     QDialog::accept();
 }

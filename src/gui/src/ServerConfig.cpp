@@ -440,7 +440,18 @@ size_t ServerConfig::setClipboardSharingSize(size_t size) {
 void ServerConfig::syncDimmingSettings() {
     if (m_pMainWindow) {
         AppConfig& appConfig = m_pMainWindow->appConfig();
-        setScreenDimmingEnabled(appConfig.getScreenDimmingEnabled());
-        setScreenDimmingPercentage(appConfig.getScreenDimmingPercentage());
+        
+        // Debug: Let's trace what we're getting from AppConfig
+        bool enabled = appConfig.getScreenDimmingEnabled();
+        int percentage = appConfig.getScreenDimmingPercentage();
+        
+        // Temporary debug output to see what values we're getting
+        qDebug() << "DEBUG: syncDimmingSettings - AppConfig values: enabled=" << enabled << ", percentage=" << percentage;
+        
+        setScreenDimmingEnabled(enabled);
+        setScreenDimmingPercentage(percentage);
+        
+        // Debug: Let's also check what was actually set in ServerConfig
+        qDebug() << "DEBUG: syncDimmingSettings - ServerConfig values: enabled=" << screenDimmingEnabled() << ", percentage=" << screenDimmingPercentage();
     }
 }
