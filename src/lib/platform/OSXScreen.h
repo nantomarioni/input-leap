@@ -345,6 +345,13 @@ private:
     Thread* m_getDropTargetThread;
     std::string m_dropTarget;
 
+    // Screen dimming support
+    CGGammaValue m_originalRed[256];
+    CGGammaValue m_originalGreen[256];
+    CGGammaValue m_originalBlue[256];
+    bool m_gammaStored;
+    bool m_isDimmed;
+
 #if defined(MAC_OS_X_VERSION_10_7)
     mutable std::mutex carbon_loop_mutex_;
     mutable std::condition_variable cardon_loop_ready_cv_;

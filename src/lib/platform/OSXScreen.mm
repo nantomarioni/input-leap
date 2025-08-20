@@ -97,6 +97,8 @@ OSXScreen::OSXScreen(IEventQueue* events, bool isPrimary, bool autoShowHideCurso
 	m_autoShowHideCursor(autoShowHideCursor),
 	m_events(events),
     m_getDropTargetThread(nullptr),
+    m_gammaStored(false),
+    m_isDimmed(false),
     m_impl(nullptr)
 {
 	try {
@@ -170,6 +172,11 @@ OSXScreen::OSXScreen(IEventQueue* events, bool isPrimary, bool autoShowHideCurso
 
 OSXScreen::~OSXScreen()
 {
+	// Restore gamma if it was modified
+	if (m_gammaStored && m_isDimmed) {
+		dimScreen(false);
+	}
+
 	disable();
     m_events->set_buffer(nullptr);
     m_events->remove_handler(EventType::SYSTEM, m_events->getSystemTarget());
@@ -919,10 +926,62 @@ OSXScreen::screensaver(bool activate)
 void
 OSXScreen::dimScreen(bool dim)
 {
-	// macOS screen dimming implementation using CoreGraphics
-	// Note: This is a simplified implementation - full support would require
-	// additional macOS-specific APIs for gamma adjustment
-	LOG_DEBUG("dimScreen not fully implemented for macOS platform, dim=%d", dim);
+	LOG_DEBUG("OSXScreen::dimScreen called with dim=%d, current m_isDimmed=%d", dim ? 1 : 0, m_isDimmed ? 1 : 0);
+	
+	// Check if we're already in the desired state
+	if (dim == m_isDimmed) {
+		LOG_DEBUG("no action needed - already in desired state");
+		return;
+	}
+	
+	CGDirectDisplayID display = CGMainDisplayID();
+	
+	if (dim && !m_isDimmed) {
+		LOG_DEBUG("attempting to dim screen - getting current gamma tables");
+		
+		// Store original gamma values
+		uint32_t sampleCount;
+		CGError result = CGGetDisplayTransferByTable(display, 256, m_originalRed, m_originalGreen, m_originalBlue, &sampleCount);
+		
+		if (result == kCGErrorSuccess && sampleCount == 256) {
+			m_gammaStored = true;
+			LOG_DEBUG("successfully got gamma tables, creating 70%% dimmed version");
+			
+			// Create 70% dimmed gamma tables
+			CGGammaValue dimRed[256], dimGreen[256], dimBlue[256];
+			for (int i = 0; i < 256; i++) {
+				dimRed[i] = m_originalRed[i] * 0.7f;
+				dimGreen[i] = m_originalGreen[i] * 0.7f;
+				dimBlue[i] = m_originalBlue[i] * 0.7f;
+			}
+			
+			// Apply dimmed gamma tables
+			result = CGSetDisplayTransferByTable(display, 256, dimRed, dimGreen, dimBlue);
+			if (result == kCGErrorSuccess) {
+				m_isDimmed = true;
+				LOG_DEBUG("screen dimmed to 70%% brightness successfully");
+			} else {
+				LOG_DEBUG("failed to set gamma tables for dimming, error=%d", result);
+				m_gammaStored = false; // Reset since we failed
+			}
+		} else {
+			LOG_DEBUG("failed to get current gamma tables, error=%d, sampleCount=%d", result, sampleCount);
+		}
+		
+	} else if (!dim && m_isDimmed && m_gammaStored) {
+		LOG_DEBUG("attempting to restore screen brightness");
+		
+		// Restore original gamma tables
+		CGError result = CGSetDisplayTransferByTable(display, 256, m_originalRed, m_originalGreen, m_originalBlue);
+		if (result == kCGErrorSuccess) {
+			m_isDimmed = false;
+			LOG_DEBUG("screen brightness restored successfully");
+		} else {
+			LOG_DEBUG("failed to restore gamma tables, error=%d", result);
+		}
+	} else {
+		LOG_DEBUG("no action needed - dim=%d, m_isDimmed=%d, m_gammaStored=%d", dim ? 1 : 0, m_isDimmed ? 1 : 0, m_gammaStored ? 1 : 0);
+	}
 }
 
 void
