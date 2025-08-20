@@ -33,7 +33,7 @@
 #include "base/Stopwatch.h"
 #include "base/IEventQueue.h"
 #include "base/Time.h"
-#include "common/option_types.h"
+#include "inputleap/option_types.h"
 
 #include <cstring>
 #include <cstdlib>

@@ -21,7 +21,7 @@
 #include "inputleap/Screen.h"
 #include "inputleap/Clipboard.h"
 #include "base/Log.h"
-#include "common/option_types.h"
+#include "inputleap/option_types.h"
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
