@@ -369,7 +369,6 @@ void PrimaryClient::dimScreen(bool dim)
             m_dimFailureCount++;
         }
     }
-    }
     
     // Update timing and failure tracking
     m_lastDimTime = currentTime;
