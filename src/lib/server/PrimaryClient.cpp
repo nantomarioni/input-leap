@@ -21,6 +21,7 @@
 #include "inputleap/Screen.h"
 #include "inputleap/Clipboard.h"
 #include "base/Log.h"
+#include "common/option_types.h"
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -44,6 +45,8 @@ PrimaryClient::PrimaryClient(const std::string& name, inputleap::Screen* screen)
     , m_isDimmed(false)
     , m_lastDimTime(0)
     , m_dimFailureCount(0)
+    , m_dimmingEnabled(true)
+    , m_dimmingPercentage(70)
 #endif
 {
     // all clipboards are clean
@@ -281,12 +284,35 @@ PrimaryClient::resetOptions()
 void
 PrimaryClient::setOptions(const OptionsList& options)
 {
+    // Handle dimming options before passing to screen
+    for (std::uint32_t i = 0, n = static_cast<std::uint32_t>(options.size()); i < n; i += 2) {
+#ifdef _WIN32
+        if (options[i] == kOptionScreenDimmingEnabled) {
+            m_dimmingEnabled = (options[i + 1] != 0);
+            LOG_DEBUG("PrimaryClient screen dimming %s", m_dimmingEnabled ? "enabled" : "disabled");
+        }
+        else if (options[i] == kOptionScreenDimmingPercentage) {
+            m_dimmingPercentage = static_cast<int>(options[i + 1]);
+            // Clamp to valid range
+            if (m_dimmingPercentage < 10) m_dimmingPercentage = 10;
+            if (m_dimmingPercentage > 100) m_dimmingPercentage = 100;
+            LOG_DEBUG("PrimaryClient screen dimming percentage set to %d%%", m_dimmingPercentage);
+        }
+#endif
+    }
+    
     m_screen->setOptions(options);
 }
 
 void PrimaryClient::dimScreen(bool dim)
 {
 #ifdef _WIN32
+    // Check if dimming is enabled
+    if (!m_dimmingEnabled) {
+        LOG_DEBUG("PrimaryClient screen dimming is disabled, skipping");
+        return;
+    }
+    
     // Check if we're already in the desired state
     if (dim == m_isDimmed) {
         return;
@@ -346,17 +372,19 @@ void PrimaryClient::dimScreen(bool dim)
             normalGamma[2][i] = value;
         }
         
-        // Create dimmed gamma ramp (70% brightness from normal baseline)
+        // Create dimmed gamma ramp using configurable percentage
+        float dimFactor = m_dimmingPercentage / 100.0f;
         WORD dimmedGamma[3][256];
         for (int i = 0; i < 256; i++) {
-            dimmedGamma[0][i] = (WORD)(normalGamma[0][i] * 0.7);
-            dimmedGamma[1][i] = (WORD)(normalGamma[1][i] * 0.7);
-            dimmedGamma[2][i] = (WORD)(normalGamma[2][i] * 0.7);
+            dimmedGamma[0][i] = (WORD)(normalGamma[0][i] * dimFactor);
+            dimmedGamma[1][i] = (WORD)(normalGamma[1][i] * dimFactor);
+            dimmedGamma[2][i] = (WORD)(normalGamma[2][i] * dimFactor);
         }
         
         if (SetDeviceGammaRamp(hdc, dimmedGamma)) {
             m_isDimmed = true;
             operationSuccess = true;
+            LOG_DEBUG("PrimaryClient screen dimmed to %d%% brightness successfully", m_dimmingPercentage);
         } else {
             m_dimFailureCount++;
         }

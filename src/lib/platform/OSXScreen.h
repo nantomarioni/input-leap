@@ -357,6 +357,10 @@ private:
     std::vector<DisplayGammaInfo> m_displayGammaInfo;
     bool m_isDimmed;
     
+    // dimming configuration options
+    bool m_dimmingEnabled;
+    int m_dimmingPercentage;
+    
     // local input detection when dimmed
     LocalInputCallback m_localInputCallback;
 

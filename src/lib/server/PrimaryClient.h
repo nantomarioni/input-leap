@@ -176,6 +176,8 @@ private:
     bool m_isDimmed;
     DWORD m_lastDimTime;
     int m_dimFailureCount;
+    bool m_dimmingEnabled;
+    int m_dimmingPercentage;
     static const DWORD MIN_DIM_INTERVAL_MS = 100; // Minimum 100ms between dim operations
     static const int MAX_DIM_FAILURES = 3; // Stop trying after 3 failures
 #endif

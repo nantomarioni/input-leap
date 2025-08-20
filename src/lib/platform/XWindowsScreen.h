@@ -264,6 +264,10 @@ private:
     IEventQueue* m_events;
     inputleap::KeyMap m_keyMap;
 
+    // Screen dimming configuration
+    bool m_dimmingEnabled;
+    int m_dimmingPercentage;
+
     // pointer to (singleton) screen.  this is only needed by
     // ioErrorHandler().
     static XWindowsScreen*    s_screen;

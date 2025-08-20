@@ -33,6 +33,7 @@
 #include "base/Stopwatch.h"
 #include "base/IEventQueue.h"
 #include "base/Time.h"
+#include "common/option_types.h"
 
 #include <cstring>
 #include <cstdlib>
@@ -93,7 +94,9 @@ XWindowsScreen::XWindowsScreen(
     m_xkb(false),
     m_xi2detected(false),
     m_xrandr(false),
-    m_events(events)
+    m_events(events),
+    m_dimmingEnabled(true),
+    m_dimmingPercentage(70)
 {
     m_impl = impl;
     assert(s_screen == nullptr);
@@ -415,9 +418,24 @@ XWindowsScreen::screensaver(bool activate)
 void
 XWindowsScreen::dimScreen(bool dim)
 {
+	LOG_DEBUG("XWindowsScreen::dimScreen called with dim=%d", dim ? 1 : 0);
+	
+	// Check if dimming is enabled
+	if (!m_dimmingEnabled) {
+		LOG_DEBUG("screen dimming is disabled, skipping");
+		return;
+	}
+	
 	// TODO: Implement actual screen dimming for X11
-	// This is a placeholder implementation
-	LOG_DEBUG("XWindowsScreen::dimScreen called with dim=%d (not implemented)", dim ? 1 : 0);
+	// For now, just log the intended operation with the percentage
+	LOG_DEBUG("X11 screen dimming requested: %s to %d%% (not yet implemented)", 
+			  dim ? "dim" : "restore", m_dimmingPercentage);
+	
+	// Potential implementations could use:
+	// 1. XF86VidMode extension for gamma ramp manipulation
+	// 2. XRandR for backlight control on newer systems
+	// 3. DPMS for power management-based dimming
+	// For now, this serves as a placeholder that respects the configuration
 }
 
 void
@@ -446,6 +464,17 @@ XWindowsScreen::setOptions(const OptionsList& options)
 		else if (options[i] == kOptionScreenPreserveFocus) {
 			m_preserveFocus = (options[i + 1] != 0);
 			LOG_DEBUG1("Preserve Focus = %s", m_preserveFocus ? "true" : "false");
+		}
+		else if (options[i] == kOptionScreenDimmingEnabled) {
+			m_dimmingEnabled = (options[i + 1] != 0);
+			LOG_DEBUG("screen dimming %s", m_dimmingEnabled ? "enabled" : "disabled");
+		}
+		else if (options[i] == kOptionScreenDimmingPercentage) {
+			m_dimmingPercentage = static_cast<int>(options[i + 1]);
+			// Clamp to valid range
+			if (m_dimmingPercentage < 10) m_dimmingPercentage = 10;
+			if (m_dimmingPercentage > 100) m_dimmingPercentage = 100;
+			LOG_DEBUG("screen dimming percentage set to %d%%", m_dimmingPercentage);
 		}
 	}
 }

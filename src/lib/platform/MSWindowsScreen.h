@@ -298,6 +298,8 @@ private:
     // screen dimming
     WORD m_originalGamma[256 * 3];
     bool m_isDimmed;
+    bool m_dimmingEnabled;
+    int m_dimmingPercentage;
 
     // clipboard stuff.  our window is used mainly as a clipboard
     // owner and as a link in the clipboard viewer chain.

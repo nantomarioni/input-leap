@@ -55,6 +55,8 @@ SettingsDialog::SettingsDialog(QWidget* parent, AppConfig& config) :
     ui_->m_pCheckBoxMinimizeToTray->setChecked(app_config_.getMinimizeToTray());
     ui_->m_pCheckBoxEnableCrypto->setChecked(app_config_.getCryptoEnabled());
     ui_->checkbox_require_client_certificate->setChecked(app_config_.getRequireClientCertificate());
+    ui_->m_pCheckBoxScreenDimmingEnabled->setChecked(app_config_.getScreenDimmingEnabled());
+    ui_->m_pSpinBoxDimmingPercentage->setValue(app_config_.getScreenDimmingPercentage());
 
 #if defined(Q_OS_WIN)
     ui_->m_pComboElevate->setCurrentIndex(static_cast<int>(app_config_.elevateMode()));
@@ -67,6 +69,10 @@ SettingsDialog::SettingsDialog(QWidget* parent, AppConfig& config) :
     connect(ui_->m_pCheckBoxLogToFile, &QCheckBox::stateChanged, this, &SettingsDialog::logToFileChanged);
     connect(ui_->m_pButtonBrowseLog, &QPushButton::clicked, this, &SettingsDialog::browseLogClicked);
     connect(ui_->m_pComboLanguage, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &SettingsDialog::languageChanged);
+    connect(ui_->m_pCheckBoxScreenDimmingEnabled, &QCheckBox::stateChanged, this, &SettingsDialog::dimmingEnabledChanged);
+    
+    // Initialize dimming controls enabled state
+    dimmingEnabledChanged(ui_->m_pCheckBoxScreenDimmingEnabled->isChecked() ? Qt::Checked : Qt::Unchecked);
 }
 
 void SettingsDialog::accept()
@@ -84,6 +90,8 @@ void SettingsDialog::accept()
     app_config_.setAutoHide(ui_->m_pCheckBoxAutoHide->isChecked());
     app_config_.setAutoStart(ui_->m_pCheckBoxAutoStart->isChecked());
     app_config_.setMinimizeToTray(ui_->m_pCheckBoxMinimizeToTray->isChecked());
+    app_config_.setScreenDimmingEnabled(ui_->m_pCheckBoxScreenDimmingEnabled->isChecked());
+    app_config_.setScreenDimmingPercentage(ui_->m_pSpinBoxDimmingPercentage->value());
     app_config_.saveSettings();
     QDialog::accept();
 }
@@ -144,6 +152,13 @@ void SettingsDialog::browseLogClicked()
 void SettingsDialog::languageChanged(int index)
 {
     Q_EMIT requestLanguageChange(ui_->m_pComboLanguage->itemData(index).toString());
+}
+
+void SettingsDialog::dimmingEnabledChanged(int state)
+{
+    bool enabled = (state == Qt::Checked);
+    ui_->m_pLabelDimmingPercentage->setEnabled(enabled);
+    ui_->m_pSpinBoxDimmingPercentage->setEnabled(enabled);
 }
 
 SettingsDialog::~SettingsDialog() = default;

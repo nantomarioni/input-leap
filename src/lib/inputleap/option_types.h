@@ -69,6 +69,8 @@ static const OptionID    kOptionRelativeMouseMoves        = OPTION_CODE("MDLT");
 static const OptionID    kOptionWin32KeepForeground        = OPTION_CODE("_KFW");
 static const OptionID    kOptionClipboardSharing            = OPTION_CODE("CLPS");
 static const OptionID    kOptionClipboardSharingSize        = OPTION_CODE("CLSZ");
+static const OptionID    kOptionScreenDimmingEnabled        = OPTION_CODE("DMEN");
+static const OptionID    kOptionScreenDimmingPercentage    = OPTION_CODE("DMPC");
 //@}
 
 //! @name Screen switch corner enumeration

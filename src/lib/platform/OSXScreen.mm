@@ -98,7 +98,9 @@ OSXScreen::OSXScreen(IEventQueue* events, bool isPrimary, bool autoShowHideCurso
 	m_events(events),
     m_getDropTargetThread(nullptr),
     m_isDimmed(false),
-    m_impl(nullptr)
+    m_impl(nullptr),
+    m_dimmingEnabled(true),
+    m_dimmingPercentage(70)
 {
 	try {
 		m_displayID   = CGMainDisplayID();
@@ -927,6 +929,12 @@ OSXScreen::dimScreen(bool dim)
 {
 	LOG_DEBUG("OSXScreen::dimScreen called with dim=%d, current m_isDimmed=%d", dim ? 1 : 0, m_isDimmed ? 1 : 0);
 	
+	// Check if dimming is enabled
+	if (!m_dimmingEnabled) {
+		LOG_DEBUG("screen dimming is disabled, skipping");
+		return;
+	}
+	
 	// Check if we're already in the desired state
 	if (dim == m_isDimmed) {
 		LOG_DEBUG("no action needed - already in desired state");
@@ -974,20 +982,21 @@ OSXScreen::dimScreen(bool dim)
 			
 			if (result == kCGErrorSuccess && sampleCount == 256) {
 				gammaInfo.gammaStored = true;
-				LOG_DEBUG("successfully got gamma tables for display %u, creating 70%% dimmed version", display);
+				float dimFactor = m_dimmingPercentage / 100.0f;
+				LOG_DEBUG("successfully got gamma tables for display %u, creating %d%% dimmed version", display, m_dimmingPercentage);
 				
-				// Create 70% dimmed gamma tables
+				// Create dimmed gamma tables using configurable percentage
 				CGGammaValue dimRed[256], dimGreen[256], dimBlue[256];
 				for (int j = 0; j < 256; j++) {
-					dimRed[j] = gammaInfo.originalRed[j] * 0.7f;
-					dimGreen[j] = gammaInfo.originalGreen[j] * 0.7f;
-					dimBlue[j] = gammaInfo.originalBlue[j] * 0.7f;
+					dimRed[j] = gammaInfo.originalRed[j] * dimFactor;
+					dimGreen[j] = gammaInfo.originalGreen[j] * dimFactor;
+					dimBlue[j] = gammaInfo.originalBlue[j] * dimFactor;
 				}
 				
 				// Apply dimmed gamma tables to this display
 				result = CGSetDisplayTransferByTable(display, 256, dimRed, dimGreen, dimBlue);
 				if (result == kCGErrorSuccess) {
-					LOG_DEBUG("display %u dimmed to 70%% brightness successfully", display);
+					LOG_DEBUG("display %u dimmed to %d%% brightness successfully", display, m_dimmingPercentage);
 					anySuccess = true;
 				} else {
 					LOG_DEBUG("failed to set gamma tables for display %u, error=%d", display, result);
@@ -1051,9 +1060,21 @@ OSXScreen::resetOptions()
 }
 
 void
-OSXScreen::setOptions(const OptionsList&)
+OSXScreen::setOptions(const OptionsList& options)
 {
-	// no options
+	for (std::uint32_t i = 0, n = static_cast<std::uint32_t>(options.size()); i < n; i += 2) {
+		if (options[i] == kOptionScreenDimmingEnabled) {
+			m_dimmingEnabled = (options[i + 1] != 0);
+			LOG_DEBUG("screen dimming %s", m_dimmingEnabled ? "enabled" : "disabled");
+		}
+		else if (options[i] == kOptionScreenDimmingPercentage) {
+			m_dimmingPercentage = static_cast<int>(options[i + 1]);
+			// Clamp to valid range
+			if (m_dimmingPercentage < 10) m_dimmingPercentage = 10;
+			if (m_dimmingPercentage > 100) m_dimmingPercentage = 100;
+			LOG_DEBUG("screen dimming percentage set to %d%%", m_dimmingPercentage);
+		}
+	}
 }
 
 void
