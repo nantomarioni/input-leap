@@ -346,11 +346,15 @@ private:
     Thread* m_getDropTargetThread;
     std::string m_dropTarget;
 
-    // Screen dimming support
-    CGGammaValue m_originalRed[256];
-    CGGammaValue m_originalGreen[256];
-    CGGammaValue m_originalBlue[256];
-    bool m_gammaStored;
+    // Screen dimming support - now supports multiple displays
+    struct DisplayGammaInfo {
+        CGDirectDisplayID displayID;
+        CGGammaValue originalRed[256];
+        CGGammaValue originalGreen[256];
+        CGGammaValue originalBlue[256];
+        bool gammaStored;
+    };
+    std::vector<DisplayGammaInfo> m_displayGammaInfo;
     bool m_isDimmed;
     
     // local input detection when dimmed

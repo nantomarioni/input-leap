@@ -97,7 +97,6 @@ OSXScreen::OSXScreen(IEventQueue* events, bool isPrimary, bool autoShowHideCurso
 	m_autoShowHideCursor(autoShowHideCursor),
 	m_events(events),
     m_getDropTargetThread(nullptr),
-    m_gammaStored(false),
     m_isDimmed(false),
     m_impl(nullptr)
 {
@@ -173,7 +172,7 @@ OSXScreen::OSXScreen(IEventQueue* events, bool isPrimary, bool autoShowHideCurso
 OSXScreen::~OSXScreen()
 {
 	// Restore gamma if it was modified
-	if (m_gammaStored && m_isDimmed) {
+	if (m_isDimmed) {
 		dimScreen(false);
 	}
 
@@ -934,54 +933,115 @@ OSXScreen::dimScreen(bool dim)
 		return;
 	}
 	
-	CGDirectDisplayID display = CGMainDisplayID();
+	// Get all active displays
+	CGDisplayCount displayCount = 0;
+	if (CGGetActiveDisplayList(0, nullptr, &displayCount) != CGDisplayNoErr || displayCount == 0) {
+		LOG_DEBUG("failed to get display count");
+		return;
+	}
+
+	CGDirectDisplayID* displays = new CGDirectDisplayID[displayCount];
+	if (displays == nullptr) {
+		LOG_DEBUG("failed to allocate display array");
+		return;
+	}
+
+	if (CGGetActiveDisplayList(displayCount, displays, &displayCount) != CGDisplayNoErr) {
+		LOG_DEBUG("failed to get display list");
+		delete[] displays;
+		return;
+	}
 	
 	if (dim && !m_isDimmed) {
-		LOG_DEBUG("attempting to dim screen - getting current gamma tables");
+		LOG_DEBUG("attempting to dim %u displays", displayCount);
 		
-		// Store original gamma values
-		uint32_t sampleCount;
-		CGError result = CGGetDisplayTransferByTable(display, 256, m_originalRed, m_originalGreen, m_originalBlue, &sampleCount);
+		// Clear any existing gamma info and prepare for new displays
+		m_displayGammaInfo.clear();
+		m_displayGammaInfo.reserve(displayCount);
 		
-		if (result == kCGErrorSuccess && sampleCount == 256) {
-			m_gammaStored = true;
-			LOG_DEBUG("successfully got gamma tables, creating 70%% dimmed version");
+		bool anySuccess = false;
+		
+		for (CGDisplayCount i = 0; i < displayCount; ++i) {
+			CGDirectDisplayID display = displays[i];
+			DisplayGammaInfo gammaInfo;
+			gammaInfo.displayID = display;
+			gammaInfo.gammaStored = false;
 			
-			// Create 70% dimmed gamma tables
-			CGGammaValue dimRed[256], dimGreen[256], dimBlue[256];
-			for (int i = 0; i < 256; i++) {
-				dimRed[i] = m_originalRed[i] * 0.7f;
-				dimGreen[i] = m_originalGreen[i] * 0.7f;
-				dimBlue[i] = m_originalBlue[i] * 0.7f;
-			}
+			// Store original gamma values for this display
+			uint32_t sampleCount;
+			CGError result = CGGetDisplayTransferByTable(display, 256, 
+				gammaInfo.originalRed, gammaInfo.originalGreen, gammaInfo.originalBlue, &sampleCount);
 			
-			// Apply dimmed gamma tables
-			result = CGSetDisplayTransferByTable(display, 256, dimRed, dimGreen, dimBlue);
-			if (result == kCGErrorSuccess) {
-				m_isDimmed = true;
-				LOG_DEBUG("screen dimmed to 70%% brightness successfully");
+			if (result == kCGErrorSuccess && sampleCount == 256) {
+				gammaInfo.gammaStored = true;
+				LOG_DEBUG("successfully got gamma tables for display %u, creating 70%% dimmed version", display);
+				
+				// Create 70% dimmed gamma tables
+				CGGammaValue dimRed[256], dimGreen[256], dimBlue[256];
+				for (int j = 0; j < 256; j++) {
+					dimRed[j] = gammaInfo.originalRed[j] * 0.7f;
+					dimGreen[j] = gammaInfo.originalGreen[j] * 0.7f;
+					dimBlue[j] = gammaInfo.originalBlue[j] * 0.7f;
+				}
+				
+				// Apply dimmed gamma tables to this display
+				result = CGSetDisplayTransferByTable(display, 256, dimRed, dimGreen, dimBlue);
+				if (result == kCGErrorSuccess) {
+					LOG_DEBUG("display %u dimmed to 70%% brightness successfully", display);
+					anySuccess = true;
+				} else {
+					LOG_DEBUG("failed to set gamma tables for display %u, error=%d", display, result);
+					gammaInfo.gammaStored = false; // Reset since we failed
+				}
 			} else {
-				LOG_DEBUG("failed to set gamma tables for dimming, error=%d", result);
-				m_gammaStored = false; // Reset since we failed
+				LOG_DEBUG("failed to get current gamma tables for display %u, error=%d, sampleCount=%d", display, result, sampleCount);
 			}
-		} else {
-			LOG_DEBUG("failed to get current gamma tables, error=%d, sampleCount=%d", result, sampleCount);
+			
+			// Store the gamma info regardless of success for proper cleanup
+			m_displayGammaInfo.push_back(gammaInfo);
 		}
 		
-	} else if (!dim && m_isDimmed && m_gammaStored) {
-		LOG_DEBUG("attempting to restore screen brightness");
+		if (anySuccess) {
+			m_isDimmed = true;
+			LOG_DEBUG("successfully dimmed at least one display");
+		} else {
+			LOG_DEBUG("failed to dim any displays");
+			m_displayGammaInfo.clear(); // Clear if nothing worked
+		}
 		
-		// Restore original gamma tables
-		CGError result = CGSetDisplayTransferByTable(display, 256, m_originalRed, m_originalGreen, m_originalBlue);
-		if (result == kCGErrorSuccess) {
+	} else if (!dim && m_isDimmed) {
+		LOG_DEBUG("attempting to restore screen brightness for %zu displays", m_displayGammaInfo.size());
+		
+		bool anySuccess = false;
+		
+		// Restore original gamma tables for all displays
+		for (auto& gammaInfo : m_displayGammaInfo) {
+			if (gammaInfo.gammaStored) {
+				CGError result = CGSetDisplayTransferByTable(gammaInfo.displayID, 256, 
+					gammaInfo.originalRed, gammaInfo.originalGreen, gammaInfo.originalBlue);
+				if (result == kCGErrorSuccess) {
+					LOG_DEBUG("display %u brightness restored successfully", gammaInfo.displayID);
+					anySuccess = true;
+				} else {
+					LOG_DEBUG("failed to restore gamma tables for display %u, error=%d", gammaInfo.displayID, result);
+				}
+			}
+		}
+		
+		if (anySuccess) {
 			m_isDimmed = false;
-			LOG_DEBUG("screen brightness restored successfully");
+			LOG_DEBUG("successfully restored brightness for at least one display");
 		} else {
-			LOG_DEBUG("failed to restore gamma tables, error=%d", result);
+			LOG_DEBUG("failed to restore brightness for any displays");
 		}
+		
+		// Clear gamma info after restoration attempt
+		m_displayGammaInfo.clear();
 	} else {
-		LOG_DEBUG("no action needed - dim=%d, m_isDimmed=%d, m_gammaStored=%d", dim ? 1 : 0, m_isDimmed ? 1 : 0, m_gammaStored ? 1 : 0);
+		LOG_DEBUG("no action needed - dim=%d, m_isDimmed=%d", dim ? 1 : 0, m_isDimmed ? 1 : 0);
 	}
+	
+	delete[] displays;
 }
 
 void
