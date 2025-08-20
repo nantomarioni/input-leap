@@ -115,6 +115,7 @@ public:
     virtual void openScreensaver(bool notify);
     virtual void closeScreensaver();
     virtual void screensaver(bool activate);
+    virtual void dimScreen(bool dim);
     virtual void resetOptions();
     virtual void setOptions(const OptionsList& options);
     virtual void setSequenceNumber(std::uint32_t);
@@ -289,6 +290,10 @@ private:
     MSWindowsScreenSaver* m_screensaver;
     bool m_screensaverNotify;
     bool m_screensaverActive;
+
+    // screen dimming
+    WORD m_originalGamma[256 * 3];
+    bool m_isDimmed;
 
     // clipboard stuff.  our window is used mainly as a clipboard
     // owner and as a link in the clipboard viewer chain.

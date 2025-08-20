@@ -279,6 +279,10 @@ ServerProxy::EResult ServerProxy::parseMessage(const std::uint8_t* code)
         screensaver();
     }
 
+    else if (memcmp(code, kMsgCDimScreen, 4) == 0) {
+        dimScreen();
+    }
+
     else if (memcmp(code, kMsgQInfo, 4) == 0) {
         queryInfo();
     }
@@ -780,6 +784,18 @@ ServerProxy::screensaver()
 
     // forward
     m_client->screensaver(on != 0);
+}
+
+void
+ServerProxy::dimScreen()
+{
+    // parse
+    std::int8_t dim;
+    ProtocolUtil::readf(m_stream, kMsgCDimScreen + 4, &dim);
+    LOG_DEBUG1("recv dim screen dim=%d", dim);
+
+    // forward
+    m_client->dimScreen(dim != 0);
 }
 
 void

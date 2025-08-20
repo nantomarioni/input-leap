@@ -111,6 +111,7 @@ public:
     forcibly deactivates it.
     */
     void screensaver(bool activate);
+    void dimScreen(bool dim);
 
     //! Notify of key press
     /*!

@@ -917,6 +917,15 @@ OSXScreen::screensaver(bool activate)
 }
 
 void
+OSXScreen::dimScreen(bool dim)
+{
+	// macOS screen dimming implementation using CoreGraphics
+	// Note: This is a simplified implementation - full support would require
+	// additional macOS-specific APIs for gamma adjustment
+	LOG_DEBUG("dimScreen not fully implemented for macOS platform, dim=%d", dim);
+}
+
+void
 OSXScreen::resetOptions()
 {
 	// no options

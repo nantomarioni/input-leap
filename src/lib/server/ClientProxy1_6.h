@@ -23,6 +23,17 @@
 #include "inputleap/Clipboard.h"
 #include "inputleap/protocol_types.h"
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <winsock2.h>
+#include <windows.h>
+#endif
+
 namespace inputleap {
 
 class Server;
@@ -65,6 +76,7 @@ public:
     void setOptions(const OptionsList& options) override;
     void sendDragInfo(std::uint32_t fileCount, const char* info, size_t size) override;
     void file_chunk_sending(const FileChunk& chunk) override;
+    void dimScreen(bool dim) override;
 
 protected:
     virtual bool parseHandshakeMessage(const std::uint8_t* code);

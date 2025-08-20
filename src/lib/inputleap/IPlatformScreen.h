@@ -116,6 +116,14 @@ public:
     */
     virtual void screensaver(bool activate) = 0;
 
+    //! Dim screen
+    /*!
+    Dim or restore the screen brightness.  If \c dim is true then the
+    screen brightness is reduced to 30%.  If \c dim is false then the
+    original brightness is restored.
+    */
+    virtual void dimScreen(bool dim) = 0;
+
     //! Notify of options changes
     /*!
     Reset all options to their default values.

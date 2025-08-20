@@ -330,6 +330,12 @@ Client::screensaver(bool activate)
 }
 
 void
+Client::dimScreen(bool dim)
+{
+     m_screen->dimScreen(dim);
+}
+
+void
 Client::resetOptions()
 {
     m_screen->resetOptions();

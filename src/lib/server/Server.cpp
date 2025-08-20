@@ -467,6 +467,26 @@ void Server::switchScreen(BaseClientProxy* dst, std::int32_t x, std::int32_t y, 
 			}
 		}
 
+		// Handle screen dimming: dim all inactive screens, restore active screen
+		try {
+			for (const auto& client : m_clients) {
+				BaseClientProxy* clientProxy = client.second;
+				if (clientProxy != nullptr) {
+					if (clientProxy == m_active) {
+						// Restore brightness on the active screen
+						clientProxy->dimScreen(false);
+					} else {
+						// Dim inactive screens
+						clientProxy->dimScreen(true);
+					}
+				}
+			}
+		} catch (const std::exception& e) {
+			LOG_WARN("exception during screen dimming: %s", e.what());
+		} catch (...) {
+			LOG_WARN("unknown exception during screen dimming");
+		}
+
         Server::SwitchToScreenInfo info{m_active->getName()};
         m_events->add_event(EventType::SERVER_SCREEN_SWITCHED, this,
                             create_event_data<Server::SwitchToScreenInfo>(info));

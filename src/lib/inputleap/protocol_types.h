@@ -182,6 +182,11 @@ extern const char*        kMsgCInfoAck;
 // defined by an option.
 extern const char*        kMsgCKeepAlive;
 
+// screen dimming:  primary -> secondary
+// instructs the secondary screen to dim ($1 == 1) or restore ($1 == 0) its brightness.
+// used for automatically dimming inactive screens when switching between computers.
+extern const char*        kMsgCDimScreen;
+
 //
 // data codes
 //

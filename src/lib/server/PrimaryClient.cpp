@@ -22,12 +22,29 @@
 #include "inputleap/Clipboard.h"
 #include "base/Log.h"
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <winsock2.h>
+#include <windows.h>
+#endif
+
 namespace inputleap {
 
 PrimaryClient::PrimaryClient(const std::string& name, inputleap::Screen* screen) :
     BaseClientProxy(name),
     m_screen(screen),
     m_fakeInputCount(0)
+#ifdef _WIN32
+    , m_gammaStored(false)
+    , m_isDimmed(false)
+    , m_lastDimTime(0)
+    , m_dimFailureCount(0)
+#endif
 {
     // all clipboards are clean
     for (std::uint32_t i = 0; i < kClipboardEnd; ++i) {
@@ -37,7 +54,12 @@ PrimaryClient::PrimaryClient(const std::string& name, inputleap::Screen* screen)
 
 PrimaryClient::~PrimaryClient()
 {
-    // do nothing
+    // Restore gamma if it was modified
+#ifdef _WIN32
+    if (m_gammaStored) {
+        dimScreen(false);
+    }
+#endif
 }
 
 void PrimaryClient::reconfigure(std::uint32_t activeSides)
@@ -260,6 +282,105 @@ void
 PrimaryClient::setOptions(const OptionsList& options)
 {
     m_screen->setOptions(options);
+}
+
+void PrimaryClient::dimScreen(bool dim)
+{
+#ifdef _WIN32
+    // Check if we're already in the desired state
+    if (dim == m_isDimmed) {
+        return;
+    }
+    
+    // Rate limiting: enforce minimum time between operations
+    DWORD currentTime = GetTickCount();
+    if (m_lastDimTime != 0 && (currentTime - m_lastDimTime) < MIN_DIM_INTERVAL_MS) {
+        return;
+    }
+    
+    // Circuit breaker: stop trying after too many failures, but reset after time
+    if (m_dimFailureCount >= MAX_DIM_FAILURES) {
+        const DWORD CIRCUIT_BREAKER_RESET_TIME = 30000; // 30 seconds
+        if (m_lastDimTime != 0 && (currentTime - m_lastDimTime) > CIRCUIT_BREAKER_RESET_TIME) {
+            m_dimFailureCount = 0; // Reset after timeout
+        } else {
+            return; // Still in circuit breaker state
+        }
+    }
+    
+    // Windows-only implementation using SetDeviceGammaRamp
+    HDC hdc = GetDC(NULL);
+    if (hdc == NULL) {
+        m_dimFailureCount++;
+        return;
+    }
+    
+    // Check if the device supports gamma ramp operations
+    int gammaCaps = GetDeviceCaps(hdc, COLORMGMTCAPS);
+    if (!(gammaCaps & CM_GAMMA_RAMP)) {
+        ReleaseDC(NULL, hdc);
+        m_dimFailureCount++;
+        return;
+    }
+
+    bool operationSuccess = false;
+    
+    if (dim) {
+        // Store original gamma values if not already stored
+        if (!m_gammaStored) {
+            if (GetDeviceGammaRamp(hdc, m_originalGamma)) {
+                m_gammaStored = true;
+            } else {
+                ReleaseDC(NULL, hdc);
+                m_dimFailureCount++;
+                return;
+            }
+        }
+        
+        // Create normal linear gamma ramp as baseline
+        WORD normalGamma[3][256];
+        for (int i = 0; i < 256; i++) {
+            WORD value = (WORD)(i * 256); // Linear ramp: 0, 256, 512, ... 65280
+            normalGamma[0][i] = value;
+            normalGamma[1][i] = value;
+            normalGamma[2][i] = value;
+        }
+        
+        // Create dimmed gamma ramp (70% brightness from normal baseline)
+        WORD dimmedGamma[3][256];
+        for (int i = 0; i < 256; i++) {
+            dimmedGamma[0][i] = (WORD)(normalGamma[0][i] * 0.7);
+            dimmedGamma[1][i] = (WORD)(normalGamma[1][i] * 0.7);
+            dimmedGamma[2][i] = (WORD)(normalGamma[2][i] * 0.7);
+        }
+        
+        if (SetDeviceGammaRamp(hdc, dimmedGamma)) {
+            m_isDimmed = true;
+            operationSuccess = true;
+        } else {
+            m_dimFailureCount++;
+        }
+    } else {
+        // Restore original gamma
+        if (m_gammaStored && SetDeviceGammaRamp(hdc, m_originalGamma)) {
+            m_isDimmed = false;
+            operationSuccess = true;
+        } else {
+            m_dimFailureCount++;
+        }
+    }
+    }
+    
+    // Update timing and failure tracking
+    m_lastDimTime = currentTime;
+    if (operationSuccess) {
+        m_dimFailureCount = 0; // Reset failure count on success
+    }
+    
+    ReleaseDC(NULL, hdc);
+#else
+    // Non-Windows platforms - not implemented yet
+#endif
 }
 
 } // namespace inputleap

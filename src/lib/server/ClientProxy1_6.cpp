@@ -72,6 +72,8 @@ ClientProxy1_6::ClientProxy1_6(const std::string& name,
 
 ClientProxy1_6::~ClientProxy1_6()
 {
+    // Restore screen brightness if dimmed
+    dimScreen(false);
     remove_handlers();
 }
 
@@ -535,6 +537,13 @@ void ClientProxy1_6::dragInfoReceived()
     ProtocolUtil::readf(getStream(), kMsgDDragInfo + 4, &fileNum, &content);
 
     m_server->dragInfoReceived(fileNum, content);
+}
+
+void ClientProxy1_6::dimScreen(bool dim)
+{
+    LOG_DEBUG1("sending dim screen command to client: dim=%d", dim ? 1 : 0);
+    // Send the dim screen command to the client
+    ProtocolUtil::writef(getStream(), kMsgCDimScreen, dim ? 1 : 0);
 }
 
 ClientProxy1_6::ClientClipboard::ClientClipboard() :

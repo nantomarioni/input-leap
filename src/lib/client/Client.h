@@ -151,6 +151,7 @@ public:
     void mouseRelativeMove(std::int32_t xRel, std::int32_t yRel) override;
     void mouseWheel(std::int32_t xDelta, std::int32_t yDelta) override;
     void screensaver(bool activate) override;
+    void dimScreen(bool dim) override;
     void resetOptions() override;
     void setOptions(const OptionsList& options) override;
     virtual std::string getName() const override;

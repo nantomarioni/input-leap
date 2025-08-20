@@ -92,6 +92,7 @@ public:
     virtual void openScreensaver(bool notify);
     virtual void closeScreensaver();
     virtual void screensaver(bool activate);
+    virtual void dimScreen(bool dim);
     virtual void resetOptions();
     virtual void setOptions(const OptionsList& options);
     virtual void setSequenceNumber(std::uint32_t);

@@ -108,6 +108,7 @@ MSWindowsScreen::MSWindowsScreen(
     m_screensaver(nullptr),
     m_screensaverNotify(false),
     m_screensaverActive(false),
+    m_isDimmed(false),
     m_window(nullptr),
     m_nextClipboardWindow(nullptr),
     m_ownClipboard(false),
@@ -461,6 +462,52 @@ MSWindowsScreen::screensaver(bool activate)
     }
     else {
         m_screensaver->deactivate();
+    }
+}
+
+void
+MSWindowsScreen::dimScreen(bool dim)
+{
+    LOG_DEBUG("MSWindowsScreen::dimScreen called with dim=%d, current m_isDimmed=%d", dim ? 1 : 0, m_isDimmed ? 1 : 0);
+    
+    HDC hdc = GetDC(nullptr);
+    if (hdc != nullptr) {
+        if (dim && !m_isDimmed) {
+            LOG_DEBUG("attempting to dim screen - getting current gamma ramp");
+            // Store original gamma before dimming
+            if (GetDeviceGammaRamp(hdc, m_originalGamma)) {
+                LOG_DEBUG("successfully got gamma ramp, creating dimmed version");
+                // Create dimmed gamma ramp (30% brightness)
+                WORD dimmedGamma[256 * 3];
+                for (int i = 0; i < 256 * 3; i++) {
+                    dimmedGamma[i] = static_cast<WORD>(m_originalGamma[i] * 0.3);
+                }
+                if (SetDeviceGammaRamp(hdc, dimmedGamma)) {
+                    m_isDimmed = true;
+                    LOG_DEBUG("screen dimmed to 30%% brightness successfully");
+                } else {
+                    LOG_DEBUG("failed to set gamma ramp for dimming");
+                }
+            } else {
+                LOG_DEBUG("failed to get current gamma ramp");
+            }
+        }
+        else if (!dim && m_isDimmed) {
+            LOG_DEBUG("attempting to restore screen brightness");
+            // Restore original gamma
+            if (SetDeviceGammaRamp(hdc, m_originalGamma)) {
+                m_isDimmed = false;
+                LOG_DEBUG("screen brightness restored successfully");
+            } else {
+                LOG_DEBUG("failed to restore gamma ramp");
+            }
+        }
+        else {
+            LOG_DEBUG("no action needed - dim=%d, m_isDimmed=%d", dim ? 1 : 0, m_isDimmed ? 1 : 0);
+        }
+        ReleaseDC(nullptr, hdc);
+    } else {
+        LOG_DEBUG("failed to get device context for gamma ramp operations");
     }
 }
 

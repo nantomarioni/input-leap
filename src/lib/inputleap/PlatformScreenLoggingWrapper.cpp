@@ -81,8 +81,14 @@ void PlatformScreenLoggingWrapper::closeScreensaver()
 
 void PlatformScreenLoggingWrapper::screensaver(bool activate)
 {
-    LOG_DEBUG1("PlatformScreen::screensaver() activate=%d", activate);
+    LOG_DEBUG("screensaver: activate=%d", activate);
     screen_->screensaver(activate);
+}
+
+void PlatformScreenLoggingWrapper::dimScreen(bool dim)
+{
+    LOG_DEBUG("dimScreen: dim=%d", dim);
+    screen_->dimScreen(dim);
 }
 
 void PlatformScreenLoggingWrapper::resetOptions()

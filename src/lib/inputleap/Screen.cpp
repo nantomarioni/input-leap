@@ -179,6 +179,13 @@ Screen::screensaver(bool activate)
 }
 
 void
+Screen::dimScreen(bool dim)
+{
+    // always allow screen dimming regardless of primary/secondary status
+    m_screen->dimScreen(dim);
+}
+
+void
 Screen::keyDown(KeyID id, KeyModifierMask mask, KeyButton button)
 {
     // check for ctrl+alt+del emulation
