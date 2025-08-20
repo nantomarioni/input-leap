@@ -97,6 +97,7 @@ class MainWindow : public QMainWindow
         void open();
         QString getScreenName();
         ServerConfig& serverConfig() { return m_ServerConfig; }
+        AppConfig& appConfig() { return *m_AppConfig; }
         void showConfigureServer(const QString& message);
         void showConfigureServer() { showConfigureServer(""); }
         void autoAddScreen(const QString name);
@@ -132,7 +133,6 @@ public slots:
 
     protected:
         QSettings& settings() { return m_Settings; }
-        AppConfig& appConfig() { return *m_AppConfig; }
         void initConnections();
         void createMenuBar();
         void createTrayIcon();
