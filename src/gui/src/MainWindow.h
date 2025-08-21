@@ -197,6 +197,7 @@ public slots:
         bool m_fingerprint_expanded = false;
 
 private slots:
+    void on_m_pActionConfigure_triggered();
     void on_m_pCheckBoxAutoConfig_toggled(bool checked);
     void comboServerList_currentIndexChanged(QString );
     void on_m_pButtonReload_clicked();

@@ -39,6 +39,7 @@ set(GUI_SOURCE_FILES
     src/LogWindow.cpp
     src/main.cpp
     src/MainWindow.cpp
+    src/MasterConfigDialog.cpp
     src/NewScreenWidget.cpp
     src/QInputLeapApplication.cpp
     src/QUtility.cpp
@@ -77,6 +78,7 @@ set(GUI_HEADER_FILES
     src/KeySequenceWidget.h
     src/LogWindow.h
     src/MainWindow.h
+    src/MasterConfigDialog.h
     src/NewScreenWidget.h
     src/ProcessorArch.h
     src/QInputLeapApplication.h
@@ -107,6 +109,7 @@ set(GUI_UI_FILES
     src/HotkeyDialog.ui
     src/LogWindow.ui
     src/MainWindow.ui
+    src/MasterConfigDialog.ui
     src/ScreenSettingsDialog.ui
     src/ServerConfigDialog.ui
     src/SettingsDialog.ui
