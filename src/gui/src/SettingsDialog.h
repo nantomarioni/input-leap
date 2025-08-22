@@ -49,6 +49,7 @@ class SettingsDialog : public QDialog
         void languageChanged(int index);
         void logToFileChanged(int i);
         void browseLogClicked();
+        void dimmingEnabledChanged(int state);
 
         std::unique_ptr<Ui::SettingsDialog> ui_;
         AppConfig& app_config_;

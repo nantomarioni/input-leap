@@ -39,6 +39,7 @@
 #include "base/IEventQueue.h"
 #include "base/EventQueueTimer.h"
 #include "base/Time.h"
+#include "inputleap/ScreenExtensionRegistry.h"
 
 #include <string.h>
 #include <Shlobj.h>
@@ -108,6 +109,8 @@ MSWindowsScreen::MSWindowsScreen(
     m_screensaver(nullptr),
     m_screensaverNotify(false),
     m_screensaverActive(false),
+    m_dimmingEnabled(true),
+    m_dimmingPercentage(70),
     m_window(nullptr),
     m_nextClipboardWindow(nullptr),
     m_ownClipboard(false),
@@ -465,14 +468,42 @@ MSWindowsScreen::screensaver(bool activate)
 }
 
 void
+MSWindowsScreen::dimScreen(bool dim)
+{
+    LOG_DEBUG("MSWindowsScreen::dimScreen delegating dim=%d to screen extension", dim ? 1 : 0);
+
+    OptionsList args;
+    args.push_back(dim ? 1u : 0u);
+    // pass percentage as second argument for convenience
+    args.push_back(static_cast<std::uint32_t>(m_dimmingPercentage));
+
+    // dispatch to extensions; ignore return value here to preserve existing API
+    bool handled = ScreenExtensionRegistry::getInstance().dispatchCommandToExtensions("dim", args);
+    if (!handled) {
+        LOG_DEBUG("no screen extension handled 'dim'; dimming is now a no-op in core");
+    }
+}
+
+void
 MSWindowsScreen::resetOptions()
 {
     m_desks->resetOptions();
 }
 
+void MSWindowsScreen::handleCommand(const std::string& cmd, const OptionsList& args) {
+    ScreenExtensionRegistry::getInstance().dispatchCommandToExtensions(cmd, args);
+}
+
+void
+MSWindowsScreen::setLocalInputCallback(const LocalInputCallback& callback)
+{
+    m_localInputCallback = callback;
+}
+
 void
 MSWindowsScreen::setOptions(const OptionsList& options)
 {
+    handleCommand("setOptions", options);
     m_desks->setOptions(options);
 }
 
@@ -480,7 +511,6 @@ void MSWindowsScreen::setSequenceNumber(std::uint32_t seqNum)
 {
     m_sequenceNumber = seqNum;
 }
-
 bool
 MSWindowsScreen::isPrimary() const
 {
@@ -1071,6 +1101,19 @@ bool MSWindowsScreen::onMark(std::uint32_t mark)
 bool
 MSWindowsScreen::onKey(WPARAM wParam, LPARAM lParam)
 {
+    // check for local input detection when dimmed: ask extension first
+    if (m_localInputCallback) {
+        // Ask extensions if they want to handle local input detection.
+        bool handled = ScreenExtensionRegistry::getInstance().dispatchCommandToExtensions("localInputDetected", OptionsList{});
+        if (handled) {
+            LOG_DEBUG("an extension handled local keyboard input");
+            return true;
+        }
+        LOG_DEBUG("local keyboard input detected while dimmed, triggering callback");
+        m_localInputCallback();
+        return true;  // consume the event
+    }
+
     static const KeyModifierMask s_ctrlAlt =
         KeyModifierControl | KeyModifierAlt;
 
@@ -1246,6 +1289,18 @@ MSWindowsScreen::onHotKey(WPARAM wParam, LPARAM lParam)
 bool
 MSWindowsScreen::onMouseButton(WPARAM wParam, LPARAM lParam)
 {
+    // check for local input detection when dimmed: ask extension first
+    if (m_localInputCallback) {
+        bool handled = ScreenExtensionRegistry::getInstance().dispatchCommandToExtensions("localInputDetected", OptionsList{});
+        if (handled) {
+            LOG_DEBUG("an extension handled local mouse input");
+            return true;
+        }
+        LOG_DEBUG("local mouse input detected while dimmed, triggering callback");
+        m_localInputCallback();
+        return true;  // consume the event
+    }
+
     // get which button
     bool pressed    = mapPressFromEvent(wParam, lParam);
     ButtonID button = mapButtonFromEvent(wParam, lParam);
@@ -1299,6 +1354,21 @@ MSWindowsScreen::onMouseButton(WPARAM wParam, LPARAM lParam)
 //   5. sends the delta movement to the client (could be +1,+1 or -1,+4 for example)
 bool MSWindowsScreen::onMouseMove(std::int32_t mx, std::int32_t my)
 {
+    // check for local input detection when dimmed: ask extension first
+    if (m_localInputCallback) {
+        auto ext = ScreenExtensionRegistry::getInstance().getExtension("screen_dimming");
+        if (ext) {
+            bool handled = ext->onLocalInputDetected();
+            if (handled) {
+                LOG_DEBUG("screen_dimming extension handled local mouse movement");
+                return true;
+            }
+        }
+        LOG_DEBUG("local mouse movement detected while dimmed, triggering callback");
+        m_localInputCallback();
+        return true;  // consume the event
+    }
+
     // compute motion delta (relative to the last known
     // mouse position)
     std::int32_t x = mx - m_xCursor;

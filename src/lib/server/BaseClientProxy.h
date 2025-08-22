@@ -69,6 +69,13 @@ public:
     std::string getName() const override;
     virtual IClientConnection& get_conn() const = 0;
 
+    //! Dim screen
+    /*!
+    Dim or restore the screen brightness. When dim=true, reduces brightness to 70%.
+    When dim=false, restores original brightness. Windows implementation only.
+    */
+    virtual void dimScreen(bool dim) override = 0;
+
 private:
     std::string m_name;
     std::int32_t m_x, m_y;

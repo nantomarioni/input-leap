@@ -4,6 +4,13 @@
  * Copyright (C) 2003 Chris Schoeneman
  *
  * This package is free software; you can redistribute it and/or
+
+void Screen::handleCommand(const std::string& cmd, const OptionsList& args)
+{
+    if (m_platformScreen) {
+        m_platformScreen->handleCommand(cmd, args);
+    }
+}
  * modify it under the terms of the GNU General Public License
  * found in the file LICENSE that should have accompanied this file.
  *
@@ -176,6 +183,30 @@ Screen::screensaver(bool activate)
             m_screen->screensaver(activate);
         }
     }
+}
+
+void
+Screen::dimScreen(bool dim)
+{
+    // always allow screen dimming regardless of primary/secondary status
+    OptionsList args;
+    args.push_back(dim ? 1u : 0u);
+    // pass percentage as 2nd arg if platform exposes it via options
+    m_screen->handleCommand("dim", args);
+}
+
+void
+Screen::handleCommand(const std::string& cmd, const OptionsList& args)
+{
+    if (m_screen) {
+        m_screen->handleCommand(cmd, args);
+    }
+}
+
+void
+Screen::setLocalInputCallback(const LocalInputCallback& callback)
+{
+    m_screen->setLocalInputCallback(callback);
 }
 
 void

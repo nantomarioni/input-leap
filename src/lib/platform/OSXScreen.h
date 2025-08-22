@@ -92,6 +92,8 @@ public:
     virtual void openScreensaver(bool notify);
     virtual void closeScreensaver();
     virtual void screensaver(bool activate);
+    virtual void dimScreen(bool dim);
+    virtual void setLocalInputCallback(const LocalInputCallback& callback);
     virtual void resetOptions();
     virtual void setOptions(const OptionsList& options);
     virtual void setSequenceNumber(std::uint32_t);
@@ -343,6 +345,24 @@ private:
 
     Thread* m_getDropTargetThread;
     std::string m_dropTarget;
+
+    // Screen dimming support - now supports multiple displays
+    struct DisplayGammaInfo {
+        CGDirectDisplayID displayID;
+        CGGammaValue originalRed[256];
+        CGGammaValue originalGreen[256];
+        CGGammaValue originalBlue[256];
+        bool gammaStored;
+    };
+    std::vector<DisplayGammaInfo> m_displayGammaInfo;
+    bool m_isDimmed;
+    
+    // dimming configuration options
+    bool m_dimmingEnabled;
+    int m_dimmingPercentage;
+    
+    // local input detection when dimmed
+    LocalInputCallback m_localInputCallback;
 
 #if defined(MAC_OS_X_VERSION_10_7)
     mutable std::mutex carbon_loop_mutex_;

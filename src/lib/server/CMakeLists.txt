@@ -25,6 +25,10 @@ add_library(server STATIC ${sources})
 
 target_link_libraries(server)
 
+# Link fork extensions
+target_link_libraries(server inputleap_fork_extensions)
+target_include_directories(server PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
 if (UNIX)
     target_link_libraries(server synlib)
 endif()

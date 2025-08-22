@@ -26,6 +26,7 @@
 #include "platform/synwinhk.h"
 #include <map>
 #include <string>
+#include <functional>
 
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
@@ -95,6 +96,9 @@ public:
     virtual void fakeMouseRelativeMove(std::int32_t dx, std::int32_t dy) const;
     virtual void fakeMouseWheel(std::int32_t xDelta, std::int32_t yDelta) const;
 
+    // platform-specific helper (not part of the IPlatformScreen interface)
+    void dimScreen(bool dim);
+
     // IKeyState overrides
     virtual void updateKeys();
     virtual void fakeKeyDown(KeyID id, KeyModifierMask mask,
@@ -115,6 +119,7 @@ public:
     virtual void openScreensaver(bool notify);
     virtual void closeScreensaver();
     virtual void screensaver(bool activate);
+    virtual void handleCommand(const std::string& cmd, const OptionsList& args) override;
     virtual void resetOptions();
     virtual void setOptions(const OptionsList& options);
     virtual void setSequenceNumber(std::uint32_t);
@@ -123,6 +128,9 @@ public:
     virtual std::string& getDraggingFilename();
     virtual const std::string& getDropTarget() const;
     virtual void setDropTarget(const std::string&);
+
+    // set callback for local input detection when dimmed
+    void setLocalInputCallback(const LocalInputCallback& callback) override;
 
 protected:
     // IPlatformScreen overrides
@@ -290,6 +298,10 @@ private:
     bool m_screensaverNotify;
     bool m_screensaverActive;
 
+    // screen dimming options (state handled by extensions)
+    bool m_dimmingEnabled;
+    int m_dimmingPercentage;
+
     // clipboard stuff.  our window is used mainly as a clipboard
     // owner and as a link in the clipboard viewer chain.
     HWND m_window;
@@ -343,6 +355,9 @@ private:
     Thread* m_sendDragThread;
 
     PrimaryKeyDownList m_primaryKeyDownList;
+    
+    // local input detection when dimmed
+    LocalInputCallback m_localInputCallback;
 };
 
 } // namespace inputleap

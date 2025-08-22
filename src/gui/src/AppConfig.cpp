@@ -61,7 +61,9 @@ AppConfig::AppConfig(QSettings* settings) :
     m_CryptoEnabled(false),
     m_AutoHide(false),
     m_AutoStart(false),
-    m_MinimizeToTray(false)
+    m_MinimizeToTray(false),
+    m_ScreenDimmingEnabled(true),
+    m_ScreenDimmingPercentage(70)
 {
     Q_ASSERT(m_pSettings);
 
@@ -163,6 +165,8 @@ void AppConfig::loadSettings()
     m_AutoHide = settings().value("autoHide", false).toBool();
     m_AutoStart = settings().value("autoStart", false).toBool();
     m_MinimizeToTray = settings().value("minimizeToTray", false).toBool();
+    m_ScreenDimmingEnabled = settings().value("screenDimmingEnabled", true).toBool();
+    m_ScreenDimmingPercentage = settings().value("screenDimmingPercentage", 70).toInt();
 }
 
 void AppConfig::saveSettings()
@@ -187,6 +191,8 @@ void AppConfig::saveSettings()
     settings().setValue("autoHide", m_AutoHide);
     settings().setValue("autoStart", m_AutoStart);
     settings().setValue("minimizeToTray", m_MinimizeToTray);
+    settings().setValue("screenDimmingEnabled", m_ScreenDimmingEnabled);
+    settings().setValue("screenDimmingPercentage", m_ScreenDimmingPercentage);
     settings().sync();
 }
 
@@ -243,3 +249,16 @@ bool AppConfig::getAutoStart() { return m_AutoStart; }
 void AppConfig::setMinimizeToTray(bool b) { m_MinimizeToTray = b; }
 
 bool AppConfig::getMinimizeToTray() { return m_MinimizeToTray; }
+
+void AppConfig::setScreenDimmingEnabled(bool b) { m_ScreenDimmingEnabled = b; }
+
+bool AppConfig::getScreenDimmingEnabled() { return m_ScreenDimmingEnabled; }
+
+void AppConfig::setScreenDimmingPercentage(int percentage) { 
+    // Clamp percentage to valid range (10-100)
+    if (percentage < 10) percentage = 10;
+    if (percentage > 100) percentage = 100;
+    m_ScreenDimmingPercentage = percentage; 
+}
+
+int AppConfig::getScreenDimmingPercentage() { return m_ScreenDimmingPercentage; }

@@ -62,6 +62,8 @@ class ServerConfig : public BaseConfig
         bool enableDragAndDrop() const { return m_EnableDragAndDrop; }
         bool clipboardSharing() const { return m_ClipboardSharing; }
         size_t clipboardSharingSize() const { return m_ClipboardSharingSize; }
+        bool screenDimmingEnabled() const { return m_ScreenDimmingEnabled; }
+        int screenDimmingPercentage() const { return m_ScreenDimmingPercentage; }
         static size_t defaultClipboardSharingSize();
 
         void saveSettings();
@@ -70,6 +72,7 @@ class ServerConfig : public BaseConfig
         void save(QFile& file) const;
         int numScreens() const;
         int autoAddScreen(const QString name);
+        void syncDimmingSettings();
 
     protected:
         QSettings& settings() { return *m_pSettings; }
@@ -93,6 +96,8 @@ class ServerConfig : public BaseConfig
         void setEnableDragAndDrop(bool on) { m_EnableDragAndDrop = on; }
         void setClipboardSharing(bool on) { m_ClipboardSharing = on; }
         size_t setClipboardSharingSize(size_t size);
+        void setScreenDimmingEnabled(bool on) { m_ScreenDimmingEnabled = on; }
+        void setScreenDimmingPercentage(int percentage) { m_ScreenDimmingPercentage = percentage; }
         QList<bool>& switchCorners() { return m_SwitchCorners; }
         std::vector<Hotkey>& hotkeys() { return m_Hotkeys; }
 
@@ -127,6 +132,8 @@ class ServerConfig : public BaseConfig
         bool m_EnableDragAndDrop;
         bool m_ClipboardSharing;
         size_t m_ClipboardSharingSize;
+        bool m_ScreenDimmingEnabled;
+        int m_ScreenDimmingPercentage;
         MainWindow* m_pMainWindow;
 };
 

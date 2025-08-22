@@ -82,6 +82,8 @@ public:
     void openScreensaver(bool notify) override;
     void closeScreensaver() override;
     void screensaver(bool activate) override;
+    void dimScreen(bool dim);
+    void setLocalInputCallback(const LocalInputCallback& callback) override;
     void resetOptions() override;
     void setOptions(const OptionsList& options) override;
     void setSequenceNumber(std::uint32_t) override;
@@ -261,6 +263,10 @@ private:
 
     IEventQueue* m_events;
     inputleap::KeyMap m_keyMap;
+
+    // Screen dimming configuration
+    bool m_dimmingEnabled;
+    int m_dimmingPercentage;
 
     // pointer to (singleton) screen.  this is only needed by
     // ioErrorHandler().

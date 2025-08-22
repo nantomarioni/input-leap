@@ -60,6 +60,9 @@ public:
     // sending dragging information to server
     void sendDragInfo(std::uint32_t fileCount, const char* info, size_t size);
 
+    // request undim from server
+    void requestUndim();
+
 #ifdef INPUTLEAP_TEST_ENV
     void handleDataForTest() { handleData(Event(), nullptr); }
 #endif
@@ -100,6 +103,7 @@ private:
     void mouseRelativeMove();
     void mouseWheel();
     void screensaver();
+    void dimScreen();
     void resetOptions();
     void setOptions();
     void queryInfo();

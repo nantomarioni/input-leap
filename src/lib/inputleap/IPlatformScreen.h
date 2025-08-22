@@ -25,8 +25,12 @@
 #include "inputleap/ISecondaryScreen.h"
 #include "inputleap/IKeyState.h"
 #include "inputleap/option_types.h"
+#include <functional>
 
 namespace inputleap {
+
+// callback type for local input detection
+typedef std::function<void()> LocalInputCallback;
 
 //! Screen interface
 /*!
@@ -115,6 +119,17 @@ public:
     forcibly deactivate it.
     */
     virtual void screensaver(bool activate) = 0;
+
+    //! Generic command handler for platform-specific extensions
+    /*! Returns true if the command was handled by an extension. */
+    virtual void handleCommand(const std::string& cmd, const OptionsList& args) = 0;
+
+    //! Set local input detection callback
+    /*!
+    Set a callback function to be called when local input is detected
+    while the screen is dimmed. Pass nullptr to disable.
+    */
+    virtual void setLocalInputCallback(const LocalInputCallback& callback) = 0;
 
     //! Notify of options changes
     /*!

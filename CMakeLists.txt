@@ -1,5 +1,7 @@
 # InputLeap -- mouse and keyboard sharing utility
-# Copyright (C) 2018 Debauchee Open Source Group
+# Copyright (C) 2018 Debauchee Open Source G# Fork feature configuration
+message(STATUS "InputLeap Fork Features: ENABLED")
+
 # Copyright (C) 2012-2016 Symless Ltd.
 # Copyright (C) 2009 Nick Bolton
 #
@@ -24,6 +26,8 @@ option(INPUTLEAP_USE_EXTERNAL_GTEST "Use external installation of Google Test fr
 option(INPUTLEAP_BUILD_X11 "Build with XWindows support" ON)
 option(INPUTLEAP_BUILD_LIBEI "Build with libei support" OFF)
 option(INPUTLEAP_BUILD_GULRAK_FILESYSTEM "Use internal filesystem library" OFF)
+
+# Fork-specific options removed; fork features are always built in this branch
 set (CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set (CMAKE_CXX_EXTENSIONS OFF)
 set (CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -88,6 +92,7 @@ if (INPUTLEAP_BUILD_GUI)
     endif()
 endif()
 add_definitions(-DINPUTLEAP_USE_GULRAK_FILESYSTEM=$<BOOL:${INPUTLEAP_BUILD_GULRAK_FILESYSTEM}>)
+
 if (UNIX)
     if (NOT APPLE)
         set (CMAKE_POSITION_INDEPENDENT_CODE TRUE)
@@ -339,3 +344,6 @@ endif()
 enable_testing()
 
 add_subdirectory (src)
+
+# Add fork features after main libraries are built
+add_subdirectory(src/fork)

@@ -111,6 +111,16 @@ public:
     forcibly deactivates it.
     */
     void screensaver(bool activate);
+    void dimScreen(bool dim);
+    // Forward a generic command to the platform screen
+    void handleCommand(const std::string& cmd, const OptionsList& args);
+    
+    //! Set local input detection callback
+    /*!
+    Set a callback function to be called when local input is detected
+    while the screen is dimmed. Pass nullptr to disable.
+    */
+    void setLocalInputCallback(const LocalInputCallback& callback);
 
     //! Notify of key press
     /*!

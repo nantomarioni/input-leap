@@ -97,7 +97,10 @@ OSXScreen::OSXScreen(IEventQueue* events, bool isPrimary, bool autoShowHideCurso
 	m_autoShowHideCursor(autoShowHideCursor),
 	m_events(events),
     m_getDropTargetThread(nullptr),
-    m_impl(nullptr)
+    m_isDimmed(false),
+    m_impl(nullptr),
+    m_dimmingEnabled(true),
+    m_dimmingPercentage(70)
 {
 	try {
 		m_displayID   = CGMainDisplayID();
@@ -170,6 +173,11 @@ OSXScreen::OSXScreen(IEventQueue* events, bool isPrimary, bool autoShowHideCurso
 
 OSXScreen::~OSXScreen()
 {
+	// Restore gamma if it was modified
+	if (m_isDimmed) {
+		dimScreen(false);
+	}
+
 	disable();
     m_events->set_buffer(nullptr);
     m_events->remove_handler(EventType::SYSTEM, m_events->getSystemTarget());
@@ -917,15 +925,162 @@ OSXScreen::screensaver(bool activate)
 }
 
 void
+OSXScreen::dimScreen(bool dim)
+{
+	LOG_DEBUG("OSXScreen::dimScreen called with dim=%d, current m_isDimmed=%d", dim ? 1 : 0, m_isDimmed ? 1 : 0);
+	
+	// Check if dimming is enabled
+	if (!m_dimmingEnabled) {
+		LOG_DEBUG("screen dimming is disabled, skipping");
+		return;
+	}
+	
+	// Check if we're already in the desired state
+	if (dim == m_isDimmed) {
+		LOG_DEBUG("no action needed - already in desired state");
+		return;
+	}
+	
+	// Get all active displays
+	CGDisplayCount displayCount = 0;
+	if (CGGetActiveDisplayList(0, nullptr, &displayCount) != CGDisplayNoErr || displayCount == 0) {
+		LOG_DEBUG("failed to get display count");
+		return;
+	}
+
+	CGDirectDisplayID* displays = new CGDirectDisplayID[displayCount];
+	if (displays == nullptr) {
+		LOG_DEBUG("failed to allocate display array");
+		return;
+	}
+
+	if (CGGetActiveDisplayList(displayCount, displays, &displayCount) != CGDisplayNoErr) {
+		LOG_DEBUG("failed to get display list");
+		delete[] displays;
+		return;
+	}
+	
+	if (dim && !m_isDimmed) {
+		LOG_DEBUG("attempting to dim %u displays", displayCount);
+		
+		// Clear any existing gamma info and prepare for new displays
+		m_displayGammaInfo.clear();
+		m_displayGammaInfo.reserve(displayCount);
+		
+		bool anySuccess = false;
+		
+		for (CGDisplayCount i = 0; i < displayCount; ++i) {
+			CGDirectDisplayID display = displays[i];
+			DisplayGammaInfo gammaInfo;
+			gammaInfo.displayID = display;
+			gammaInfo.gammaStored = false;
+			
+			// Store original gamma values for this display
+			uint32_t sampleCount;
+			CGError result = CGGetDisplayTransferByTable(display, 256, 
+				gammaInfo.originalRed, gammaInfo.originalGreen, gammaInfo.originalBlue, &sampleCount);
+			
+			if (result == kCGErrorSuccess && sampleCount == 256) {
+				gammaInfo.gammaStored = true;
+				float dimFactor = m_dimmingPercentage / 100.0f;
+				LOG_DEBUG("successfully got gamma tables for display %u, creating %d%% dimmed version", display, m_dimmingPercentage);
+				
+				// Create dimmed gamma tables using configurable percentage
+				CGGammaValue dimRed[256], dimGreen[256], dimBlue[256];
+				for (int j = 0; j < 256; j++) {
+					dimRed[j] = gammaInfo.originalRed[j] * dimFactor;
+					dimGreen[j] = gammaInfo.originalGreen[j] * dimFactor;
+					dimBlue[j] = gammaInfo.originalBlue[j] * dimFactor;
+				}
+				
+				// Apply dimmed gamma tables to this display
+				result = CGSetDisplayTransferByTable(display, 256, dimRed, dimGreen, dimBlue);
+				if (result == kCGErrorSuccess) {
+					LOG_DEBUG("display %u dimmed to %d%% brightness successfully", display, m_dimmingPercentage);
+					anySuccess = true;
+				} else {
+					LOG_DEBUG("failed to set gamma tables for display %u, error=%d", display, result);
+					gammaInfo.gammaStored = false; // Reset since we failed
+				}
+			} else {
+				LOG_DEBUG("failed to get current gamma tables for display %u, error=%d, sampleCount=%d", display, result, sampleCount);
+			}
+			
+			// Store the gamma info regardless of success for proper cleanup
+			m_displayGammaInfo.push_back(gammaInfo);
+		}
+		
+		if (anySuccess) {
+			m_isDimmed = true;
+			LOG_DEBUG("successfully dimmed at least one display");
+		} else {
+			LOG_DEBUG("failed to dim any displays");
+			m_displayGammaInfo.clear(); // Clear if nothing worked
+		}
+		
+	} else if (!dim && m_isDimmed) {
+		LOG_DEBUG("attempting to restore screen brightness for %zu displays", m_displayGammaInfo.size());
+		
+		bool anySuccess = false;
+		
+		// Restore original gamma tables for all displays
+		for (auto& gammaInfo : m_displayGammaInfo) {
+			if (gammaInfo.gammaStored) {
+				CGError result = CGSetDisplayTransferByTable(gammaInfo.displayID, 256, 
+					gammaInfo.originalRed, gammaInfo.originalGreen, gammaInfo.originalBlue);
+				if (result == kCGErrorSuccess) {
+					LOG_DEBUG("display %u brightness restored successfully", gammaInfo.displayID);
+					anySuccess = true;
+				} else {
+					LOG_DEBUG("failed to restore gamma tables for display %u, error=%d", gammaInfo.displayID, result);
+				}
+			}
+		}
+		
+		if (anySuccess) {
+			m_isDimmed = false;
+			LOG_DEBUG("successfully restored brightness for at least one display");
+		} else {
+			LOG_DEBUG("failed to restore brightness for any displays");
+		}
+		
+		// Clear gamma info after restoration attempt
+		m_displayGammaInfo.clear();
+	} else {
+		LOG_DEBUG("no action needed - dim=%d, m_isDimmed=%d", dim ? 1 : 0, m_isDimmed ? 1 : 0);
+	}
+	
+	delete[] displays;
+}
+
+void
 OSXScreen::resetOptions()
 {
 	// no options
 }
 
 void
-OSXScreen::setOptions(const OptionsList&)
+OSXScreen::setOptions(const OptionsList& options)
 {
-	// no options
+	for (std::uint32_t i = 0, n = static_cast<std::uint32_t>(options.size()); i < n; i += 2) {
+		if (options[i] == kOptionScreenDimmingEnabled) {
+			m_dimmingEnabled = (options[i + 1] != 0);
+			LOG_DEBUG("screen dimming %s", m_dimmingEnabled ? "enabled" : "disabled");
+		}
+		else if (options[i] == kOptionScreenDimmingPercentage) {
+			m_dimmingPercentage = static_cast<int>(options[i + 1]);
+			// Clamp to valid range
+			if (m_dimmingPercentage < 10) m_dimmingPercentage = 10;
+			if (m_dimmingPercentage > 100) m_dimmingPercentage = 100;
+			LOG_DEBUG("screen dimming percentage set to %d%%", m_dimmingPercentage);
+		}
+	}
+}
+
+void
+OSXScreen::setLocalInputCallback(const LocalInputCallback& callback)
+{
+    m_localInputCallback = callback;
 }
 
 void OSXScreen::setSequenceNumber(std::uint32_t seqNum)
@@ -1031,6 +1186,13 @@ void OSXScreen::handle_system_event(const Event& event)
 bool
 OSXScreen::onMouseMove(CGFloat mx, CGFloat my)
 {
+    // check for local input detection when dimmed
+    if (m_isDimmed && m_localInputCallback) {
+        LOG_DEBUG("local mouse movement detected while dimmed, triggering callback");
+        m_localInputCallback();
+        return true;  // consume the event
+    }
+
 	LOG_DEBUG2("mouse move %+f,%+f", mx, my);
 
 	CGFloat x = mx - m_xCursor;
@@ -1095,6 +1257,13 @@ OSXScreen::onMouseMove(CGFloat mx, CGFloat my)
 
 bool OSXScreen::onMouseButton(bool pressed, std::uint16_t macButton)
 {
+    // check for local input detection when dimmed
+    if (m_isDimmed && m_localInputCallback) {
+        LOG_DEBUG("local mouse button input detected while dimmed, triggering callback");
+        m_localInputCallback();
+        return true;  // consume the event
+    }
+
 	// Buttons 2 and 3 are inverted on the mac
     ButtonID button = map_button_from_osx(macButton);
 
@@ -1188,6 +1357,13 @@ OSXScreen::displayReconfigurationCallback(CGDirectDisplayID displayID, CGDisplay
 bool
 OSXScreen::onKey(CGEventRef event)
 {
+    // check for local input detection when dimmed
+    if (m_isDimmed && m_localInputCallback) {
+        LOG_DEBUG("local keyboard input detected while dimmed, triggering callback");
+        m_localInputCallback();
+        return true;  // consume the event
+    }
+
 	CGEventType eventKind = CGEventGetType(event);
 
 	// get the key and active modifiers

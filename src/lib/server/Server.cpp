@@ -43,6 +43,7 @@
 #include "base/IEventQueue.h"
 #include "base/Log.h"
 #include "base/Time.h"
+#include "fork/extensions/CoreExtensionHooks.h"
 
 #include <climits>
 #include <cstring>
@@ -183,10 +184,16 @@ Server::Server(
 		m_lockedToScreen = true;
 	}
 
+	// Initialize fork extensions
+	inputleap::CoreExtensionHooks::initialize();
+
 }
 
 Server::~Server()
 {
+	// Shutdown fork extensions
+	inputleap::CoreExtensionHooks::shutdown();
+
 	if (m_mock) {
 		return;
 	}
@@ -214,6 +221,7 @@ Server::~Server()
 		m_events->deleteTimer(index->second);
         m_events->remove_handler(EventType::TIMER, client);
         m_events->remove_handler(EventType::CLIENT_PROXY_DISCONNECTED, client);
+        m_events->remove_handler(EventType::CLIENT_LOCAL_INPUT_DETECTED, client);
 		delete client;
 	}
 
@@ -276,6 +284,10 @@ Server::adoptClient(BaseClientProxy* client)
     m_events->add_handler(EventType::CLIENT_PROXY_DISCONNECTED, client,
                           [this, client](const auto& e){ handle_client_disconnected(client); });
 
+	// watch for client local input detection (for undimming)
+    m_events->add_handler(EventType::CLIENT_LOCAL_INPUT_DETECTED, client,
+                          [this, client](const auto& e){ handle_client_local_input_detected(client); });
+
 	// name must be in our configuration
     if (!m_config->isScreen(client->getName())) {
 		LOG_WARN("unrecognised client name \"%s\", check server config", client->getName().c_str());
@@ -298,6 +310,20 @@ Server::adoptClient(BaseClientProxy* client)
 	// activate screen saver on new client if active on the primary screen
 	if (m_activeSaver != nullptr) {
 		client->screensaver(true);
+	}
+
+	// Initial screen dimming: new clients should be dimmed if they are not the active screen
+	try {
+		if (client != m_active) {
+			LOG_DEBUG("dimming newly connected client '%s' (not active screen)", getName(client).c_str());
+			client->dimScreen(true);
+		} else {
+			LOG_DEBUG("not dimming newly connected client '%s' (is active screen)", getName(client).c_str());
+		}
+	} catch (const std::exception& e) {
+		LOG_WARN("exception during initial screen dimming for client '%s': %s", getName(client).c_str(), e.what());
+	} catch (...) {
+		LOG_WARN("unknown exception during initial screen dimming for client '%s'", getName(client).c_str());
 	}
 
 	// send notification
@@ -464,6 +490,14 @@ void Server::switchScreen(BaseClientProxy* dst, std::int32_t x, std::int32_t y, 
 					continue;
 				}
 				m_active->setClipboard(id, &m_clipboards[id].m_clipboard);
+			}
+		}
+
+		// Fork extension hook: notify about screen switch
+		inputleap::CoreExtensionHooks::onScreenSwitched(m_active->getName(), true);
+		for (const auto& client : m_clients) {
+			if (client.second != m_active) {
+				inputleap::CoreExtensionHooks::onScreenSwitched(client.second->getName(), false);
 			}
 		}
 
@@ -1308,6 +1342,17 @@ void Server::handle_client_disconnected(BaseClientProxy* client)
 	delete client;
 }
 
+void Server::handle_client_local_input_detected(BaseClientProxy* client)
+{
+	LOG_DEBUG("local input detected on client \"%s\", switching to it", getName(client).c_str());
+	
+	// switch to the client that detected local input
+	// get the center of the client's screen for the switch coordinates
+	std::int32_t x, y, w, h;
+	client->getShape(x, y, w, h);
+	switchScreen(client, x + w / 2, y + h / 2, false);
+}
+
 void Server::handle_client_close_timeout(BaseClientProxy* client)
 {
 	// client took too long to disconnect.  just dump it.
@@ -2127,6 +2172,7 @@ Server::removeActiveClient(BaseClientProxy* client)
 	if (removeClient(client)) {
 		forceLeaveClient(client);
         m_events->remove_handler(EventType::CLIENT_PROXY_DISCONNECTED, client);
+        m_events->remove_handler(EventType::CLIENT_LOCAL_INPUT_DETECTED, client);
 		if (m_clients.size() == 1 && m_oldClients.empty()) {
             m_events->add_event(EventType::SERVER_DISCONNECTED, this);
 		}
@@ -2139,6 +2185,7 @@ Server::removeOldClient(BaseClientProxy* client)
     auto i = m_oldClients.find(client);
 	if (i != m_oldClients.end()) {
         m_events->remove_handler(EventType::CLIENT_PROXY_DISCONNECTED, client);
+        m_events->remove_handler(EventType::CLIENT_LOCAL_INPUT_DETECTED, client);
         m_events->remove_handler(EventType::TIMER, i->second);
 		m_events->deleteTimer(i->second);
 		m_oldClients.erase(i);

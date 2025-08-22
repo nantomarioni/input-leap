@@ -22,6 +22,7 @@
 #include "ui_MainWindow.h"
 
 #include "AboutDialog.h"
+#include "../../fork/gui/ModernMainWindow.h"
 #include "ServerConfigDialog.h"
 #include "SettingsDialog.h"
 #include "ZeroconfService.h"
@@ -256,6 +257,8 @@ void MainWindow::createTrayIcon()
     m_pTrayIconMenu->addAction(ui_->m_pActionStopCmdApp);
     m_pTrayIconMenu->addAction(ui_->m_pActionShowLog);
     m_pTrayIconMenu->addAction(ui_->m_pActionReload);
+    m_pTrayIconMenu->addSeparator();
+    m_pTrayIconMenu->addAction(ui_->m_pActionConfigure);
     m_pTrayIconMenu->addSeparator();
 
     m_pTrayIconMenu->addAction(ui_->m_pActionMinimize);
@@ -736,6 +739,9 @@ QString MainWindow::configFilename()
             return "";
         }
 
+        // Sync dimming settings from AppConfig to ServerConfig before saving
+        serverConfig().syncDimmingSettings();
+        
         serverConfig().save(*m_pTempConfigFile);
         filename = m_pTempConfigFile->fileName();
 
@@ -1187,6 +1193,22 @@ void MainWindow::on_m_pActionSettings_triggered()
     if (dialog.get()->exec() == QDialog::Accepted)
         updateSSLFingerprint();
     disconnect(dialog.get(), &SettingsDialog::requestLanguageChange, this, &MainWindow::requestLanguageChange);
+}
+
+void MainWindow::on_m_pActionConfigure_triggered()
+{
+    // Create the modern main window on the heap so it stays alive
+    ModernMainWindow* modernWindow = new ModernMainWindow(this, *m_AppConfig, m_ServerConfig, "");
+    
+    // Make sure it's deleted when closed
+    modernWindow->setAttribute(Qt::WA_DeleteOnClose);
+    
+    // Show the window
+    modernWindow->show();
+    
+    // Bring it to the front and activate it
+    modernWindow->raise();
+    modernWindow->activateWindow();
 }
 
 void MainWindow::autoAddScreen(const QString name)

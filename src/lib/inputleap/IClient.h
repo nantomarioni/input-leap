@@ -142,6 +142,13 @@ public:
     //! Notify of screen saver change
     virtual void screensaver(bool activate) = 0;
 
+    //! Dim screen
+    /*!
+    Enable or disable the screen dimming.  \p dim is true to dim the screen,
+    false to restore normal brightness.
+    */
+    virtual void dimScreen(bool dim) = 0;
+
     //! Notify of options changes
     /*!
     Reset all options to their default values.

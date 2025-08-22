@@ -22,6 +22,17 @@
 #include "inputleap/Fwd.h"
 #include "inputleap/protocol_types.h"
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <winsock2.h>
+#include <windows.h>
+#endif
+
 namespace inputleap {
 
 class IStream;
@@ -145,6 +156,7 @@ public:
     void setOptions(const OptionsList& options) override;
     void sendDragInfo(std::uint32_t fileCount, const char* info, size_t size) override;
     void file_chunk_sending(const FileChunk& chunk) override;
+    void dimScreen(bool dim) override;
 
     virtual IClientConnection& get_conn() const override
     {
@@ -156,6 +168,19 @@ private:
     inputleap::Screen* m_screen;
     bool m_clipboardDirty[kClipboardEnd];
     std::int32_t m_fakeInputCount;
+
+#ifdef _WIN32
+    // Screen dimming support for Windows
+    WORD m_originalGamma[3][256];
+    bool m_gammaStored;
+    bool m_isDimmed;
+    DWORD m_lastDimTime;
+    int m_dimFailureCount;
+    bool m_dimmingEnabled;
+    int m_dimmingPercentage;
+    static const DWORD MIN_DIM_INTERVAL_MS = 100; // Minimum 100ms between dim operations
+    static const int MAX_DIM_FAILURES = 3; // Stop trying after 3 failures
+#endif
 };
 
 } // namespace inputleap

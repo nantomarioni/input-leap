@@ -81,8 +81,16 @@ void PlatformScreenLoggingWrapper::closeScreensaver()
 
 void PlatformScreenLoggingWrapper::screensaver(bool activate)
 {
-    LOG_DEBUG1("PlatformScreen::screensaver() activate=%d", activate);
+    LOG_DEBUG("screensaver: activate=%d", activate);
     screen_->screensaver(activate);
+}
+
+
+
+void PlatformScreenLoggingWrapper::setLocalInputCallback(const LocalInputCallback& callback)
+{
+    LOG_DEBUG("setLocalInputCallback called");
+    screen_->setLocalInputCallback(callback);
 }
 
 void PlatformScreenLoggingWrapper::resetOptions()
@@ -371,6 +379,12 @@ void PlatformScreenLoggingWrapper::pollPressedKeys(KeyButtonSet& pressed_keys) c
 void PlatformScreenLoggingWrapper::handle_system_event(const Event& event)
 {
     screen_->handle_system_event(event);
+}
+
+void PlatformScreenLoggingWrapper::handleCommand(const std::string& cmd, const OptionsList& args)
+{
+    LOG_DEBUG1("PlatformScreen::handleCommand() cmd=%s args.size()=%d", cmd.c_str(), static_cast<int>(args.size()));
+    screen_->handleCommand(cmd, args);
 }
 
 } // namespace inputleap

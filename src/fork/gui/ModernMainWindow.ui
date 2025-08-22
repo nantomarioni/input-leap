@@ -1,0 +1,648 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>ModernMainWindow</class>
+ <widget class="QMainWindow" name="ModernMainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>800</width>
+    <height>600</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>InputLeap - Modern Configuration</string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <item>
+    <widget class="QGroupBox" name="groupBoxMode">
+     <property name="title">
+      <string>Application Mode</string>
+     </property>
+     <layout class="QHBoxLayout" name="horizontalLayoutMode">
+      <item>
+       <widget class="QRadioButton" name="radioButtonServerMode">
+        <property name="text">
+         <string>Server Mode</string>
+        </property>
+        <property name="checked">
+         <bool>true</bool>
+        </property>
+        <property name="toolTip">
+         <string>Share this computer's mouse and keyboard with other computers</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QRadioButton" name="radioButtonClientMode">
+        <property name="text">
+         <string>Client Mode</string>
+        </property>
+        <property name="toolTip">
+         <string>Use mouse and keyboard from another computer (server)</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <spacer name="horizontalSpacerMode">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>40</width>
+          <height>20</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="groupBoxDaemonStatus">
+     <property name="title">
+      <string>Daemon Status</string>
+     </property>
+     <layout class="QHBoxLayout" name="horizontalLayoutStatus">
+      <item>
+       <widget class="QLabel" name="labelStatusIcon">
+        <property name="minimumSize">
+         <size>
+          <width>16</width>
+          <height>16</height>
+         </size>
+        </property>
+        <property name="maximumSize">
+         <size>
+          <width>16</width>
+          <height>16</height>
+         </size>
+        </property>
+        <property name="text">
+         <string>●</string>
+        </property>
+        <property name="styleSheet">
+         <string>color: red; font-size: 14px;</string>
+        </property>
+        <property name="alignment">
+         <set>Qt::AlignCenter</set>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="labelStatusText">
+        <property name="text">
+         <string>Stopped</string>
+        </property>
+        <property name="styleSheet">
+         <string>font-weight: bold;</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <spacer name="horizontalSpacerStatus">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>40</width>
+          <height>20</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+      <item>
+       <widget class="QPushButton" name="pushButtonStart">
+        <property name="text">
+         <string>Start</string>
+        </property>
+        <property name="toolTip">
+         <string>Start the Input Leap daemon</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="pushButtonStop">
+        <property name="text">
+         <string>Stop</string>
+        </property>
+        <property name="enabled">
+         <bool>false</bool>
+        </property>
+        <property name="toolTip">
+         <string>Stop the Input Leap daemon</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="pushButtonReload">
+        <property name="text">
+         <string>Reload</string>
+        </property>
+        <property name="enabled">
+         <bool>false</bool>
+        </property>
+        <property name="toolTip">
+         <string>Reload daemon configuration</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QTabWidget" name="tabWidget">
+     <property name="currentIndex">
+      <number>0</number>
+     </property>
+     <widget class="QWidget" name="tabServer">
+      <attribute name="title">
+       <string>Server</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="verticalLayout_2">
+       <item>
+        <widget class="QScrollArea" name="scrollAreaServer">
+         <property name="widgetResizable">
+          <bool>true</bool>
+         </property>
+         <widget class="QWidget" name="scrollAreaWidgetContents">
+          <property name="geometry">
+           <rect>
+            <x>0</x>
+            <y>0</y>
+            <width>756</width>
+            <height>1100</height>
+           </rect>
+          </property>
+          <layout class="QVBoxLayout" name="verticalLayoutServerScroll">
+           <item>
+            <widget class="QGroupBox" name="groupBoxBasicServer">
+             <property name="title">
+              <string>Basic Server Settings</string>
+             </property>
+             <layout class="QFormLayout" name="formLayoutBasic">
+              <item row="0" column="0">
+               <widget class="QLabel" name="labelServerName">
+                <property name="text">
+                 <string>Server Screen Name:</string>
+                </property>
+               </widget>
+              </item>
+              <item row="0" column="1">
+               <widget class="QLineEdit" name="lineEditServerName"/>
+              </item>
+              <item row="1" column="0">
+               <widget class="QCheckBox" name="checkBoxHeartbeat">
+                <property name="text">
+                 <string>Enable Heartbeat</string>
+                </property>
+               </widget>
+              </item>
+              <item row="1" column="1">
+               <widget class="QSpinBox" name="spinBoxHeartbeat">
+                <property name="enabled">
+                 <bool>false</bool>
+                </property>
+                <property name="suffix">
+                 <string> ms</string>
+                </property>
+                <property name="minimum">
+                 <number>1000</number>
+                </property>
+                <property name="maximum">
+                 <number>30000</number>
+                </property>
+                <property name="value">
+                 <number>5000</number>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <item>
+            <widget class="QGroupBox" name="groupBoxMouseKeyboard">
+             <property name="title">
+              <string>Mouse &amp;&amp; Keyboard Behavior</string>
+             </property>
+             <layout class="QVBoxLayout" name="verticalLayoutMouseKeyboard">
+              <item>
+               <widget class="QCheckBox" name="checkBoxRelativeMouseMoves">
+                <property name="text">
+                 <string>Relative Mouse Moves</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QCheckBox" name="checkBoxScreenSaverSync">
+                <property name="text">
+                 <string>Screen Saver Sync</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QCheckBox" name="checkBoxWin32KeepForeground">
+                <property name="text">
+                 <string>Win32 Keep Foreground (Windows only)</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <item>
+            <widget class="QGroupBox" name="groupBoxSwitching">
+             <property name="title">
+              <string>Screen Switching</string>
+             </property>
+             <layout class="QFormLayout" name="formLayoutSwitching">
+              <item row="0" column="0">
+               <widget class="QCheckBox" name="checkBoxSwitchDelay">
+                <property name="text">
+                 <string>Switch Delay</string>
+                </property>
+               </widget>
+              </item>
+              <item row="0" column="1">
+               <widget class="QSpinBox" name="spinBoxSwitchDelay">
+                <property name="enabled">
+                 <bool>false</bool>
+                </property>
+                <property name="suffix">
+                 <string> ms</string>
+                </property>
+                <property name="minimum">
+                 <number>0</number>
+                </property>
+                <property name="maximum">
+                 <number>5000</number>
+                </property>
+                <property name="value">
+                 <number>250</number>
+                </property>
+               </widget>
+              </item>
+              <item row="1" column="0">
+               <widget class="QCheckBox" name="checkBoxSwitchDoubleTap">
+                <property name="text">
+                 <string>Switch Double-Tap</string>
+                </property>
+               </widget>
+              </item>
+              <item row="1" column="1">
+               <widget class="QSpinBox" name="spinBoxSwitchDoubleTap">
+                <property name="enabled">
+                 <bool>false</bool>
+                </property>
+                <property name="suffix">
+                 <string> ms</string>
+                </property>
+                <property name="minimum">
+                 <number>100</number>
+                </property>
+                <property name="maximum">
+                 <number>2000</number>
+                </property>
+                <property name="value">
+                 <number>250</number>
+                </property>
+               </widget>
+              </item>
+              <item row="2" column="0">
+               <widget class="QLabel" name="labelSwitchCornerSize">
+                <property name="text">
+                 <string>Switch Corner Size:</string>
+                </property>
+               </widget>
+              </item>
+              <item row="2" column="1">
+               <widget class="QSpinBox" name="spinBoxSwitchCornerSize">
+                <property name="suffix">
+                 <string> pixels</string>
+                </property>
+                <property name="minimum">
+                 <number>0</number>
+                </property>
+                <property name="maximum">
+                 <number>100</number>
+                </property>
+                <property name="value">
+                 <number>0</number>
+                </property>
+               </widget>
+              </item>
+              <item row="3" column="0" colspan="2">
+               <widget class="QGroupBox" name="groupBoxSwitchCorners">
+                <property name="title">
+                 <string>Switch Corners</string>
+                </property>
+                <layout class="QGridLayout" name="gridLayoutCorners">
+                 <item row="0" column="0">
+                  <widget class="QCheckBox" name="checkBoxCornerTopLeft">
+                   <property name="text">
+                    <string>Top Left</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="0" column="1">
+                  <widget class="QCheckBox" name="checkBoxCornerTopRight">
+                   <property name="text">
+                    <string>Top Right</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="1" column="0">
+                  <widget class="QCheckBox" name="checkBoxCornerBottomLeft">
+                   <property name="text">
+                    <string>Bottom Left</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="1" column="1">
+                  <widget class="QCheckBox" name="checkBoxCornerBottomRight">
+                   <property name="text">
+                    <string>Bottom Right</string>
+                   </property>
+                  </widget>
+                 </item>
+                </layout>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <item>
+            <widget class="QGroupBox" name="groupBoxDataSharing">
+             <property name="title">
+              <string>Data Sharing</string>
+             </property>
+             <layout class="QVBoxLayout" name="verticalLayoutDataSharing">
+              <item>
+               <widget class="QCheckBox" name="checkBoxClipboardSharing">
+                <property name="text">
+                 <string>Clipboard Sharing</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QCheckBox" name="checkBoxDragAndDrop">
+                <property name="text">
+                 <string>Drag and Drop</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <item>
+            <widget class="QGroupBox" name="groupBoxClientManagement">
+             <property name="title">
+              <string>Client Management</string>
+             </property>
+             <layout class="QVBoxLayout" name="verticalLayoutClientManagement">
+              <item>
+               <widget class="QCheckBox" name="checkBoxIgnoreAutoConfig">
+                <property name="text">
+                 <string>Ignore Auto-Config Client</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <item>
+            <widget class="QGroupBox" name="groupBoxScreenDimming">
+             <property name="title">
+              <string>Screen Dimming</string>
+             </property>
+             <layout class="QVBoxLayout" name="verticalLayoutScreenDimming">
+              <item>
+               <widget class="QCheckBox" name="checkBoxScreenDimming">
+                <property name="text">
+                 <string>Enable Screen Dimming</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="horizontalLayoutDimming">
+                <item>
+                 <widget class="QLabel" name="labelDimmingPercentage">
+                  <property name="text">
+                   <string>Dimming Percentage:</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QSlider" name="sliderDimmingPercentage">
+                  <property name="enabled">
+                   <bool>false</bool>
+                  </property>
+                  <property name="minimum">
+                   <number>10</number>
+                  </property>
+                  <property name="maximum">
+                   <number>90</number>
+                  </property>
+                  <property name="value">
+                   <number>50</number>
+                  </property>
+                  <property name="orientation">
+                   <enum>Qt::Horizontal</enum>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QLabel" name="labelDimmingValue">
+                  <property name="text">
+                   <string>50%</string>
+                  </property>
+                  <property name="minimumSize">
+                   <size>
+                    <width>40</width>
+                    <height>0</height>
+                   </size>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <item>
+            <spacer name="verticalSpacerServer">
+             <property name="orientation">
+              <enum>Qt::Vertical</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>20</width>
+               <height>40</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
+          </layout>
+         </widget>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="tabClient">
+      <attribute name="title">
+       <string>Client</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="verticalLayout_3">
+       <item>
+        <widget class="QLabel" name="labelClientInfo">
+         <property name="text">
+          <string>Configure client settings</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="pushButtonClientConfigure">
+         <property name="text">
+          <string>Configure Client...</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <spacer name="verticalSpacer_2">
+         <property name="orientation">
+          <enum>Qt::Vertical</enum>
+         </property>
+         <property name="sizeHint" stdset="0">
+          <size>
+           <width>20</width>
+           <height>40</height>
+          </size>
+         </property>
+        </spacer>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="tabLayout">
+      <attribute name="title">
+       <string>Screen Layout</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="verticalLayout_4">
+       <item>
+        <widget class="QLabel" name="labelLayoutInfo">
+         <property name="text">
+          <string>Configure screen layout</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="pushButtonLayoutConfigure">
+         <property name="text">
+          <string>Configure Layout...</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <spacer name="verticalSpacer_3">
+         <property name="orientation">
+          <enum>Qt::Vertical</enum>
+         </property>
+         <property name="sizeHint" stdset="0">
+          <size>
+           <width>20</width>
+           <height>40</height>
+          </size>
+         </property>
+        </spacer>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="tabMultiMonitor">
+      <attribute name="title">
+       <string>Multi-Monitor</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="verticalLayout_5">
+       <item>
+        <widget class="QLabel" name="labelMultiMonitorInfo">
+         <property name="text">
+          <string>Configure multi-monitor setup</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="pushButtonMultiMonitorConfigure">
+         <property name="text">
+          <string>Configure Multi-Monitor...</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <spacer name="verticalSpacer_4">
+         <property name="orientation">
+          <enum>Qt::Vertical</enum>
+         </property>
+         <property name="sizeHint" stdset="0">
+          <size>
+           <width>20</width>
+           <height>40</height>
+          </size>
+         </property>
+        </spacer>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="tabAdvanced">
+      <attribute name="title">
+       <string>Advanced</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="verticalLayout_6">
+       <item>
+        <widget class="QLabel" name="labelAdvancedInfo">
+         <property name="text">
+          <string>Advanced settings and configurations</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="pushButtonAdvancedConfigure">
+         <property name="text">
+          <string>Advanced Settings...</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <spacer name="verticalSpacer_5">
+         <property name="orientation">
+          <enum>Qt::Vertical</enum>
+         </property>
+         <property name="sizeHint" stdset="0">
+          <size>
+           <width>20</width>
+           <height>40</height>
+          </size>
+         </property>
+        </spacer>
+       </item>
+      </layout>
+     </widget>
+    </widget>
+   </item>
+   <item>
+    <widget class="QDialogButtonBox" name="buttonBox">
+     <property name="orientation">
+      <enum>Qt::Horizontal</enum>
+     </property>
+     <property name="standardButtons">
+      <set>QDialogButtonBox::Apply|QDialogButtonBox::Cancel|QDialogButtonBox::Ok</set>
+     </property>
+    </widget>
+   </item>
+  </layout>
+  </widget>
+ </widget>
+ <resources/>
+ <connections>
+ </connections>
+</ui>

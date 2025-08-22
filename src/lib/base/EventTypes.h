@@ -283,6 +283,9 @@ enum class EventType : std::uint32_t {
     /// This event is a keepalive event.
     FILE_KEEPALIVE,
 
+    /// This event is sent when local input is detected on a client.
+    CLIENT_LOCAL_INPUT_DETECTED,
+
     /// The total number of known event types.
     EVENT_COUNT,
 };

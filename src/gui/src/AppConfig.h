@@ -101,6 +101,12 @@ class AppConfig: public QObject
         void setMinimizeToTray(bool b);
         bool getMinimizeToTray();
 
+        void setScreenDimmingEnabled(bool b);
+        bool getScreenDimmingEnabled();
+
+        void setScreenDimmingPercentage(int percentage);
+        int getScreenDimmingPercentage();
+
         void saveSettings();
 
 protected:
@@ -137,6 +143,8 @@ protected:
         bool m_AutoHide;
         bool m_AutoStart;
         bool m_MinimizeToTray;
+        bool m_ScreenDimmingEnabled;
+        int m_ScreenDimmingPercentage;
 
         static const char server_name_[];
         static const char client_name_[];

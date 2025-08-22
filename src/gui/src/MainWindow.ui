@@ -458,6 +458,17 @@
     <enum>QAction::PreferencesRole</enum>
    </property>
   </action>
+  <action name="m_pActionConfigure">
+   <property name="text">
+    <string>&amp;Configure</string>
+   </property>
+   <property name="statusTip">
+    <string>Open Master Configuration Dialog</string>
+   </property>
+   <property name="shortcut">
+    <string notr="true">F3</string>
+   </property>
+  </action>
   <action name="m_pActionShowLog">
    <property name="text">
     <string>Show &amp;Log</string>

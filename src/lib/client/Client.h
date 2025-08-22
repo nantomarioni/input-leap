@@ -89,6 +89,12 @@ public:
     //! Send dragging file information back to server
     void sendDragInfo(std::uint32_t fileCount, std::string& info, size_t size);
 
+    //! Request undimming from server
+    /*!
+    Requests the server to undim this client's screen. Called when local input is detected.
+    */
+    void requestUndim();
+
 
     //@}
     //! @name accessors
@@ -151,6 +157,7 @@ public:
     void mouseRelativeMove(std::int32_t xRel, std::int32_t yRel) override;
     void mouseWheel(std::int32_t xDelta, std::int32_t yDelta) override;
     void screensaver(bool activate) override;
+    void dimScreen(bool dim) override;
     void resetOptions() override;
     void setOptions(const OptionsList& options) override;
     virtual std::string getName() const override;
@@ -217,6 +224,7 @@ private:
     ClientArgs m_args;
     bool m_enableClipboard;
     size_t m_maximumClipboardSize;
+    bool m_isDimmed;  // Track if screen is currently dimmed
 };
 
 } // namespace inputleap

@@ -53,6 +53,8 @@ ServerConfig::ServerConfig(QSettings* settings, int numColumns, int numRows ,
     m_EnableDragAndDrop(false),
     m_ClipboardSharing(true),
     m_ClipboardSharingSize(defaultClipboardSharingSize()),
+    m_ScreenDimmingEnabled(true),
+    m_ScreenDimmingPercentage(70),
     m_pMainWindow(mainWindow)
 {
     Q_ASSERT(m_pSettings);
@@ -121,6 +123,8 @@ void ServerConfig::saveSettings()
     settings().setValue("enableDragAndDrop", enableDragAndDrop());
     settings().setValue("clipboardSharing", clipboardSharing());
     settings().setValue("clipboardSharingSize", (int)clipboardSharingSize());
+    settings().setValue("screenDimmingEnabled", screenDimmingEnabled());
+    settings().setValue("screenDimmingPercentage", screenDimmingPercentage());
 
     writeSettings<bool>(settings(), switchCorners(), "switchCorner");
 
@@ -168,6 +172,8 @@ void ServerConfig::loadSettings()
     setClipboardSharing(settings().value("clipboardSharing", true).toBool());
     setClipboardSharingSize(settings().value("clipboardSharingSize",
         (int) ServerConfig::defaultClipboardSharingSize()).toULongLong());
+    setScreenDimmingEnabled(settings().value("screenDimmingEnabled", true).toBool());
+    setScreenDimmingPercentage(settings().value("screenDimmingPercentage", 70).toInt());
 
     readSettings<bool>(settings(), switchCorners(), "switchCorner", false,
                        static_cast<int>(SwitchCorner::Count));
@@ -260,6 +266,8 @@ QTextStream& operator<<(QTextStream& outStream, const ServerConfig& config)
     outStream << "\t" << "win32KeepForeground = " << (config.win32KeepForeground() ? "true" : "false") << "\n";
     outStream << "\t" << "clipboardSharing = " << (config.clipboardSharing() ? "true" : "false") << "\n";
     outStream << "\t" << "clipboardSharingSize = " << config.clipboardSharingSize() << "\n";
+    outStream << "\t" << "screenDimmingEnabled = " << (config.screenDimmingEnabled() ? "true" : "false") << "\n";
+    outStream << "\t" << "screenDimmingPercentage = " << config.screenDimmingPercentage() << "\n";
 
     if (config.hasSwitchDelay())
         outStream << "\t" << "switchDelay = " << config.switchDelay() << "\n";
@@ -427,4 +435,23 @@ size_t ServerConfig::setClipboardSharingSize(size_t size) {
     using std::swap;
     swap (size, m_ClipboardSharingSize);
     return size;
+}
+
+void ServerConfig::syncDimmingSettings() {
+    if (m_pMainWindow) {
+        AppConfig& appConfig = m_pMainWindow->appConfig();
+        
+        // Debug: Let's trace what we're getting from AppConfig
+        bool enabled = appConfig.getScreenDimmingEnabled();
+        int percentage = appConfig.getScreenDimmingPercentage();
+        
+        // Temporary debug output to see what values we're getting
+        qDebug() << "DEBUG: syncDimmingSettings - AppConfig values: enabled=" << enabled << ", percentage=" << percentage;
+        
+        setScreenDimmingEnabled(enabled);
+        setScreenDimmingPercentage(percentage);
+        
+        // Debug: Let's also check what was actually set in ServerConfig
+        qDebug() << "DEBUG: syncDimmingSettings - ServerConfig values: enabled=" << screenDimmingEnabled() << ", percentage=" << screenDimmingPercentage();
+    }
 }

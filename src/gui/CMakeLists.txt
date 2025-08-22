@@ -190,6 +190,9 @@ add_executable (input-leap WIN32
 
 include_directories (./src)
 
+# Add fork include directories
+target_include_directories(input-leap PRIVATE ${CMAKE_SOURCE_DIR}/src/fork)
+
 target_link_libraries(input-leap
     net
     arch
@@ -223,6 +226,9 @@ endif()
 
 target_link_libraries (input-leap common)
 
+# Link fork GUI components
+target_link_libraries(input-leap inputleap_fork_gui)
+
 if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
     install(TARGETS input-leap DESTINATION ${INPUTLEAP_BUNDLE_BINARY_DIR})
 elseif (${CMAKE_SYSTEM_NAME} MATCHES "Linux" OR ${CMAKE_SYSTEM_NAME} MATCHES "BSD")
@@ -239,6 +245,10 @@ elseif(WIN32)
         COMMAND ${CMAKE_COMMAND} -E remove_directory "${CMAKE_BINARY_DIR}/qtDeploy"
         COMMAND ${QT_DEPLOY_TOOL} --no-compiler-runtime --no-system-d3d-compiler
             --dir "${CMAKE_BINARY_DIR}/qtDeploy" $<TARGET_FILE:input-leap>
+        COMMAND ${CMAKE_COMMAND} -E copy_directory 
+            "${CMAKE_BINARY_DIR}/qtDeploy" 
+            "$<TARGET_FILE_DIR:input-leap>"
+        COMMENT "Deploying Qt libraries to executable directory"
     )
     install(TARGETS input-leap DESTINATION .)
     install(

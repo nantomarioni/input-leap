@@ -17,6 +17,7 @@
 #pragma once
 
 #include "IPlatformScreen.h"
+#include "base/Log.h"
 #include <memory>
 
 namespace inputleap {
@@ -37,6 +38,13 @@ public:
     void openScreensaver(bool notify) override;
     void closeScreensaver() override;
     void screensaver(bool activate) override;
+    void dimScreen(bool dim)
+    {
+        OptionsList args;
+        args.push_back(dim ? 1u : 0u);
+        screen_->handleCommand("dim", args);
+    }
+    void setLocalInputCallback(const LocalInputCallback& callback) override;
     void resetOptions() override;
     void setOptions(const OptionsList& options) override;
     void setSequenceNumber(std::uint32_t) override;
@@ -97,6 +105,8 @@ public:
     void pollPressedKeys(KeyButtonSet& pressed_keys) const override;
 
     void handle_system_event(const Event& event) override;
+    // Forward generic commands to the wrapped platform screen
+    void handleCommand(const std::string& cmd, const OptionsList& args) override;
 
 private:
     std::unique_ptr<IPlatformScreen> screen_;
