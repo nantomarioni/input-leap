@@ -26,6 +26,10 @@ add_executable (input-leapd WIN32 ${sources})
 target_link_libraries (input-leapd
     arch base common io ipc mt net platform synlib ${libs} ${OPENSSL_LIBS})
 
+if (TARGET inputleap_fork_server)
+    target_link_libraries(input-leapd inputleap_fork_server)
+endif()
+
 if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
     install(TARGETS input-leapd DESTINATION ${INPUTLEAP_BUNDLE_BINARY_DIR})
 elseif (${CMAKE_SYSTEM_NAME} MATCHES "Linux")

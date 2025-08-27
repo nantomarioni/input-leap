@@ -243,7 +243,7 @@ bool ClientProxy1_6::parseMessage(const std::uint8_t* code)
     else if (memcmp(code, kMsgDClipboard, 4) == 0) {
         return recvClipboard();
     }
-    return false;
+    return fork_parseMessage(code);
 }
 
 void ClientProxy1_6::handle_disconnect()

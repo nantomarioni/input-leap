@@ -300,6 +300,11 @@ Server::adoptClient(BaseClientProxy* client)
 		client->screensaver(true);
 	}
 
+	// Initial screen dimming: new clients should be dimmed if they are not the active screen
+	if (client != m_active) {
+		fork_dimScreenAll();
+	}
+
 	// send notification
     Server::ScreenConnectedInfo info{getName(client)};
     m_events->add_event(EventType::SERVER_CONNECTED, m_primaryClient->get_event_target(),
@@ -466,6 +471,7 @@ void Server::switchScreen(BaseClientProxy* dst, std::int32_t x, std::int32_t y, 
 				m_active->setClipboard(id, &m_clipboards[id].m_clipboard);
 			}
 		}
+		fork_dimScreenAll();
 
         Server::SwitchToScreenInfo info{m_active->getName()};
         m_events->add_event(EventType::SERVER_SCREEN_SWITCHED, this,

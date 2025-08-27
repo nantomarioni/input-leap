@@ -422,6 +422,7 @@ XWindowsScreen::resetOptions()
 void
 XWindowsScreen::setOptions(const OptionsList& options)
 {
+	fork_setOptions(options);
     for (std::uint32_t i = 0, n = options.size(); i < n; i += 2) {
 		if (options[i] == kOptionXTestXineramaUnaware) {
 			m_xtestIsXineramaUnaware = (options[i + 1] != 0);

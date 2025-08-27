@@ -22,14 +22,17 @@
 #include "inputleap/Fwd.h"
 #include "inputleap/IClient.h"
 
+#include "../../fork/lib/server/BaseClientProxyExtension.h"
+
 namespace inputleap {
 
 class IClientConnection;
 class IStream;
 
 //! Generic proxy for client or primary
-class BaseClientProxy : public IClient, public EventTarget {
+class BaseClientProxy : public IClient, public EventTarget, public BaseClientProxyExtension {
 public:
+    friend class BaseClientProxyExtension;
     /*!
     \c name is the name of the client.
     */

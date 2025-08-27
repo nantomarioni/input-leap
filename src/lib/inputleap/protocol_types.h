@@ -22,6 +22,8 @@
 
 #include <cstdint>
 
+#include "../../fork/lib/inputleap/protocol_types_extension.h"
+
 namespace inputleap {
 
 // protocol version number

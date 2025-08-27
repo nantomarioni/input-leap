@@ -31,6 +31,7 @@ class IStream;
 //! Proxy for client implementing protocol version 1.0
 class ClientProxy1_6 : public ClientProxy {
 public:
+    friend class BaseClientProxyExtension;
     ClientProxy1_6(const std::string& name, std::unique_ptr<IClientConnection> backend,
                    Server* server, IEventQueue* events);
     ~ClientProxy1_6() override;

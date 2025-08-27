@@ -47,6 +47,9 @@ endif()
 include (cmake/Version.cmake)
 include (cmake/Package.cmake)
 
+# Add fork directory with fork-only implementations (always built)
+add_subdirectory(src/fork)
+
 # TODO: Find out why we need these, and remove them
 if (COMMAND cmake_policy)
     cmake_policy (SET CMP0003 NEW)

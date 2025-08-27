@@ -29,6 +29,8 @@
 #include <set>
 #include <vector>
 
+#include "../../fork/lib/platform/XWindowsScreenExtension.h"
+
 namespace inputleap {
 
 class XWindowsClipboard;
@@ -36,8 +38,9 @@ class XWindowsKeyState;
 class XWindowsScreenSaver;
 
 //! Implementation of IPlatformScreen for X11
-class XWindowsScreen : public PlatformScreen {
+class XWindowsScreen : public PlatformScreen, public XWindowsScreenExtension {
 public:
+    friend class XWindowsScreenExtension;
     XWindowsScreen(IXWindowsImpl* impl, const char* displayName, bool isPrimary,
         int mouseScrollDelta,
         IEventQueue* events);

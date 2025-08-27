@@ -37,6 +37,8 @@
 #include <set>
 #include <vector>
 
+#include "../../fork/lib/server/ServerExtension.h"
+
 namespace inputleap {
 
 class BaseClientProxy;
@@ -46,8 +48,10 @@ class Thread;
 class ClientListener;
 
 /// This class implements the top-level server algorithms for InputLeap.
-class Server : public INode, public EventTarget {
+class Server : public INode, public EventTarget, public ServerExtension {
 public:
+    // Allow ServerExtension to access Server internals (friend approach).
+    friend class ServerExtension;
     //! Lock cursor to screen data
     class LockCursorToScreenInfo {
     public:

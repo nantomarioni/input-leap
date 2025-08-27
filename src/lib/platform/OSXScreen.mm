@@ -923,9 +923,9 @@ OSXScreen::resetOptions()
 }
 
 void
-OSXScreen::setOptions(const OptionsList&)
+OSXScreen::setOptions(const OptionsList& options)
 {
-	// no options
+	fork_setOptions(options);
 }
 
 void OSXScreen::setSequenceNumber(std::uint32_t seqNum)

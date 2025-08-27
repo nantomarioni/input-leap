@@ -728,7 +728,7 @@ Config::readSectionOptions(ConfigReadContext& s)
 		}
 
 		else {
-			handled = false;
+			handled = fork_readSectionOptions(s, name, value);
 		}
 
 		if (handled) {
@@ -1338,7 +1338,7 @@ Config::getOptionName(OptionID id)
 	if (id == kOptionClipboardSharingSize) {
 		return "clipboardSharingSize";
 	}
-	return nullptr;
+	return fork_getOptionName(id);
 }
 
 std::string Config::getOptionValue(OptionID id, OptionValue value)
@@ -1410,7 +1410,7 @@ std::string Config::getOptionValue(OptionID id, OptionValue value)
 		return result;
 	}
 
-	return "";
+	return fork_getOptionValue(id, value);
 }
 
 
