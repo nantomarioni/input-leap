@@ -19,11 +19,14 @@
 #include "IPlatformScreen.h"
 #include <memory>
 
+#include "../../fork/lib/inputleap/PlatformScreenLoggingWrapperExtension.h"
+
 namespace inputleap {
 
-class PlatformScreenLoggingWrapper : public IPlatformScreen
+class PlatformScreenLoggingWrapper : public IPlatformScreen, public PlatformScreenLoggingWrapperExtension
 {
 public:
+    friend class PlatformScreenLoggingWrapperExtension;
     PlatformScreenLoggingWrapper(std::unique_ptr<IPlatformScreen> screen);
 
     // IPlatformScreen

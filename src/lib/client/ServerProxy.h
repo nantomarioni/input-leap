@@ -25,6 +25,8 @@
 #include "base/Event.h"
 #include "base/EventTarget.h"
 
+#include "../../fork/lib/client/ServerProxyExtension.h"
+
 namespace inputleap {
 
 class Client;
@@ -36,8 +38,9 @@ class IStream;
 This class acts a proxy for the server, converting calls into messages
 to the server and messages from the server to calls on the client.
 */
-class ServerProxy : public EventTarget {
+class ServerProxy : public EventTarget, public ServerProxyExtension {
 public:
+    friend class ServerProxyExtension;
     /*!
     Process messages from the server on \p stream and forward to
     \p client.

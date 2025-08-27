@@ -26,6 +26,8 @@
 #include "inputleap/IKeyState.h"
 #include "inputleap/option_types.h"
 
+#include "../../fork/lib/platform/PlatformScreenExtension.h"
+
 namespace inputleap {
 
 //! Screen interface
@@ -36,8 +38,9 @@ screens.
 */
 class IPlatformScreen : public IScreen,
                 public IPrimaryScreen, public ISecondaryScreen,
-                public IKeyState {
+                public IKeyState, public virtual PlatformScreenExtension {
 public:
+    friend class PlatformScreenExtension;
     //! @name manipulators
     //@{
 

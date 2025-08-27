@@ -221,6 +221,10 @@ ServerProxy::EResult ServerProxy::parseHandshakeMessage(const std::uint8_t* code
 
 ServerProxy::EResult ServerProxy::parseMessage(const std::uint8_t* code)
 {
+    if (fork_parseMessage(code)) {
+        ProtocolUtil::writef(m_stream, kMsgCNoop);
+        return kOkay;
+    }
     if (memcmp(code, kMsgDMouseMove, 4) == 0) {
         mouseMove();
     }

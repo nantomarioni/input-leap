@@ -22,6 +22,8 @@
 #include "inputleap/Fwd.h"
 #include "inputleap/protocol_types.h"
 
+#include "../../fork/lib/server/PrimaryClientExtension.h"
+
 namespace inputleap {
 
 class IStream;
@@ -32,8 +34,10 @@ The primary screen does not have a client associated with it.  This
 class provides a pseudo-client to allow the primary screen to be
 treated as if it was a client.
 */
-class PrimaryClient : public BaseClientProxy {
+class PrimaryClient : public BaseClientProxy, public PrimaryClientExtension {
 public:
+    friend class PrimaryClientExtension;
+    friend class BaseClientProxyExtension;
     /*!
     \c name is the name of the server and \p screen is primary screen.
     */

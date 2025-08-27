@@ -51,6 +51,11 @@ add_executable(input-leaps ${sources})
 target_link_libraries(input-leaps
     arch base client common io mt net ipc platform server synlib ${libs} OpenSSL::SSL OpenSSL::Crypto)
 
+# Link fork server library if present
+if (TARGET inputleap_fork_server)
+    target_link_libraries(input-leaps inputleap_fork_server)
+endif()
+
 if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
     install(TARGETS input-leaps DESTINATION ${INPUTLEAP_BUNDLE_BINARY_DIR})
 elseif (${CMAKE_SYSTEM_NAME} MATCHES "Linux")

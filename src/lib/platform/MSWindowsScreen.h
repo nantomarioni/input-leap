@@ -30,6 +30,8 @@
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
 
+#include "../../fork/lib/platform/MSWindowsScreenExtension.h"
+
 namespace inputleap {
 
 class MSWindowsDesks;
@@ -39,8 +41,9 @@ class Thread;
 class MSWindowsDropTarget;
 
 //! Implementation of IPlatformScreen for Microsoft Windows
-class MSWindowsScreen : public PlatformScreen {
+class MSWindowsScreen : public PlatformScreen, public MSWindowsScreenExtension {
 public:
+    friend class MSWindowsScreenExtension;
     MSWindowsScreen(
         bool isPrimary,
         bool noHooks,

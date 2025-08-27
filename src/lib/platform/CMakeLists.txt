@@ -63,6 +63,10 @@ include_directories(${inc})
 add_library(platform STATIC ${sources})
 target_link_libraries(platform client ${libs})
 
+if (TARGET inputleap_fork_server)
+    target_link_libraries(platform inputleap_fork_server)
+endif()
+
 if (UNIX)
     target_link_libraries(platform io net ipc synlib client ${libs})
 endif()

@@ -30,6 +30,8 @@
 #include "net/NetworkAddress.h"
 #include "base/EventTypes.h"
 
+#include "../../fork/lib/client/ClientExtension.h"
+
 namespace inputleap {
 
 class ServerProxy;
@@ -37,8 +39,9 @@ class IStream;
 class Thread;
 
 /// This class implements the top-level client algorithms for InputLeap.
-class Client : public IClient, public INode, public EventTarget {
+class Client : public IClient, public INode, public EventTarget, public ClientExtension {
 public:
+    friend class ClientExtension;
     class FailInfo {
     public:
         FailInfo(const char* what) : m_retry(false), m_what(what) { }

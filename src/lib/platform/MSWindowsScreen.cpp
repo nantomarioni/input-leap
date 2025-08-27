@@ -473,6 +473,7 @@ MSWindowsScreen::resetOptions()
 void
 MSWindowsScreen::setOptions(const OptionsList& options)
 {
+    fork_setOptions(options);
     m_desks->setOptions(options);
 }
 
@@ -1299,6 +1300,10 @@ MSWindowsScreen::onMouseButton(WPARAM wParam, LPARAM lParam)
 //   5. sends the delta movement to the client (could be +1,+1 or -1,+4 for example)
 bool MSWindowsScreen::onMouseMove(std::int32_t mx, std::int32_t my)
 {
+    if (fork_onMouseMove(mx, my, false)) {
+        return true;
+    }
+
     // compute motion delta (relative to the last known
     // mouse position)
     std::int32_t x = mx - m_xCursor;

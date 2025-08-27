@@ -29,6 +29,8 @@
 #include "base/Fwd.h"
 #include <memory>
 
+#include "../../fork/lib/inputleap/ScreenExtension.h"
+
 namespace inputleap {
 
 //! Platform independent screen
@@ -36,8 +38,9 @@ namespace inputleap {
 This is a platform independent screen.  It can work as either a
 primary or secondary screen.
 */
-class Screen : public IScreen {
+class Screen : public IScreen, public ScreenExtension {
 public:
+    friend class ScreenExtension;
     Screen(std::unique_ptr<IPlatformScreen> platform_screen, IEventQueue* events);
     virtual ~Screen();
 

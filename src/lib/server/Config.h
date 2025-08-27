@@ -31,6 +31,8 @@
 #include <map>
 #include <set>
 
+#include "../../fork/lib/server/ConfigExtension.h"
+
 namespace inputleap { class Config; }
 
 namespace std {
@@ -59,8 +61,9 @@ Note that case is preserved in screen names but is ignored when
 comparing names.  Screen names and their aliases share a
 namespace and must be unique.
 */
-class Config {
+class Config: public ConfigExtension {
 public:
+    friend class ConfigExtension;
     typedef std::map<OptionID, OptionValue> ScreenOptions;
     typedef std::pair<float, float> Interval;
 

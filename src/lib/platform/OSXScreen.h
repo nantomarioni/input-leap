@@ -37,6 +37,8 @@
 #include <mutex>
 #include <vector>
 
+#include "../../fork/lib/platform/OSXScreenExtension.h"
+
 namespace inputleap {
 
 extern "C" {
@@ -50,8 +52,9 @@ class OSXKeyState;
 class OSXScreenSaver;
 
 //! Implementation of IPlatformScreen for OS X
-class OSXScreen : public PlatformScreen {
+class OSXScreen : public PlatformScreen, public OSXScreenExtension {
 public:
+    friend class OSXScreenExtension;
     OSXScreen(IEventQueue* events, bool isPrimary, bool autoShowHideCursor=true);
     virtual ~OSXScreen();
 

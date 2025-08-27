@@ -21,6 +21,8 @@
 #include "base/EventTypes.h"
 #include <vector>
 
+#include "../../fork/lib/inputleap/option_types_extension.h"
+
 //! Option ID
 /*!
 Type to hold an option identifier.
