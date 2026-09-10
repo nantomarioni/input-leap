@@ -1,8 +1,13 @@
-name: Manual Release
+name: Release
 
 on:
   workflow_dispatch:
     inputs: {}
+  push:
+    branches:
+      - fork
+    tags:
+      - 'fork-v*'
 
 # Set the build type here
 env:
@@ -17,11 +22,6 @@ jobs:
       fail-fast: false
       matrix:
        include:
-         - name: macOS-x86_64
-           os: macos-14
-           qt-version: 6.6
-           min-macOS-version: 11
-           arch: 'x86_64'
          - name: macOS-Apple_Silicon
            os: macos-14
            qt-version: 6.6
@@ -47,7 +47,7 @@ jobs:
         run: |
           brew install ninja
 
-      - name: Cache OpenSSL Universal
+      - name: Cache OpenSSL
         id: cache-openssl
         if: matrix.os == 'macos-14'
         uses: actions/cache@v4.2.4
@@ -55,7 +55,7 @@ jobs:
           path: ${{env.OpenSSL_Install_Path}}
           key: macOS-${{matrix.os}}-ssl-${{matrix.arch}}-${{env.OpenSSL_Version}}
 
-      - name: Build OpenSSL Universal
+      - name: Build OpenSSL
         if: ((steps.cache-openssl.outputs.cache-hit != 'true') && (matrix.os == 'macos-14'))
         run: |
           wget https://github.com/openssl/openssl/releases/download/openssl-${{env.OpenSSL_Version}}/openssl-${{env.OpenSSL_Version}}.tar.gz
@@ -88,13 +88,40 @@ jobs:
                 -DCMAKE_OSX_SYSROOT=$(xcode-select --print-path)/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk \
                 -DCMAKE_OSX_DEPLOYMENT_TARGET=${{matrix.min-macOS-version}} -DCMAKE_UNITY_BUILD=1 \
                 -DQT_DEFAULT_MAJOR_VERSION=$(echo ${{matrix.qt-version}} | cut -c -1) \
-                -DINPUTLEAP_VERSION_DESC=${{ (env.B_BUILD_TYPE == 'Release') && 'release' || 'git' }} \
+                -DINPUTLEAP_VERSION_DESC=git \
                 -DINPUTLEAP_BUILD_GULRAK_FILESYSTEM=${{ matrix.qt-version == '5.15' && '1' || '0' }} \
                 -DCMAKE_OSX_ARCHITECTURES="${{matrix.arch}}"
 
       - name: Run the build
         run: |
           cmake --build build --parallel
+
+      # Sign with a stable identity so macOS TCC permissions (Accessibility /
+      # Input Monitoring) survive updates, then repackage the dmg from the
+      # signed bundle (the build's own dmg contains the unsigned app).
+      - name: Sign the bundle and repackage the dmg
+        if: env.B_BUILD_TYPE == 'Release'
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_P12_PASSWORD: ${{ secrets.MACOS_CERT_P12_PASSWORD }}
+        run: |
+          if [ -z "$MACOS_CERT_P12" ]; then
+            echo "::warning::MACOS_CERT_P12 secret not set; shipping unsigned dmg (TCC permissions will reset on update)"
+            exit 0
+          fi
+          echo "$MACOS_CERT_P12" | base64 -d > cert.p12
+          security create-keychain -p ci-keychain-pass build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p ci-keychain-pass build.keychain
+          security import cert.p12 -k build.keychain -P "$MACOS_CERT_P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k ci-keychain-pass build.keychain
+          rm cert.p12
+
+          DMG=$(ls build/bundle/*.dmg)
+          rm "$DMG"
+          codesign --force --deep --sign "InputLeap Fork" build/bundle/InputLeap.app
+          codesign --verify --deep --verbose=2 build/bundle/InputLeap.app
+          hdiutil create -volname InputLeap -srcfolder build/bundle/InputLeap.app -ov -format UDZO "$DMG"
 
       - uses: actions/upload-artifact@v4
         if: env.B_BUILD_TYPE == 'Release'
@@ -161,7 +188,7 @@ jobs:
 
           cmake -S ..\input-leap -G "$env:CMAKE_GEN" -A x64 -D CMAKE_BUILD_TYPE=$B_BUILD_TYPE `
             -DQT_DEFAULT_MAJOR_VERSION=${{matrix.qt-major}} `
-            -DINPUTLEAP_VERSION_DESC=${{ (env.B_BUILD_TYPE == 'Release') && 'release' || 'git' }} `
+            -DINPUTLEAP_VERSION_DESC=git `
             -DINPUTLEAP_BUILD_GULRAK_FILESYSTEM=${{ matrix.qt-major == '5' && '1' || '0' }} `
             -DDNSSD_LIB="$env:BONJOUR_SDK_HOME\Lib\x64\dnssd.lib" -D CMAKE_INSTALL_PREFIX=input-leap-install
         env:
@@ -193,3 +220,60 @@ jobs:
           name: windows-installer-${{ matrix.name }}
           path: .\build\installer-inno\bin
           if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: [mac-build, win-build]
+    if: github.ref == 'refs/heads/fork' || startsWith(github.ref, 'refs/tags/fork-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Download all installer artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect release assets
+        id: assets
+        run: |
+          mkdir -p release-assets
+          find artifacts -name '*.dmg' -exec cp {} release-assets/ \;
+          find artifacts -name '*.exe' -exec cp {} release-assets/ \;
+          ls -la release-assets/
+          # Derive the version string from the dmg filename (InputLeap-<version>.dmg)
+          DMG=$(ls release-assets/*.dmg | head -1)
+          VERSION=$(basename "$DMG" .dmg | sed 's/^InputLeap-//')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      # Dev channel: every push to `fork` updates the rolling `latest-build`
+      # prerelease. The tag is deleted and recreated so it always points at
+      # the commit that produced the assets.
+      - name: Update rolling latest-build release (dev channel)
+        if: github.ref == 'refs/heads/fork'
+        run: |
+          gh release delete latest-build -R "${{ github.repository }}" --yes || true
+          gh api -X DELETE "repos/${{ github.repository }}/git/refs/tags/latest-build" || true
+          gh release create latest-build \
+            -R "${{ github.repository }}" \
+            --target "${{ github.sha }}" \
+            --prerelease \
+            --title "Latest build (${{ steps.assets.outputs.version }})" \
+            --notes "Automated dev-channel build.
+          Commit: ${{ github.sha }}
+          Version: ${{ steps.assets.outputs.version }}" \
+            release-assets/*
+
+      # Stable channel: pushing a fork-v* tag blesses a known-good build as a
+      # permanent, non-prerelease Release.
+      - name: Create stable release (fork-v* tag)
+        if: startsWith(github.ref, 'refs/tags/fork-v')
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            -R "${{ github.repository }}" \
+            --title "${{ github.ref_name }} (${{ steps.assets.outputs.version }})" \
+            --generate-notes \
+            release-assets/*

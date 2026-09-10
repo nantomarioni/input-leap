@@ -133,6 +133,26 @@ ctest --test-dir build --verbose          # runs the registered test targets
 `INPUTLEAP_BUILD_GULRAK_FILESYSTEM` (OFF) · `QT_DEFAULT_MAJOR_VERSION` (6).
 On Linux you must have **at least one** of X11 or libei enabled.
 
+### Fork releases & updates
+
+`.github/workflows/release.yml` builds macOS **arm64 only** (no Intel — the
+fleet is Windows host + Apple Silicon satellites) and a Windows Inno installer.
+Two channels:
+
+- **Dev (default):** every push to `fork` rebuilds and force-updates the
+  rolling `latest-build` prerelease with fresh installers. Versioning is
+  commit-based (`INPUTLEAP_VERSION_DESC=git` → `3.0.3-git-<date>-<hash>`), so
+  the version string in the app/dmg identifies the exact commit.
+- **Stable (optional):** pushing a `fork-v*` tag creates a permanent Release —
+  used only to bless known-good builds.
+
+The macOS bundle is **codesigned with a stable self-signed identity**
+("InputLeap Fork", secrets `MACOS_CERT_P12` / `MACOS_CERT_P12_PASSWORD`) so TCC
+permissions (Accessibility / Input Monitoring) survive updates; the dmg is
+repackaged from the signed app in CI. If the secrets are missing the pipeline
+warns and ships unsigned. Cert material lives outside the repo
+(`~/.inputleap-fork-signing/` on the authoring machine) — never commit it.
+
 ## Quality gate (before declaring a change done)
 
 1. **Builds clean** on the platform(s) your change touches — and ideally still
@@ -282,8 +302,9 @@ and ideally base it on `master` so it can be PR'd upstream and cleanly rebased.
   `https://github.com/input-leap/input-leap` and its wiki (README links to it);
   config examples in `doc/`.
 - **Exact build/test invocations per platform:** `.github/workflows/builds.yml`
-  is the source of truth (Linux/macOS/Windows + Flatpak); release flow in
-  `RELEASING.md` and `.github/workflows/manual_release.yml`.
+  is the source of truth (Linux/macOS/Windows + Flatpak); upstream release flow
+  in `RELEASING.md`; the fork's own release pipeline in
+  `.github/workflows/release.yml` (see "Fork releases & updates" above).
 - **The fork pattern in detail:** `.github/copilot-instructions.md` (caveats
   above) and the existing `src/fork/lib/**` files.
 - **Release notes:** `doc/newsfragments/README.md` (towncrier).
