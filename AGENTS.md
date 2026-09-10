@@ -32,9 +32,16 @@ Synergy → Barrier → Input Leap, with a Qt GUI.
 This repo (`nantomarioni/input-leap`) is a fork of upstream
 `input-leap/input-leap`. The default branch is **`fork`**.
 
-- **`master`** tracks upstream as a clean mirror (no local changes).
-- **`fork`** is `master` + **one** commit (`feat: Add dimming to inactive
-  screens`) that adds the entire `src/fork/` tree and the screen-dimming feature.
+- **`master`** tracks upstream as a clean mirror (no local changes). The
+  `upstream` remote points at `input-leap/input-leap`; local `master` tracks
+  `upstream/master`.
+- **`fork`** is `master` + a small linear stack of commits: the base
+  `feat: Add dimming to inactive screens` commit (the entire `src/fork/` tree +
+  the screen-dimming feature) and one commit per addition since (AGENTS.md,
+  future features). To pick up upstream: `git fetch upstream`, fast-forward
+  `master`, then `git rebase master fork` and force-push. `rerere.enabled` is
+  set in this clone so recurring hook conflicts auto-resolve on later rebases.
+  Last rebased onto upstream: Dec 2025 tip (`34a34fb2`), conflict-free.
 
 The fork is designed to stay **rebase-friendly against upstream**: almost all
 new code lives in a self-contained `src/fork/` tree, and edits to upstream files
@@ -65,6 +72,13 @@ cmake --build build --parallel
 
 `clean_build.sh` honours env overrides: `B_BUILD_TYPE` (default `Debug`),
 `B_BUILD_DIR` (default `build`), `B_CMAKE_FLAGS`, `B_CMAKE`.
+
+> macOS gotchas: if linking fails with `ld: library 'c++' not found`, the
+> sysroot didn't get picked up — reconfigure with
+> `-DCMAKE_OSX_SYSROOT="$(xcrun --show-sdk-path)"`. And with
+> `-DINPUTLEAP_BUILD_GUI=OFF`, the default (bundle) target fails because
+> `InputLeap_MacOS` needs the GUI binary — build explicit targets instead:
+> `cmake --build build --target input-leaps input-leapc unittests integtests`.
 
 Outputs land in `build/bin/` (executables) and `build/lib/`. The four binaries:
 
@@ -222,6 +236,20 @@ more):
   `inputleap_fork_server`, platform-gated via `if(WIN32/APPLE/LINUX)`), and the
   per-target `CMakeLists.txt` under `src/{client,server,daemon}` and
   `src/lib/platform` + the test CMakeLists link/expose it.
+
+**Invariants the pattern relies on (enforced only by convention):**
+
+- **Each `*Extension` class has exactly one inheritor** — its upstream host
+  class. The extensions recover their host via
+  `static_cast<Host*>(const_cast<XxxExtension*>(this))` (see
+  `ServerExtension::host()`), which is undefined behavior if any other class
+  ever inherits the extension. Never reuse an extension class.
+- **Fork wire messages assume fork builds on both ends.** `kMsgCDimScreen` /
+  `kMsgDUndimRequest` are sent unconditionally (no capability negotiation);
+  a stock upstream client receiving one will error out. Acceptable for this
+  fleet (all machines run the fork) — but any new fork message inherits the
+  same constraint, and mixed-fleet support would require a handshake guard in
+  `BaseClientProxyExtension::fork_dimScreen` and friends.
 
 > There's a much longer, prescriptive version of this pattern (with a strict
 > "no code outside `src/fork/` except the hook" rule and a step-by-step recipe)
