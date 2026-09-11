@@ -278,7 +278,8 @@ void UpdateChecker::finishSelfUpdate(const QString& installerPath)
         "hdiutil detach -quiet \"$MNT\"\n"
         "rm -f \"$DMG\"\n"
         "echo \"[selfupdate] swap rc=$RC, relaunching\" >> \"$LOG\"\n"
-        "open \"$APP\"\n");
+        "# -g: don't steal focus; -j: launch hidden (tray app — background relaunch)\n"
+        "open -g -j \"$APP\"\n");
     f.close();
     QFile::setPermissions(script, QFile::permissions(script) | QFileDevice::ExeOwner);
 
