@@ -20,6 +20,7 @@
 #include <QAction>
 
 class QNetworkAccessManager;
+class QNetworkReply;
 class QWidget;
 
 namespace inputleap {
@@ -48,7 +49,7 @@ public:
     void maybeCheckOnStartup();
 
 private:
-    void handleReply(class QNetworkReply* reply, bool quiet);
+    void handleReply(QNetworkReply* reply, bool quiet);
     static QString currentCommitHash();
     static QString platformAssetSuffix();
 
