@@ -14,8 +14,30 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
-set(FORK_SERVER_SOURCES
+# --- fork_base: dependency-free helpers (logging, quit tracing) ------------
+# Split out so upstream `base` can link it without dragging in the
+# server/client extension objects (the gui links base but must not need
+# Server/BaseClientProxy symbols).
+set(FORK_BASE_SOURCES
     lib/base/QuitReason.cpp
+    lib/base/LogExtension.h
+)
+if(WIN32)
+    list(APPEND FORK_BASE_SOURCES lib/base/LogExtension.cpp)
+else()
+    list(APPEND FORK_BASE_SOURCES lib/base/LogExtension_posix.cpp)
+endif()
+
+add_library(inputleap_fork_base STATIC ${FORK_BASE_SOURCES})
+target_include_directories(inputleap_fork_base PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/lib ${CMAKE_CURRENT_SOURCE_DIR})
+set_target_properties(inputleap_fork_base PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+)
+
+# --- fork server/client extensions -----------------------------------------
+
+set(FORK_SERVER_SOURCES
     lib/server/ServerExtension.cpp
     lib/server/ServerExtension.h
     lib/server/BaseClientProxyExtension.cpp
@@ -44,8 +66,6 @@ if(WIN32)
     list(APPEND FORK_SERVER_SOURCES
         lib/platform/MSWindowsScreenExtension.cpp
         lib/platform/MSWindowsScreenExtension.h
-        lib/base/LogExtension.cpp
-        lib/base/LogExtension.h
     )
 endif()
 
@@ -54,7 +74,6 @@ if(APPLE)
     list(APPEND FORK_SERVER_SOURCES
         lib/platform/OSXScreenExtension.mm
         lib/platform/OSXScreenExtension.h
-    lib/base/LogExtension_posix.cpp
     )
 endif()
 
@@ -62,11 +81,11 @@ if(LINUX)
     list(APPEND FORK_SERVER_SOURCES
         lib/platform/XWindowsScreenExtension.cpp
         lib/platform/XWindowsScreenExtension.h
-    lib/base/LogExtension_posix.cpp
     )
 endif()
 
 add_library(inputleap_fork_server STATIC ${FORK_SERVER_SOURCES})
+target_link_libraries(inputleap_fork_server PUBLIC inputleap_fork_base)
 
 target_include_directories(inputleap_fork_server PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/lib ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src/lib ${CMAKE_BINARY_DIR}/src/lib ${CMAKE_SOURCE_DIR}/ext/gulrak-filesystem/include)
 
