@@ -27,9 +27,18 @@ AboutDialog::AboutDialog(QWidget* parent, const QString& app_name) :
     ui_{std::make_unique<Ui::AboutDialog>()}
 {
     ui_->setupUi(this);
-    QString version = QStringLiteral("%1-%2").arg(kVersion, INPUTLEAP_VERSION_STAGE);
+    // Skip empty stage/revision suffixes (unset in this fork's builds) so
+    // the commit-versioned string stays clean and readable.
+    QString version = QString::fromLatin1(kVersion);
+    const QString stage = QStringLiteral(INPUTLEAP_VERSION_STAGE);
+    if (!stage.isEmpty()) {
+        version += QStringLiteral("-%1").arg(stage);
+    }
 #ifdef INPUTLEAP_REVISION
-    version.append(QStringLiteral("-%1").arg(INPUTLEAP_REVISION));
+    const QString revision = QStringLiteral(INPUTLEAP_REVISION);
+    if (!revision.isEmpty()) {
+        version += QStringLiteral("-%1").arg(revision);
+    }
 #endif
     ui_->m_pLabelAppVersion->setText(version);
     const int scaled_logo_height = sizeHint().width() <= 300 ? 45 : 90;

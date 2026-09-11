@@ -35,6 +35,7 @@ Compression=lzma
 SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64
 UninstallDisplayIcon={app}\{#MyAppExeName}
+CloseApplications=force
 
 #include "scripts\lang\english.iss"
 
@@ -87,4 +88,26 @@ begin
 	vcredist2017('14'); // min allowed version is 14.0
 
 	Result := true;
+end;
+
+// Upgrades used to fail with "cannot replace the executable" because the
+// running GUI + server/daemon processes hold the files. Stop everything
+// before the file copy; failures are ignored (process may not be running).
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+	ResultCode: Integer;
+begin
+	Exec(ExpandConstant('{sys}\net.exe'), 'stop {#MyAppServiceName}', '',
+	     SW_HIDE, ewWaitUntilTerminated, ResultCode);
+	Exec(ExpandConstant('{sys}\taskkill.exe'), '/f /t /im {#MyAppExeName}', '',
+	     SW_HIDE, ewWaitUntilTerminated, ResultCode);
+	Exec(ExpandConstant('{sys}\taskkill.exe'), '/f /t /im input-leaps.exe', '',
+	     SW_HIDE, ewWaitUntilTerminated, ResultCode);
+	Exec(ExpandConstant('{sys}\taskkill.exe'), '/f /t /im input-leapc.exe', '',
+	     SW_HIDE, ewWaitUntilTerminated, ResultCode);
+	Exec(ExpandConstant('{sys}\taskkill.exe'), '/f /t /im {#MyAppServiceExe}', '',
+	     SW_HIDE, ewWaitUntilTerminated, ResultCode);
+	// give Windows a moment to release file handles
+	Sleep(1500);
+	Result := '';
 end;
