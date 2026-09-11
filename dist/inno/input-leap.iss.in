@@ -58,7 +58,7 @@ Filename: {sys}\netsh.exe; Parameters: "advfirewall firewall add rule name=""{#M
 Filename: {sys}\sc.exe; Parameters: "create {#MyAppServiceName} start= auto binPath= ""\""{app}\{#MyAppServiceExe}\"""""; Flags: runhidden
 Filename: {sys}\sc.exe; Parameters: "description {#MyAppServiceName} ""{#MyAppServiceDesc}"""; Flags: runhidden
 Filename: {sys}\sc.exe; Parameters: "start {#MyAppServiceName}"; Flags: runhidden
-Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{commonappdata}\InputLeap"

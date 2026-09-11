@@ -17,7 +17,10 @@
 #include "UpdateChecker.h"
 
 #include <QDateTime>
+#include <QCoreApplication>
 #include <QDesktopServices>
+#include <QDir>
+#include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -25,8 +28,11 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QProcess>
+#include <QProgressDialog>
 #include <QPushButton>
 #include <QSettings>
+#include <QStandardPaths>
 #include <QTimer>
 #include <QUrl>
 
@@ -134,16 +140,18 @@ void UpdateChecker::handleReply(QNetworkReply* reply, bool quiet)
         return;
     }
 
-    // Newer build available — offer the platform installer (fall back to
+    // Newer build available — offer one-click self-update (fall back to
     // the release page when no matching asset is found).
-    QString downloadUrl = QString::fromLatin1(kReleasePageUrl);
+    QString assetUrl;
+    QString assetName;
     const QString suffix = platformAssetSuffix();
     if (!suffix.isEmpty()) {
         const QJsonArray assets = release.value(QStringLiteral("assets")).toArray();
         for (const auto& value : assets) {
             const QJsonObject asset = value.toObject();
             if (asset.value(QStringLiteral("name")).toString().endsWith(suffix)) {
-                downloadUrl = asset.value(QStringLiteral("browser_download_url")).toString();
+                assetUrl = asset.value(QStringLiteral("browser_download_url")).toString();
+                assetName = asset.value(QStringLiteral("name")).toString();
                 break;
             }
         }
@@ -154,12 +162,133 @@ void UpdateChecker::handleReply(QNetworkReply* reply, bool quiet)
     box.setWindowTitle(tr("Update Available"));
     box.setText(tr("A newer build is available.\n\nInstalled: %1\n%2")
                     .arg(QStringLiteral(INPUTLEAP_VERSION), releaseName));
-    QPushButton* download = box.addButton(tr("Download"), QMessageBox::AcceptRole);
+    QPushButton* install = nullptr;
+    if (!assetUrl.isEmpty()) {
+        install = box.addButton(tr("Install and Relaunch"), QMessageBox::AcceptRole);
+    }
+    QPushButton* browse = box.addButton(tr("Open Release Page"), QMessageBox::ActionRole);
     box.addButton(tr("Later"), QMessageBox::RejectRole);
     box.exec();
-    if (box.clickedButton() == download) {
-        QDesktopServices::openUrl(QUrl(downloadUrl));
+    if (install != nullptr && box.clickedButton() == install) {
+        startSelfUpdate(assetUrl, assetName);
     }
+    else if (box.clickedButton() == browse) {
+        QDesktopServices::openUrl(QUrl(QString::fromLatin1(kReleasePageUrl)));
+    }
+}
+
+void UpdateChecker::startSelfUpdate(const QString& assetUrl, const QString& assetName)
+{
+    const QString target =
+        QDir(QStandardPaths::writableLocation(QStandardPaths::TempLocation))
+            .filePath(assetName);
+
+    auto* progress = new QProgressDialog(tr("Downloading %1...").arg(assetName),
+                                         tr("Cancel"), 0, 100, m_parentWindow);
+    progress->setWindowModality(Qt::WindowModal);
+    progress->setMinimumDuration(0);
+    progress->setAutoClose(false);
+
+    QNetworkRequest request{QUrl(assetUrl)};
+    request.setRawHeader("User-Agent", "input-leap-fork-updater");
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                         QNetworkRequest::NoLessSafeRedirectPolicy);
+    QNetworkReply* reply = m_network->get(request);
+
+    connect(progress, &QProgressDialog::canceled, reply, &QNetworkReply::abort);
+    connect(reply, &QNetworkReply::downloadProgress, progress,
+            [progress](qint64 done, qint64 total) {
+                if (total > 0) {
+                    progress->setValue(static_cast<int>(done * 100 / total));
+                }
+            });
+    connect(reply, &QNetworkReply::finished, this, [this, reply, progress, target]() {
+        reply->deleteLater();
+        progress->deleteLater();
+        progress->close();
+
+        if (reply->error() != QNetworkReply::NoError) {
+            if (reply->error() != QNetworkReply::OperationCanceledError) {
+                QMessageBox::warning(m_parentWindow, tr("Update"),
+                                     tr("Download failed:\n%1").arg(reply->errorString()));
+            }
+            return;
+        }
+        QFile out(target);
+        if (!out.open(QIODevice::WriteOnly)) {
+            QMessageBox::warning(m_parentWindow, tr("Update"),
+                                 tr("Could not write %1").arg(target));
+            return;
+        }
+        out.write(reply->readAll());
+        out.close();
+        finishSelfUpdate(target);
+    });
+}
+
+void UpdateChecker::finishSelfUpdate(const QString& installerPath)
+{
+#if defined(Q_OS_WIN)
+    // The installer stops all InputLeap processes itself (CurStepChanged in
+    // the iss script) and relaunches the app afterwards ([Run] postinstall).
+    QProcess::startDetached(installerPath, {QStringLiteral("/SILENT")});
+    QCoreApplication::quit();
+#elif defined(Q_OS_MACOS)
+    // Replace the running bundle: a detached helper waits for this process
+    // to exit, mounts the dmg, verifies the code signature, swaps the .app
+    // and relaunches. Works even when a LaunchAgent relaunches the app —
+    // the helper kills stragglers right before the swap.
+    const QString bundlePath =
+        QDir(QCoreApplication::applicationDirPath() + QStringLiteral("/../.."))
+            .canonicalPath();
+    if (!bundlePath.endsWith(QLatin1String(".app"))) {
+        QMessageBox::warning(m_parentWindow, tr("Update"),
+                             tr("Not running from an app bundle (%1); "
+                                "install manually from the dmg.").arg(bundlePath));
+        return;
+    }
+
+    const QString script =
+        QDir(QStandardPaths::writableLocation(QStandardPaths::TempLocation))
+            .filePath(QStringLiteral("inputleap-selfupdate.sh"));
+    QFile f(script);
+    if (!f.open(QIODevice::WriteOnly)) {
+        QMessageBox::warning(m_parentWindow, tr("Update"), tr("Could not write helper script"));
+        return;
+    }
+    f.write(
+        "#!/bin/sh\n"
+        "# InputLeap fork self-update helper (generated; safe to delete)\n"
+        "PID=\"$1\"; DMG=\"$2\"; APP=\"$3\"\n"
+        "LOG=\"${TMPDIR:-/tmp}/inputleap_fork_debug.log\"\n"
+        "echo \"[selfupdate] waiting for pid $PID\" >> \"$LOG\"\n"
+        "for i in $(seq 1 50); do kill -0 \"$PID\" 2>/dev/null || break; sleep 0.2; done\n"
+        "MNT=$(mktemp -d)\n"
+        "hdiutil attach -nobrowse -quiet -mountpoint \"$MNT\" \"$DMG\" || exit 1\n"
+        "NEWAPP=$(ls -d \"$MNT\"/*.app | head -1)\n"
+        "if ! codesign --verify --deep \"$NEWAPP\" 2>> \"$LOG\"; then\n"
+        "  echo \"[selfupdate] signature verify FAILED, aborting\" >> \"$LOG\"\n"
+        "  hdiutil detach -quiet \"$MNT\"; exit 1\n"
+        "fi\n"
+        "# kill anything a LaunchAgent may have resurrected meanwhile\n"
+        "pkill -f \"$APP\" 2>/dev/null; sleep 0.5\n"
+        "rm -rf \"$APP\" && ditto \"$NEWAPP\" \"$APP\"\n"
+        "RC=$?\n"
+        "hdiutil detach -quiet \"$MNT\"\n"
+        "rm -f \"$DMG\"\n"
+        "echo \"[selfupdate] swap rc=$RC, relaunching\" >> \"$LOG\"\n"
+        "open \"$APP\"\n");
+    f.close();
+    QFile::setPermissions(script, QFile::permissions(script) | QFileDevice::ExeOwner);
+
+    QProcess::startDetached(QStringLiteral("/bin/sh"),
+                            {script,
+                             QString::number(QCoreApplication::applicationPid()),
+                             installerPath, bundlePath});
+    QCoreApplication::quit();
+#else
+    QDesktopServices::openUrl(QUrl::fromLocalFile(installerPath));
+#endif
 }
 
 QAction* createUpdateCheckAction(QWidget* parentWindow)

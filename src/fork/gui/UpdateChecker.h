@@ -50,6 +50,8 @@ public:
 
 private:
     void handleReply(QNetworkReply* reply, bool quiet);
+    void startSelfUpdate(const QString& assetUrl, const QString& assetName);
+    void finishSelfUpdate(const QString& installerPath);
     static QString currentCommitHash();
     static QString platformAssetSuffix();
 
