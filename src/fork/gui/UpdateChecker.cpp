@@ -28,6 +28,7 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QPointer>
 #include <QProcess>
 #include <QProgressDialog>
 #include <QPushButton>
@@ -293,11 +294,22 @@ void UpdateChecker::finishSelfUpdate(const QString& installerPath)
 
 QAction* createUpdateCheckAction(QWidget* parentWindow)
 {
+    // Cache per window so the action can be shared across menus (menu bar +
+    // tray) with a single checker and a single startup check behind it.
+    static QPointer<QWidget> cachedWindow;
+    static QPointer<QAction> cachedAction;
+    if (cachedWindow == parentWindow && !cachedAction.isNull()) {
+        return cachedAction;
+    }
+
     auto* checker = new UpdateChecker(parentWindow);
     auto* action = new QAction(QObject::tr("Check for &Updates..."), parentWindow);
     QObject::connect(action, &QAction::triggered, checker,
                      [checker]() { checker->check(false); });
     checker->maybeCheckOnStartup();
+
+    cachedWindow = parentWindow;
+    cachedAction = action;
     return action;
 }
 

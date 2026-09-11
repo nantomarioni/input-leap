@@ -61,7 +61,9 @@ private:
 
 // One-line hook for MainWindow: returns a "Check for Updates..." action and
 // schedules the rate-limited startup check. The checker parents to
-// `parentWindow` for lifetime.
+// `parentWindow` for lifetime. Cached: repeated calls with the same window
+// return the same action, so it can be added to several menus (menu bar +
+// system tray) without spawning extra checkers.
 QAction* createUpdateCheckAction(QWidget* parentWindow);
 
 } // namespace fork_gui

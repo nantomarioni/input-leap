@@ -263,6 +263,7 @@ void MainWindow::createTrayIcon()
     m_pTrayIconMenu->addAction(ui_->m_pActionMinimize);
     m_pTrayIconMenu->addAction(ui_->m_pActionRestore);
     m_pTrayIconMenu->addSeparator();
+    m_pTrayIconMenu->addAction(inputleap::fork_gui::createUpdateCheckAction(this));
     m_pTrayIconMenu->addAction(ui_->m_pActionQuit);
 
     m_pTrayIcon = new QSystemTrayIcon(this);
