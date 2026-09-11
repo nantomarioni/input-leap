@@ -23,6 +23,10 @@ endif()
 
 add_library(base STATIC ${sources})
 
+if (TARGET inputleap_fork_server)
+    target_link_libraries(base inputleap_fork_server)
+endif()
+
 if (UNIX)
     target_link_libraries(base common)
 endif()
