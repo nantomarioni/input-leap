@@ -91,7 +91,7 @@ void UpdateChecker::check(bool quiet)
     QSettings settings(kSettingsOrg, kSettingsApp);
     settings.setValue(kLastCheckKey, QDateTime::currentSecsSinceEpoch());
 
-    QNetworkRequest request{QUrl(QStringLiteral(kReleaseApiUrl))};
+    QNetworkRequest request{QUrl(QString::fromLatin1(kReleaseApiUrl))};
     request.setRawHeader("Accept", "application/vnd.github+json");
     request.setRawHeader("User-Agent", "input-leap-fork-updater");
     QNetworkReply* reply = m_network->get(request);
@@ -136,7 +136,7 @@ void UpdateChecker::handleReply(QNetworkReply* reply, bool quiet)
 
     // Newer build available — offer the platform installer (fall back to
     // the release page when no matching asset is found).
-    QString downloadUrl = QStringLiteral(kReleasePageUrl);
+    QString downloadUrl = QString::fromLatin1(kReleasePageUrl);
     const QString suffix = platformAssetSuffix();
     if (!suffix.isEmpty()) {
         const QJsonArray assets = release.value(QStringLiteral("assets")).toArray();
