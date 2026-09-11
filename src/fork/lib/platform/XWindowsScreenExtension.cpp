@@ -34,17 +34,17 @@ XWindowsScreen* XWindowsScreenExtension::host() const {
 }
 
 void XWindowsScreenExtension::fork_dimScreen(bool dim) {
-    LOG_DEBUG("XWindowsScreen::dimScreen called with dim=%d", dim ? 1 : 0);
+    FORK_LOG("XWindowsScreen::dimScreen called with dim=%d", dim ? 1 : 0);
 	
 	// Check if dimming is enabled
 	if (!m_dimmingEnabled) {
-		LOG_DEBUG("screen dimming is disabled, skipping");
+		FORK_LOG("screen dimming is disabled, skipping");
 		return;
 	}
 	
 	// TODO: Implement actual screen dimming for X11
 	// For now, just log the intended operation with the percentage
-	LOG_DEBUG("X11 screen dimming requested: %s to %d%% (not yet implemented)", 
+	FORK_LOG("X11 screen dimming requested: %s to %d%% (not yet implemented)", 
 			  dim ? "dim" : "restore", m_dimmingPercentage);
 	
 	// Potential implementations could use:

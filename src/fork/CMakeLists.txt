@@ -15,6 +15,7 @@
 
 
 set(FORK_SERVER_SOURCES
+    lib/base/QuitReason.cpp
     lib/server/ServerExtension.cpp
     lib/server/ServerExtension.h
     lib/server/BaseClientProxyExtension.cpp

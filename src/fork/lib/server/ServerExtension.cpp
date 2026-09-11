@@ -17,6 +17,7 @@
 #include "ServerExtension.h"
 #include "server/Server.h"
 #include "server/BaseClientProxy.h"
+#include "base/Log.h"
 
 namespace inputleap {
 
@@ -37,6 +38,33 @@ void ServerExtension::fork_dimScreenAll() {
         } else {
             clientProxy->fork_dimScreen(true);
         }
+    }
+}
+
+void ServerExtension::fork_clientAdopted(BaseClientProxy* client) {
+    Server* srv = host();
+
+    // Initial screen dimming: new clients should be dimmed if they are not
+    // the active screen.
+    if (client != srv->m_active) {
+        fork_dimScreenAll();
+    }
+
+    // Flap detection: a healthy client adopts once; a connect/drop loop
+    // adopts every second or two. Warn loudly (main server log) when the
+    // same name reconnects 4+ times inside a minute.
+    const auto now = std::chrono::steady_clock::now();
+    const auto window = std::chrono::seconds(60);
+    auto& times = m_adoptions[client->getName()];
+    times.push_back(now);
+    while (!times.empty() && now - times.front() > window) {
+        times.pop_front();
+    }
+    if (times.size() >= 4) {
+        LOG_WARN("fork: client \"%s\" reconnected %zu times in the last minute"
+                 " — connect/drop flapping; check the client-side fork log"
+                 " (inputleap_fork_debug.log in the client's temp dir) for the"
+                 " exit reason", client->getName().c_str(), times.size());
     }
 }
 

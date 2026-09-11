@@ -19,6 +19,8 @@
 #include "base/EventQueue.h"
 #include "EventQueueTimer.h"
 
+#include "../../fork/lib/base/LogExtension.h"
+
 #include "arch/Arch.h"
 #include "base/SimpleEventQueueBuffer.h"
 #include "base/Stopwatch.h"
@@ -33,6 +35,7 @@ static
 void
 interrupt(Arch::ESignal, void* data)
 {
+    inputleap::fork::noteSignalQuit();
     EventQueue* events = static_cast<EventQueue*>(data);
     events->add_event(EventType::QUIT);
 }

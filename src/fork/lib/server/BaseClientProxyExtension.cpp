@@ -32,7 +32,14 @@ namespace inputleap {
 
 BaseClientProxyExtension::BaseClientProxyExtension() {}
 BaseClientProxyExtension::~BaseClientProxyExtension() {
-    fork_dimScreen(false);
+    // NOTE: deliberately no fork_dimScreen(false) here. During base-class
+    // destruction the dynamic_casts in fork_dimScreen resolve to null (the
+    // derived ClientProxy/PrimaryClient parts are already destroyed), so the
+    // call was dead code — and had it worked, it would write kMsgCDimScreen
+    // to the stream of a connection that is being torn down precisely
+    // because it died (exception in a destructor => std::terminate).
+    // Undim-on-disconnect is handled by Server::switchScreen ->
+    // fork_dimScreenAll() when the server jumps back to the primary.
 }
 
 BaseClientProxy* BaseClientProxyExtension::host() const {

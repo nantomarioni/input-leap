@@ -300,10 +300,8 @@ Server::adoptClient(BaseClientProxy* client)
 		client->screensaver(true);
 	}
 
-	// Initial screen dimming: new clients should be dimmed if they are not the active screen
-	if (client != m_active) {
-		fork_dimScreenAll();
-	}
+	// Initial screen dimming + reconnect-flap detection (fork)
+	fork_clientAdopted(client);
 
 	// send notification
     Server::ScreenConnectedInfo info{getName(client)};

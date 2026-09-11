@@ -248,7 +248,19 @@ more):
 - **Free-function hooks** where inheritance doesn't fit. E.g. `Config.cpp` calls
   `fork_readSectionOptions(...)`, `fork_getOptionName(...)`,
   `fork_getOptionValue(...)` implemented in the fork `ConfigExtension` /
-  `option_types_extension`.
+  `option_types_extension`. Same shape for quit tracing: `EventQueue.cpp`'s
+  signal handler calls `fork::noteSignalQuit()` and `ClientApp::mainLoop`
+  installs `fork::installExitTracer(...)` / marks `fork::noteCleanTeardown()`
+  (implemented in `src/fork/lib/base/QuitReason.cpp`) so every process-exit
+  path leaves a trace in the fork log (`inputleap_fork_debug.log` in the
+  temp dir; a start line with no matching exit line = killed by
+  SIGKILL/default signal action/crash).
+- Fork-only logging uses the `FORK_LOG(...)` macro
+  (`src/fork/lib/base/LogExtension.h`) — timestamped + PID-prefixed lines in
+  the fork log, independent of the upstream `Log` verbosity. Fork code may
+  also use the upstream `LOG_*` macros (include `base/Log.h`) when a message
+  belongs in the main log (e.g. the reconnect-flap warning in
+  `ServerExtension`).
 - The relative include is always `#include "../../fork/lib/<component>/<Hdr>.h"`
   — this keeps fork details out of the public include path while letting the
   upstream class inherit/call the extension.

@@ -42,24 +42,24 @@ void OSXScreenExtension::fork_dimScreen(bool dim) {
 	// Get all active displays
 	CGDisplayCount displayCount = 0;
 	if (CGGetActiveDisplayList(0, nullptr, &displayCount) != CGDisplayNoErr || displayCount == 0) {
-		LOG_DEBUG("failed to get display count");
+		FORK_LOG("failed to get display count");
 		return;
 	}
 
 	CGDirectDisplayID* displays = new CGDirectDisplayID[displayCount];
 	if (displays == nullptr) {
-		LOG_DEBUG("failed to allocate display array");
+		FORK_LOG("failed to allocate display array");
 		return;
 	}
 
 	if (CGGetActiveDisplayList(displayCount, displays, &displayCount) != CGDisplayNoErr) {
-		LOG_DEBUG("failed to get display list");
+		FORK_LOG("failed to get display list");
 		delete[] displays;
 		return;
 	}
 	
 	if (dim && !m_isDimmed) {
-		LOG_DEBUG("attempting to dim %u displays", displayCount);
+		FORK_LOG("attempting to dim %u displays", displayCount);
 		
 		// Clear any existing gamma info and prepare for new displays
 		m_displayGammaInfo.clear();
@@ -81,7 +81,7 @@ void OSXScreenExtension::fork_dimScreen(bool dim) {
 			if (result == kCGErrorSuccess && sampleCount == 256) {
 				gammaInfo.gammaStored = true;
 				float dimFactor = m_dimmingPercentage / 100.0f;
-				LOG_DEBUG("successfully got gamma tables for display %u, creating %d%% dimmed version", display, m_dimmingPercentage);
+				FORK_LOG("successfully got gamma tables for display %u, creating %d%% dimmed version", display, m_dimmingPercentage);
 				
 				// Create dimmed gamma tables using configurable percentage
 				CGGammaValue dimRed[256], dimGreen[256], dimBlue[256];
@@ -94,14 +94,14 @@ void OSXScreenExtension::fork_dimScreen(bool dim) {
 				// Apply dimmed gamma tables to this display
 				result = CGSetDisplayTransferByTable(display, 256, dimRed, dimGreen, dimBlue);
 				if (result == kCGErrorSuccess) {
-					LOG_DEBUG("display %u dimmed to %d%% brightness successfully", display, m_dimmingPercentage);
+					FORK_LOG("display %u dimmed to %d%% brightness successfully", display, m_dimmingPercentage);
 					anySuccess = true;
 				} else {
-					LOG_DEBUG("failed to set gamma tables for display %u, error=%d", display, result);
+					FORK_LOG("failed to set gamma tables for display %u, error=%d", display, result);
 					gammaInfo.gammaStored = false; // Reset since we failed
 				}
 			} else {
-				LOG_DEBUG("failed to get current gamma tables for display %u, error=%d, sampleCount=%d", display, result, sampleCount);
+				FORK_LOG("failed to get current gamma tables for display %u, error=%d, sampleCount=%d", display, result, sampleCount);
 			}
 			
 			// Store the gamma info regardless of success for proper cleanup
@@ -110,14 +110,14 @@ void OSXScreenExtension::fork_dimScreen(bool dim) {
 		
 		if (anySuccess) {
 			m_isDimmed = true;
-			LOG_DEBUG("successfully dimmed at least one display");
+			FORK_LOG("successfully dimmed at least one display");
 		} else {
-			LOG_DEBUG("failed to dim any displays");
+			FORK_LOG("failed to dim any displays");
 			m_displayGammaInfo.clear(); // Clear if nothing worked
 		}
 		
 	} else if (!dim && m_isDimmed) {
-		LOG_DEBUG("attempting to restore screen brightness for %zu displays", m_displayGammaInfo.size());
+		FORK_LOG("attempting to restore screen brightness for %zu displays", m_displayGammaInfo.size());
 		
 		bool anySuccess = false;
 		
@@ -127,10 +127,10 @@ void OSXScreenExtension::fork_dimScreen(bool dim) {
 				CGError result = CGSetDisplayTransferByTable(gammaInfo.displayID, 256, 
 					gammaInfo.originalRed, gammaInfo.originalGreen, gammaInfo.originalBlue);
 				if (result == kCGErrorSuccess) {
-					LOG_DEBUG("display %u brightness restored successfully", gammaInfo.displayID);
+					FORK_LOG("display %u brightness restored successfully", gammaInfo.displayID);
 					anySuccess = true;
 				} else {
-					LOG_DEBUG("failed to restore gamma tables for display %u, error=%d", gammaInfo.displayID, result);
+					FORK_LOG("failed to restore gamma tables for display %u, error=%d", gammaInfo.displayID, result);
 				}
 			}
 		}

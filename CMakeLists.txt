@@ -47,9 +47,6 @@ endif()
 include (cmake/Version.cmake)
 include (cmake/Package.cmake)
 
-# Add fork directory with fork-only implementations (always built)
-add_subdirectory(src/fork)
-
 # TODO: Find out why we need these, and remove them
 if (COMMAND cmake_policy)
     cmake_policy (SET CMP0003 NEW)
@@ -340,5 +337,10 @@ if(NOT TARGET uninstall)
 endif()
 
 enable_testing()
+
+# Add fork directory with fork-only implementations (always built).
+# Must come after the platform add_definitions above so fork sources can
+# include upstream headers that branch on SYSAPI_*/WINAPI_* macros.
+add_subdirectory(src/fork)
 
 add_subdirectory (src)

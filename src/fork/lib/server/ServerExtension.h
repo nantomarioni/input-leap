@@ -16,9 +16,15 @@
 
 #pragma once
 
+#include <chrono>
+#include <deque>
+#include <map>
+#include <string>
+
 namespace inputleap {
 
 class Server;
+class BaseClientProxy;
 
 class ServerExtension {
 public:
@@ -27,8 +33,17 @@ public:
 
     virtual void fork_dimScreenAll();
 
+    // Called from Server::adoptClient for every accepted client. Applies the
+    // initial dim state and warns when a client reconnects repeatedly
+    // (flap detection for the connect/dim/drop loop).
+    virtual void fork_clientAdopted(BaseClientProxy* client);
+
 protected:
     class Server* host() const;
+
+private:
+    // client name -> recent adoption timestamps (flap detector)
+    std::map<std::string, std::deque<std::chrono::steady_clock::time_point>> m_adoptions;
 };
 
 } // namespace inputleap

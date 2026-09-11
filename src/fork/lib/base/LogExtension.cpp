@@ -1,6 +1,7 @@
 /* Lightweight fork logging implementation. */
 #include "base/LogExtension.h"
 #include <cstdio>
+#include <ctime>
 #include <mutex>
 #include <string>
 #include <Windows.h>
@@ -34,9 +35,19 @@ static FILE* s_log_file() {
     return f;
 }
 
+// Write "[YYYY-MM-DDTHH:MM:SS.mmm pid]" prefix.
+static void write_prefix(FILE* f) {
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    fprintf(f, "[%04d-%02d-%02dT%02d:%02d:%02d.%03d %lu] ",
+            st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond,
+            st.wMilliseconds, (unsigned long)GetCurrentProcessId());
+}
+
 void logDebug(const char* fmt, ...) {
     FILE* f = s_log_file();
     std::lock_guard<std::mutex> lock(s_log_mutex);
+    write_prefix(f);
     va_list ap;
     va_start(ap, fmt);
     vfprintf(f, fmt, ap);

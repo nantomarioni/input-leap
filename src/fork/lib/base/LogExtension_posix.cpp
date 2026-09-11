@@ -8,6 +8,9 @@
 #include <pthread.h>
 #include <limits.h>
 #include <string.h>
+#include <time.h>
+#include <unistd.h>
+#include <sys/time.h>
 
 namespace inputleap {
 namespace fork {
@@ -46,9 +49,22 @@ static FILE* s_log_file(void) {
     return f;
 }
 
+/* Write "[YYYY-MM-DDTHH:MM:SS.mmm pid]" prefix. Not async-signal-safe;
+ * only call from normal (non-signal-handler) context. */
+static void write_prefix(FILE* f) {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    struct tm tmv;
+    localtime_r(&tv.tv_sec, &tmv);
+    char ts[32];
+    strftime(ts, sizeof(ts), "%Y-%m-%dT%H:%M:%S", &tmv);
+    fprintf(f, "[%s.%03d %d] ", ts, (int)(tv.tv_usec / 1000), (int)getpid());
+}
+
 void logDebug(const char* fmt, ...) {
     FILE* f = s_log_file();
     pthread_mutex_lock(&s_log_mutex);
+    write_prefix(f);
     va_list ap;
     va_start(ap, fmt);
     vfprintf(f, fmt, ap);

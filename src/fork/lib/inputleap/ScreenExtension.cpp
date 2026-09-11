@@ -13,7 +13,7 @@ Screen* ScreenExtension::host() const {
 }
 
 void ScreenExtension::fork_dimScreen(bool dim) {
-    LOG_DEBUG("Screen::fork_dimScreen forwarding dim=%d", dim ? 1 : 0);
+    FORK_LOG("Screen::fork_dimScreen forwarding dim=%d", dim ? 1 : 0);
 
     Screen* screen = host();
     if (!screen->m_screen) return;

@@ -18,6 +18,8 @@
 
 #include "inputleap/ClientApp.h"
 
+#include "../../fork/lib/base/LogExtension.h"
+
 #include "client/Client.h"
 #include "inputleap/ArgParser.h"
 #include "PlatformScreenLoggingWrapper.h"
@@ -417,6 +419,9 @@ ClientApp::stopClient()
 int
 ClientApp::mainLoop()
 {
+    // fork: trace how this process exits (signal / silent exit / teardown)
+    inputleap::fork::installExitTracer("input-leapc");
+
     // create socket multiplexer.  this must happen after daemonization
     // on unix because threads evaporate across a fork().
     setSocketMultiplexer(std::make_unique<SocketMultiplexer>());
@@ -461,6 +466,7 @@ ClientApp::mainLoop()
         cleanupIpcClient();
     }
 
+    inputleap::fork::noteCleanTeardown();
     return kExitSuccess;
 }
 

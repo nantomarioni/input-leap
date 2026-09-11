@@ -38,7 +38,7 @@ MSWindowsScreen* MSWindowsScreenExtension::host() const {
 
 void MSWindowsScreenExtension::fork_dimScreen(bool dim) {
     // Debug: log every call to fork_dimScreen
-    LOG_DEBUG("MSWindowsScreenExtension::fork_dimScreen called: dim=%d, enabled=%d, isDimmed=%d, percent=%d", dim ? 1 : 0, m_dimmingEnabled ? 1 : 0, m_isDimmed ? 1 : 0, m_dimmingPercentage);
+    FORK_LOG("MSWindowsScreenExtension::fork_dimScreen called: dim=%d, enabled=%d, isDimmed=%d, percent=%d", dim ? 1 : 0, m_dimmingEnabled ? 1 : 0, m_isDimmed ? 1 : 0, m_dimmingPercentage);
 
     // Check if dimming is enabled
     if (!m_dimmingEnabled) return;
@@ -60,7 +60,7 @@ void MSWindowsScreenExtension::fork_dimScreen(bool dim) {
                 }
                 if (SetDeviceGammaRamp(hdc, reinterpret_cast<LPVOID>(dimmedGamma))) {
                     m_isDimmed = true;
-                    LOG_DEBUG("MSWindowsScreenExtension: dimmed screen to %d%%", m_dimmingPercentage);
+                    FORK_LOG("MSWindowsScreenExtension: dimmed screen to %d%%", m_dimmingPercentage);
                 }
             }
         }
@@ -68,7 +68,7 @@ void MSWindowsScreenExtension::fork_dimScreen(bool dim) {
             // Restore original gamma
             if (SetDeviceGammaRamp(hdc, reinterpret_cast<LPVOID>(m_originalGamma.data()))) {
                 m_isDimmed = false;
-                LOG_DEBUG("MSWindowsScreenExtension: restored original gamma");
+                FORK_LOG("MSWindowsScreenExtension: restored original gamma");
             }
         }
         ReleaseDC(nullptr, hdc);

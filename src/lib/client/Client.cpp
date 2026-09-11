@@ -599,7 +599,7 @@ void Client::handle_disconnected()
     cleanupTimer();
     cleanupScreen();
     cleanupConnection();
-    LOG_DEBUG1("disconnected");
+    LOG_NOTE("disconnected: server closed the connection");
     send_event(EventType::CLIENT_DISCONNECTED);
 }
 
