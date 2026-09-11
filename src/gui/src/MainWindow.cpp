@@ -19,6 +19,8 @@
 #include <iostream>
 
 #include "MainWindow.h"
+
+#include "../../fork/gui/UpdateChecker.h"
 #include "ui_MainWindow.h"
 
 #include "AboutDialog.h"
@@ -312,6 +314,7 @@ void MainWindow::createMenuBar()
     main_menu_->addSeparator();
     main_menu_->addAction(ui_->m_pActionQuit);
     m_pMenuHelp->addAction(ui_->m_pActionAbout);
+    m_pMenuHelp->addAction(inputleap::fork_gui::createUpdateCheckAction(this));
 
 #ifdef Q_OS_DARWIN
     m_pMenuHelp->addAction(ui_->m_pActionSave);
