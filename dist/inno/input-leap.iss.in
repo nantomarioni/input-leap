@@ -92,22 +92,26 @@ end;
 
 // Upgrades used to fail with "cannot replace the executable" because the
 // running GUI + server/daemon processes hold the files. Stop everything
-// before the file copy; failures are ignored (process may not be running).
-function PrepareToInstall(var NeedsRestart: Boolean): String;
+// right before the file copy; failures are ignored (process may not be
+// running). (PrepareToInstall is taken by scripts/products.pas, hence the
+// CurStepChanged event.)
+procedure CurStepChanged(CurStep: TSetupStep);
 var
 	ResultCode: Integer;
 begin
-	Exec(ExpandConstant('{sys}\net.exe'), 'stop {#MyAppServiceName}', '',
-	     SW_HIDE, ewWaitUntilTerminated, ResultCode);
-	Exec(ExpandConstant('{sys}\taskkill.exe'), '/f /t /im {#MyAppExeName}', '',
-	     SW_HIDE, ewWaitUntilTerminated, ResultCode);
-	Exec(ExpandConstant('{sys}\taskkill.exe'), '/f /t /im input-leaps.exe', '',
-	     SW_HIDE, ewWaitUntilTerminated, ResultCode);
-	Exec(ExpandConstant('{sys}\taskkill.exe'), '/f /t /im input-leapc.exe', '',
-	     SW_HIDE, ewWaitUntilTerminated, ResultCode);
-	Exec(ExpandConstant('{sys}\taskkill.exe'), '/f /t /im {#MyAppServiceExe}', '',
-	     SW_HIDE, ewWaitUntilTerminated, ResultCode);
-	// give Windows a moment to release file handles
-	Sleep(1500);
-	Result := '';
+	if CurStep = ssInstall then
+	begin
+		Exec(ExpandConstant('{sys}\net.exe'), 'stop {#MyAppServiceName}', '',
+		     SW_HIDE, ewWaitUntilTerminated, ResultCode);
+		Exec(ExpandConstant('{sys}\taskkill.exe'), '/f /t /im {#MyAppExeName}', '',
+		     SW_HIDE, ewWaitUntilTerminated, ResultCode);
+		Exec(ExpandConstant('{sys}\taskkill.exe'), '/f /t /im input-leaps.exe', '',
+		     SW_HIDE, ewWaitUntilTerminated, ResultCode);
+		Exec(ExpandConstant('{sys}\taskkill.exe'), '/f /t /im input-leapc.exe', '',
+		     SW_HIDE, ewWaitUntilTerminated, ResultCode);
+		Exec(ExpandConstant('{sys}\taskkill.exe'), '/f /t /im {#MyAppServiceExe}', '',
+		     SW_HIDE, ewWaitUntilTerminated, ResultCode);
+		// give Windows a moment to release file handles
+		Sleep(1500);
+	end;
 end;
