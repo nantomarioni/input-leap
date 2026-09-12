@@ -18,7 +18,6 @@
 
 #include <QApplication>
 #include <QDateTime>
-#include <QGraphicsOpacityEffect>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMouseEvent>
@@ -71,6 +70,11 @@ OverlayNotification::OverlayNotification() :
 {
     setAttribute(Qt::WA_TranslucentBackground);
     setAttribute(Qt::WA_ShowWithoutActivating);
+#ifdef Q_OS_MACOS
+    // Qt::Tool windows normally hide when the app is inactive — and the GUI
+    // is nearly always inactive when an overlay fires. Keep it visible.
+    setAttribute(Qt::WA_MacAlwaysShowToolWindow);
+#endif
 
     auto* layout = new QHBoxLayout(this);
     layout->setContentsMargins(22, 12, 22, 13);
@@ -85,10 +89,10 @@ OverlayNotification::OverlayNotification() :
     m_hideTimer->setSingleShot(true);
     connect(m_hideTimer, &QTimer::timeout, this, [this]() { animateOut(); });
 
-    auto* effect = new QGraphicsOpacityEffect(this);
-    effect->setOpacity(0.0);
-    setGraphicsEffect(effect);
-    m_anim = new QPropertyAnimation(effect, "opacity", this);
+    // Fade via the native top-level window opacity: QGraphicsOpacityEffect
+    // does not compose reliably with WA_TranslucentBackground top-levels.
+    setWindowOpacity(0.0);
+    m_anim = new QPropertyAnimation(this, "windowOpacity", this);
 }
 
 void OverlayNotification::showTransient(const QString& text, Tone tone,
@@ -154,7 +158,7 @@ void OverlayNotification::animateIn()
     raise();
     m_anim->stop();
     m_anim->setDuration(kFadeInMs);
-    m_anim->setStartValue(static_cast<QGraphicsOpacityEffect*>(graphicsEffect())->opacity());
+    m_anim->setStartValue(windowOpacity());
     m_anim->setEndValue(1.0);
     m_anim->setEasingCurve(QEasingCurve::OutCubic);
     disconnect(m_anim, &QPropertyAnimation::finished, this, nullptr);
@@ -165,7 +169,7 @@ void OverlayNotification::animateOut()
 {
     m_anim->stop();
     m_anim->setDuration(kFadeOutMs);
-    m_anim->setStartValue(static_cast<QGraphicsOpacityEffect*>(graphicsEffect())->opacity());
+    m_anim->setStartValue(windowOpacity());
     m_anim->setEndValue(0.0);
     m_anim->setEasingCurve(QEasingCurve::InCubic);
     disconnect(m_anim, &QPropertyAnimation::finished, this, nullptr);
