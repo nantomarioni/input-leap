@@ -21,6 +21,7 @@
 #include "MainWindow.h"
 
 #include "../../fork/gui/UpdateChecker.h"
+#include "../../fork/gui/NotificationRouter.h"
 #include "ui_MainWindow.h"
 
 #include "AboutDialog.h"
@@ -456,6 +457,7 @@ void MainWindow::updateFromLogLine(const QString &line)
     // TODO: this code makes Andrew cry
     checkConnected(line);
     checkFingerprint(line);
+    inputleap::fork_gui::routeLogLineToOverlay(line);
 }
 
 void MainWindow::checkConnected(const QString& line)

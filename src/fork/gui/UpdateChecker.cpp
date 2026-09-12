@@ -15,6 +15,7 @@
 */
 
 #include "UpdateChecker.h"
+#include "OverlayNotification.h"
 
 #include <QDateTime>
 #include <QCoreApplication>
@@ -156,6 +157,17 @@ void UpdateChecker::handleReply(QNetworkReply* reply, bool quiet)
                 break;
             }
         }
+    }
+
+    // Newer build available. Quiet (startup) checks surface a click-to-
+    // install overlay; manual checks keep the explicit dialog.
+    if (quiet && !assetUrl.isEmpty()) {
+        auto* overlay = OverlayNotification::instance();
+        overlay->showTransient(
+            tr("InputLeap update available \u2014 click to install"),
+            OverlayNotification::Tone::Info, 8000,
+            [this, assetUrl, assetName]() { startSelfUpdate(assetUrl, assetName); });
+        return;
     }
 
     QMessageBox box(m_parentWindow);

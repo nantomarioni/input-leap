@@ -45,6 +45,7 @@ private:
     void sendUndimRequest();
 
     bool m_isDimmed;
+    int m_unansweredRequests = 0;
 
     IEventQueue* m_pollerEvents;      // events queue the poller registered with
     EventQueueTimer* m_pollerTimer;

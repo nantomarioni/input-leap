@@ -41,6 +41,10 @@ set(GUI_SOURCE_FILES
     src/MainWindow.cpp
     ../fork/gui/UpdateChecker.cpp
     ../fork/gui/UpdateChecker.h
+    ../fork/gui/OverlayNotification.cpp
+    ../fork/gui/OverlayNotification.h
+    ../fork/gui/NotificationRouter.cpp
+    ../fork/gui/NotificationRouter.h
     src/NewScreenWidget.cpp
     src/QInputLeapApplication.cpp
     src/QUtility.cpp

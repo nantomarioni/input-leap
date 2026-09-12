@@ -59,10 +59,16 @@ void ClientExtension::fork_dimScreen(bool dim) {
     if (c->m_screen) c->m_screen->fork_dimScreen(dim);
 
     if (dim && !m_isDimmed) {
+        // Marker lines consumed by the GUI overlay router — keep the text
+        // stable (src/fork/gui/NotificationRouter.cpp).
+        LOG_NOTE("fork: screen dimmed");
         m_dimmedAt = std::chrono::steady_clock::now();
+        m_unansweredRequests = 0;
         startUndimPoller();
     }
     else if (!dim && m_isDimmed) {
+        LOG_NOTE("fork: screen restored");
+        m_unansweredRequests = 0;
         stopUndimPoller();
     }
     m_isDimmed = dim;
@@ -124,6 +130,14 @@ void ClientExtension::sendUndimRequest() {
     // NOTE level so it shows in the app's log window, not only the fork file.
     LOG_NOTE("fork: local input detected while dimmed - requesting undim");
     ProtocolUtil::writef(c->m_stream, kMsgDUndimRequest);
+
+    // Undim normally lands well within one cooldown period. Repeated sends
+    // without an undim mean the server is refusing/ignoring the switch —
+    // surface it once per dim episode (overlay router picks this up).
+    ++m_unansweredRequests;
+    if (m_unansweredRequests == 2) {
+        LOG_WARN("fork: undim requests not honored - cursor may be locked to another screen");
+    }
 }
 
 } // namespace inputleap
