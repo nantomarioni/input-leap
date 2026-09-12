@@ -92,8 +92,3 @@ target_include_directories(inputleap_fork_server PUBLIC ${CMAKE_CURRENT_SOURCE_D
 set_target_properties(inputleap_fork_server PROPERTIES
     POSITION_INDEPENDENT_CODE ON
 )
-
-# Ensure fork code uses the bundled gulrak-filesystem on platforms where
-# std::filesystem is not available (older macOS SDKs). This keeps the
-# compatibility change confined to fork code only.
-target_compile_definitions(inputleap_fork_server PRIVATE INPUTLEAP_USE_GULRAK_FILESYSTEM=1)

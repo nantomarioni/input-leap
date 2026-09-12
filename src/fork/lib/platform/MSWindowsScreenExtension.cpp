@@ -88,8 +88,4 @@ void MSWindowsScreenExtension::fork_setOptions(const OptionsList& options) {
     }
 }
 
-bool MSWindowsScreenExtension::fork_onMouseMove(std::int32_t mx, std::int32_t my, bool warp) {
-    return false;
-}
-
 } // namespace inputleap

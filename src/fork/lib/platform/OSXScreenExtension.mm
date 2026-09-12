@@ -146,8 +146,15 @@ void OSXScreenExtension::fork_dimScreen(bool dim) {
 	delete[] displays;
 }
 
-void OSXScreenExtension::fork_setOptions(const OptionsList& options) {
-    for (std::uint32_t i = 0, n = static_cast<std::uint32_t>(options.size()); i < n; i += 2) {
+double OSXScreenExtension::fork_getLocalIdleSeconds() const {
+	// Seconds since the last physical HID event (keyboard/mouse/trackpad).
+	// kCGEventSourceStateHIDSystemState reflects hardware input; querying it
+	// needs no additional TCC permissions.
+	return CGEventSourceSecondsSinceLastEventType(kCGEventSourceStateHIDSystemState,
+	                                              kCGAnyInputEventType);
+}
+
+void OSXScreenExtension::fork_setOptions(const OptionsList& options) {    for (std::uint32_t i = 0, n = static_cast<std::uint32_t>(options.size()); i < n; i += 2) {
 		if (options[i] == kOptionScreenDimmingEnabled) {
 			m_dimmingEnabled = (options[i + 1] != 0);
 		}

@@ -26,6 +26,11 @@ public:
     virtual ~PlatformScreenExtension();
 
     virtual void fork_dimScreen(bool dim) = 0;
+
+    // Seconds since the last *physical* (HID) input on this machine, or a
+    // negative value when the platform doesn't support the query. Used by
+    // the client to detect local activity while dimmed (undim-on-touch).
+    virtual double fork_getLocalIdleSeconds() const;
 };
 
 } // namespace inputleap

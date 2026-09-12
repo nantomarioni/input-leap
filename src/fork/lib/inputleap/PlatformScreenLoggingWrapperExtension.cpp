@@ -19,4 +19,11 @@ void PlatformScreenLoggingWrapperExtension::fork_dimScreen(bool dim) {
     wrapper->screen_->fork_dimScreen(dim);
 }
 
+double PlatformScreenLoggingWrapperExtension::fork_getLocalIdleSeconds() const {
+    PlatformScreenLoggingWrapper* wrapper = host();
+    if (!wrapper) return -1.0;
+
+    return wrapper->screen_->fork_getLocalIdleSeconds();
+}
+
 } // namespace inputleap

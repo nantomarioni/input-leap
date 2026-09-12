@@ -21,4 +21,11 @@ void ScreenExtension::fork_dimScreen(bool dim) {
     screen->m_screen->fork_dimScreen(dim);
 }
 
+double ScreenExtension::fork_getLocalIdleSeconds() const {
+    Screen* screen = host();
+    if (!screen->m_screen) return -1.0;
+
+    return screen->m_screen->fork_getLocalIdleSeconds();
+}
+
 } // namespace inputleap

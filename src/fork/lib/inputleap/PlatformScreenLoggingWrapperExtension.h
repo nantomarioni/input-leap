@@ -19,6 +19,7 @@ public:
     // default implementation to not break tests
     // platform-specific implementation should override this
     void fork_dimScreen(bool dim) override;
+    double fork_getLocalIdleSeconds() const override;
 
 protected:
     class PlatformScreenLoggingWrapper* host() const;

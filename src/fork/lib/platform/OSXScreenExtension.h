@@ -22,6 +22,7 @@ public:
 
     virtual void fork_dimScreen(bool dim) override;
     virtual void fork_setOptions(const OptionsList& options);
+    double fork_getLocalIdleSeconds() const override;
 
 protected:
     class OSXScreen* host() const;

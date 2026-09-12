@@ -16,11 +16,14 @@
 
 #pragma once
 
+#include <chrono>
 #include <string>
 
 namespace inputleap {
 
-class ClientExtensionHost;
+class Client;
+class IEventQueue;
+class EventQueueTimer;
 
 class ClientExtension {
 public:
@@ -33,7 +36,20 @@ protected:
     class Client* host() const;
 
 private:
+    // Undim-on-touch: while dimmed, poll the platform's physical-input idle
+    // time; local activity sends kMsgDUndimRequest so the server switches
+    // the active screen here (which undims us).
+    void startUndimPoller();
+    void stopUndimPoller();
+    void pollLocalInput();
+    void sendUndimRequest();
+
     bool m_isDimmed;
+
+    IEventQueue* m_pollerEvents;      // events queue the poller registered with
+    EventQueueTimer* m_pollerTimer;
+    std::chrono::steady_clock::time_point m_dimmedAt;
+    std::chrono::steady_clock::time_point m_lastUndimRequest;
 };
 
 } // namespace inputleap

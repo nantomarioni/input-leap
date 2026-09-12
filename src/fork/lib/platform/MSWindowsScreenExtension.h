@@ -21,7 +21,6 @@ public:
 
     virtual void fork_dimScreen(bool dim) override;
     virtual void fork_setOptions(const OptionsList& options);
-    virtual bool fork_onMouseMove(std::int32_t mx, std::int32_t my, bool warp = false);
 
 protected:
     class MSWindowsScreen* host() const;

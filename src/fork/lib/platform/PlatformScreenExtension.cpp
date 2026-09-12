@@ -24,4 +24,9 @@ namespace inputleap {
 PlatformScreenExtension::PlatformScreenExtension() {}
 PlatformScreenExtension::~PlatformScreenExtension() {}
 
+double PlatformScreenExtension::fork_getLocalIdleSeconds() const {
+    // Unsupported by default; platform extensions override.
+    return -1.0;
+}
+
 } // namespace inputleap

@@ -29,6 +29,10 @@ public:
     // platform-specific implementation should override this
     virtual void fork_dimScreen(bool dim);
 
+    // Seconds since the last physical input on this machine (negative when
+    // unsupported by the platform); forwarded to the platform screen.
+    virtual double fork_getLocalIdleSeconds() const;
+
 protected:
 
     class Screen* host() const;
