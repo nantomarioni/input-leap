@@ -38,6 +38,11 @@ public:
     // (flap detection for the connect/dim/drop loop).
     virtual void fork_clientAdopted(BaseClientProxy* client);
 
+    // Post a switch-to-screen request the way Server expects it (the
+    // handler is registered on the input filter's event target, which is
+    // private to Server — hence this friend-powered helper).
+    virtual void fork_switchToScreen(const std::string& name);
+
 protected:
     class Server* host() const;
 

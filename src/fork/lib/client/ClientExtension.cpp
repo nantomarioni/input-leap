@@ -22,8 +22,7 @@
 #include "base/IEventQueue.h"
 #include "base/EventQueueTimer.h"
 #include "base/EventTypes.h"
-
-#include "base/LogExtension.h"
+#include "base/Log.h"
 
 namespace inputleap {
 
@@ -77,7 +76,7 @@ void ClientExtension::startUndimPoller() {
 
     // Only poll when the platform can answer the idle query at all.
     if (c->m_screen->fork_getLocalIdleSeconds() < 0.0) {
-        FORK_LOG("undim-on-touch: platform has no local-idle support, poller not started");
+        LOG_DEBUG("fork: undim-on-touch unsupported on this platform, poller not started");
         return;
     }
 
@@ -85,7 +84,7 @@ void ClientExtension::startUndimPoller() {
     m_pollerTimer = m_pollerEvents->newTimer(kPollIntervalSeconds, nullptr);
     m_pollerEvents->add_handler(EventType::TIMER, m_pollerTimer,
                                 [this](const auto&){ pollLocalInput(); });
-    FORK_LOG("undim-on-touch: poller started");
+    LOG_DEBUG("fork: undim-on-touch poller started");
 }
 
 void ClientExtension::stopUndimPoller() {
@@ -94,7 +93,7 @@ void ClientExtension::stopUndimPoller() {
     m_pollerEvents->deleteTimer(m_pollerTimer);
     m_pollerTimer = nullptr;
     m_pollerEvents = nullptr;
-    FORK_LOG("undim-on-touch: poller stopped");
+    LOG_DEBUG("fork: undim-on-touch poller stopped");
 }
 
 void ClientExtension::pollLocalInput() {
@@ -122,7 +121,8 @@ void ClientExtension::sendUndimRequest() {
     Client* c = host();
     if (!c || c->m_stream == nullptr || !c->m_ready) return;
 
-    FORK_LOG("undim-on-touch: local input detected while dimmed, requesting undim");
+    // NOTE level so it shows in the app's log window, not only the fork file.
+    LOG_NOTE("fork: local input detected while dimmed - requesting undim");
     ProtocolUtil::writef(c->m_stream, kMsgDUndimRequest);
 }
 

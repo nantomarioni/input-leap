@@ -18,6 +18,8 @@
 #include "server/Server.h"
 #include "server/BaseClientProxy.h"
 #include "base/Log.h"
+#include "base/Event.h"
+#include "base/IEventQueue.h"
 
 namespace inputleap {
 
@@ -66,6 +68,13 @@ void ServerExtension::fork_clientAdopted(BaseClientProxy* client) {
                  " (inputleap_fork_debug.log in the client's temp dir) for the"
                  " exit reason", client->getName().c_str(), times.size());
     }
+}
+
+void ServerExtension::fork_switchToScreen(const std::string& name) {
+    Server* srv = host();
+    Server::SwitchToScreenInfo info{name};
+    srv->m_events->add_event(EventType::SERVER_SWITCH_TO_SCREEN, &srv->input_filter_,
+                             create_event_data<Server::SwitchToScreenInfo>(info));
 }
 
 } // namespace inputleap

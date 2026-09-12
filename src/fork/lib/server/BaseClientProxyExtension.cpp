@@ -23,6 +23,7 @@
 #include "server/Server.h"
 #include "server/ClientProxy1_6.h"
 #include "base/Event.h"
+#include "base/Log.h"
 #include "server/PrimaryClient.h"
 #include "inputleap/Screen.h"
 
@@ -82,9 +83,14 @@ bool BaseClientProxyExtension::fork_recvUndimRequest() {
     ClientProxy1_6* client = dynamic_cast<ClientProxy1_6*>(base);
     if (!client) return false;
 
-    Server::SwitchToScreenInfo info{client->getName()};
-    client->m_events->add_event(EventType::SERVER_SWITCH_TO_SCREEN, client->get_event_target(),
-                                create_event_data<Server::SwitchToScreenInfo>(info));
+    LOG_NOTE("fork: client \"%s\" reports local input while dimmed - switching to it",
+             client->getName().c_str());
+
+    // Post via ServerExtension: Server's SERVER_SWITCH_TO_SCREEN handler is
+    // registered on the input filter's event target, not the client's (the
+    // previous direct add_event with client->get_event_target() was silently
+    // dropped by the event queue - nobody listened on that target).
+    client->getServer()->fork_switchToScreen(client->getName());
     return true;
 }
 
