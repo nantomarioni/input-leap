@@ -16,10 +16,9 @@
 
 #include "OverlayNotification.h"
 
-#include <QApplication>
 #include <QDateTime>
-#include <QHBoxLayout>
-#include <QLabel>
+#include <QFontMetrics>
+#include <QGuiApplication>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
@@ -33,16 +32,11 @@ namespace fork_gui {
 namespace {
 const int kCornerRadius = 14;
 const int kMarginFromBottom = 96;   // px above the bottom edge
+const int kPadX = 22;
+const int kPadY = 13;
+const int kAccentGap = 10;          // extra room for the accent bar
 const int kFadeInMs = 180;
 const int kFadeOutMs = 280;
-
-QString toneDot(OverlayNotification::Tone tone) {
-    switch (tone) {
-    case OverlayNotification::Tone::Success: return QStringLiteral("\u25CF "); // ●
-    case OverlayNotification::Tone::Warning: return QStringLiteral("\u25B2 "); // ▲
-    default:                                 return QStringLiteral("\u25CF ");
-    }
-}
 
 QColor toneColor(OverlayNotification::Tone tone) {
     switch (tone) {
@@ -62,10 +56,10 @@ OverlayNotification::OverlayNotification() :
     QWidget(nullptr,
             Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint | Qt::Tool |
             Qt::WindowDoesNotAcceptFocus),
-    m_label(new QLabel(this)),
     m_hideTimer(new QTimer(this)),
     m_anim(nullptr),
     m_tone(Tone::Info),
+    m_opacity(0.0),
     m_lastShownMs(0)
 {
     setAttribute(Qt::WA_TranslucentBackground);
@@ -76,23 +70,21 @@ OverlayNotification::OverlayNotification() :
     setAttribute(Qt::WA_MacAlwaysShowToolWindow);
 #endif
 
-    auto* layout = new QHBoxLayout(this);
-    layout->setContentsMargins(22, 12, 22, 13);
-    layout->addWidget(m_label);
-
-    QFont f = m_label->font();
-    f.setPointSizeF(f.pointSizeF() + 1.5);
-    f.setWeight(QFont::Medium);
-    m_label->setFont(f);
-    m_label->setStyleSheet(QStringLiteral("color: rgba(255,255,255,235); background: transparent;"));
+    m_font = font();
+    m_font.setPointSizeF(m_font.pointSizeF() + 1.5);
+    m_font.setWeight(QFont::Medium);
 
     m_hideTimer->setSingleShot(true);
-    connect(m_hideTimer, &QTimer::timeout, this, [this]() { animateOut(); });
+    connect(m_hideTimer, &QTimer::timeout, this,
+            [this]() { animateTo(0.0, kFadeOutMs, true); });
 
-    // Fade via the native top-level window opacity: QGraphicsOpacityEffect
-    // does not compose reliably with WA_TranslucentBackground top-levels.
-    setWindowOpacity(0.0);
-    m_anim = new QPropertyAnimation(this, "windowOpacity", this);
+    m_anim = new QPropertyAnimation(this, "hudOpacity", this);
+}
+
+void OverlayNotification::setHudOpacity(qreal opacity)
+{
+    m_opacity = opacity;
+    update();
 }
 
 void OverlayNotification::showTransient(const QString& text, Tone tone,
@@ -129,17 +121,24 @@ void OverlayNotification::dismissKey(const QString& key)
 {
     if (m_persistentKey == key) {
         m_persistentKey.clear();
-        animateOut();
+        animateTo(0.0, kFadeOutMs, true);
     }
 }
 
 void OverlayNotification::presentText(const QString& text, Tone tone)
 {
     m_tone = tone;
-    m_label->setText(toneDot(tone) + text);
-    adjustSize();
+    m_text = text;
+
+    const QFontMetrics fm(m_font);
+    const QSize textSize = fm.size(Qt::TextSingleLine, m_text);
+    setFixedSize(textSize.width() + 2 * kPadX + kAccentGap,
+                 textSize.height() + 2 * kPadY);
+
     repositionToBottomCenter();
-    animateIn();
+    show();
+    raise();
+    animateTo(1.0, kFadeInMs, false);
     update();
 }
 
@@ -152,28 +151,18 @@ void OverlayNotification::repositionToBottomCenter()
          avail.bottom() - kMarginFromBottom - height());
 }
 
-void OverlayNotification::animateIn()
-{
-    show();
-    raise();
-    m_anim->stop();
-    m_anim->setDuration(kFadeInMs);
-    m_anim->setStartValue(windowOpacity());
-    m_anim->setEndValue(1.0);
-    m_anim->setEasingCurve(QEasingCurve::OutCubic);
-    disconnect(m_anim, &QPropertyAnimation::finished, this, nullptr);
-    m_anim->start();
-}
-
-void OverlayNotification::animateOut()
+void OverlayNotification::animateTo(qreal target, int durationMs, bool hideAtEnd)
 {
     m_anim->stop();
-    m_anim->setDuration(kFadeOutMs);
-    m_anim->setStartValue(windowOpacity());
-    m_anim->setEndValue(0.0);
-    m_anim->setEasingCurve(QEasingCurve::InCubic);
+    m_anim->setDuration(durationMs);
+    m_anim->setStartValue(m_opacity);
+    m_anim->setEndValue(target);
+    m_anim->setEasingCurve(target > m_opacity ? QEasingCurve::OutCubic
+                                              : QEasingCurve::InCubic);
     disconnect(m_anim, &QPropertyAnimation::finished, this, nullptr);
-    connect(m_anim, &QPropertyAnimation::finished, this, [this]() { hide(); });
+    if (hideAtEnd) {
+        connect(m_anim, &QPropertyAnimation::finished, this, [this]() { hide(); });
+    }
     m_anim->start();
 }
 
@@ -181,20 +170,27 @@ void OverlayNotification::paintEvent(QPaintEvent*)
 {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
+    p.setOpacity(m_opacity);
 
     QPainterPath path;
-    path.addRoundedRect(rect().adjusted(0, 0, -1, -1), kCornerRadius, kCornerRadius);
+    path.addRoundedRect(QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5),
+                        kCornerRadius, kCornerRadius);
 
     // dark HUD glass
     p.fillPath(path, QColor(28, 28, 30, 226));
     p.setPen(QPen(QColor(255, 255, 255, 26), 1));
     p.drawPath(path);
 
-    // tone accent: tint the leading glyph by painting over it is complex;
-    // instead draw a small accent bar on the left edge.
+    // tone accent bar on the left edge
     QPainterPath accent;
-    accent.addRoundedRect(QRectF(8, height() / 2.0 - 8, 3.5, 16), 2, 2);
+    accent.addRoundedRect(QRectF(9, height() / 2.0 - 8, 3.5, 16), 2, 2);
     p.fillPath(accent, toneColor(m_tone));
+
+    // text
+    p.setFont(m_font);
+    p.setPen(QColor(255, 255, 255, 235));
+    p.drawText(rect().adjusted(kPadX + kAccentGap, 0, -kPadX, 0),
+               Qt::AlignVCenter | Qt::AlignLeft | Qt::TextSingleLine, m_text);
 }
 
 void OverlayNotification::mousePressEvent(QMouseEvent*)
@@ -203,13 +199,13 @@ void OverlayNotification::mousePressEvent(QMouseEvent*)
         auto cb = m_onClick;
         m_onClick = nullptr;
         m_hideTimer->stop();
-        animateOut();
+        animateTo(0.0, kFadeOutMs, true);
         cb();
         return;
     }
     if (m_persistentKey.isEmpty()) {
         m_hideTimer->stop();
-        animateOut();
+        animateTo(0.0, kFadeOutMs, true);
     }
 }
 

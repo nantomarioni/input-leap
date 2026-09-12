@@ -17,10 +17,10 @@
 #pragma once
 
 #include <QWidget>
+#include <QFont>
 #include <QString>
 #include <functional>
 
-class QLabel;
 class QPropertyAnimation;
 class QTimer;
 
@@ -29,16 +29,23 @@ namespace fork_gui {
 
 /* HUD-style overlay notification (macOS keyboard-battery look): a small
  * rounded translucent panel at the bottom-center of the primary screen,
- * fading/sliding in and out. Never takes focus, never appears in the
- * taskbar/dock.
+ * fading in and out. Never takes focus, never appears in the taskbar/dock.
+ *
+ * Everything (background, accent, text) is painted in paintEvent with the
+ * fade applied as painter opacity. Deliberately NO setWindowOpacity and NO
+ * QGraphicsOpacityEffect: on Windows, whole-window opacity
+ * (SetLayeredWindowAttributes) and per-pixel alpha (UpdateLayeredWindow)
+ * are mutually exclusive, and opacity effects don't compose with
+ * translucent top-levels.
  *
  * One panel instance shows one message at a time; a new message replaces
- * the current one. Messages can be transient (auto-dismiss) or persistent
- * (keyed; stays until dismissKey() is called). Clicking runs the optional
- * action, otherwise dismisses.
+ * the current one. Messages are transient (auto-dismiss) or persistent
+ * (keyed; stay until dismissKey()). Clicking runs the optional action,
+ * otherwise dismisses.
  */
 class OverlayNotification : public QWidget {
     Q_OBJECT
+    Q_PROPERTY(qreal hudOpacity READ hudOpacity WRITE setHudOpacity)
 public:
     enum class Tone { Info, Success, Warning };
 
@@ -54,6 +61,9 @@ public:
                         Tone tone = Tone::Warning);
     void dismissKey(const QString& key);
 
+    qreal hudOpacity() const { return m_opacity; }
+    void setHudOpacity(qreal opacity);
+
 protected:
     void paintEvent(QPaintEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
@@ -62,14 +72,15 @@ private:
     OverlayNotification();
 
     void presentText(const QString& text, Tone tone);
-    void animateIn();
-    void animateOut();
+    void animateTo(qreal target, int durationMs, bool hideAtEnd);
     void repositionToBottomCenter();
 
-    QLabel* m_label;
+    QString m_text;
+    QFont m_font;
     QTimer* m_hideTimer;
     QPropertyAnimation* m_anim;
     Tone m_tone;
+    qreal m_opacity;
     QString m_persistentKey;   // non-empty while a persistent message shows
     std::function<void()> m_onClick;
     QString m_lastText;
