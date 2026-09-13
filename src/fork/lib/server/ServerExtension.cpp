@@ -50,6 +50,11 @@ void ServerExtension::fork_clientAdopted(BaseClientProxy* client) {
     // the active screen.
     if (client != srv->m_active) {
         fork_dimScreenAll();
+
+        // Late joiner while the cursor is locked elsewhere: tell it.
+        if (srv->m_lockedToScreen) {
+            client->fork_sendLockState(true);
+        }
     }
 
     // Flap detection: a healthy client adopts once; a connect/drop loop
@@ -75,6 +80,16 @@ void ServerExtension::fork_switchToScreen(const std::string& name) {
     Server::SwitchToScreenInfo info{name};
     srv->m_events->add_event(EventType::SERVER_SWITCH_TO_SCREEN, &srv->input_filter_,
                              create_event_data<Server::SwitchToScreenInfo>(info));
+}
+
+void ServerExtension::fork_lockStateChanged(bool locked) {
+    Server* srv = host();
+    for (const auto& clientPair : srv->m_clients) {
+        BaseClientProxy* clientProxy = clientPair.second;
+        if (clientProxy == nullptr) continue;
+        if (locked && clientProxy == srv->m_active) continue; // reachable one
+        clientProxy->fork_sendLockState(locked);
+    }
 }
 
 } // namespace inputleap

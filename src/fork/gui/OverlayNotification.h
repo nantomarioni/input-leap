@@ -59,7 +59,8 @@ public:
     // another persistent message with the same key).
     void showPersistent(const QString& key, const QString& text,
                         Tone tone = Tone::Warning);
-    void dismissKey(const QString& key);
+    // Returns true when a matching persistent message was actually showing.
+    bool dismissKey(const QString& key);
 
     qreal hudOpacity() const { return m_opacity; }
     void setHudOpacity(qreal opacity);

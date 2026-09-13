@@ -71,17 +71,20 @@ void routeLogLineToOverlay(const QString& line)
         return;
     }
 
-    // ---- cursor lock (server side, upstream NOTE lines) --------------------
-    if (line.contains(QLatin1String("cursor locked to current screen"))) {
+    // ---- cursor lock (fork markers; shown on the screens that became
+    // unreachable, never on the locked/active one) -------------------------
+    if (line.contains(QLatin1String("fork: cursor locked to another screen"))) {
         overlay->showPersistent(QStringLiteral("cursor-lock"),
-                                tr("Cursor locked to this screen (Scroll Lock)"),
+                                tr("Cursor locked to another screen (Scroll Lock)"),
                                 OverlayNotification::Tone::Warning);
         return;
     }
-    if (line.contains(QLatin1String("cursor unlocked from current screen"))) {
-        overlay->dismissKey(QStringLiteral("cursor-lock"));
-        overlay->showTransient(tr("Cursor unlocked"),
-                               OverlayNotification::Tone::Success, 1800);
+    if (line.contains(QLatin1String("fork: cursor lock released"))) {
+        // Only announce the release where the warning was actually showing.
+        if (overlay->dismissKey(QStringLiteral("cursor-lock"))) {
+            overlay->showTransient(tr("Cursor unlocked"),
+                                   OverlayNotification::Tone::Success, 1800);
+        }
         return;
     }
 }

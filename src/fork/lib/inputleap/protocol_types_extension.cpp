@@ -23,5 +23,6 @@ namespace inputleap {
 
 const char*                kMsgCDimScreen       = "CDIM%1i";
 const char*                kMsgDUndimRequest    = "DUNR";
+const char*                kMsgCLockState       = "CLCK%1i";
 
 } // namespace inputleap

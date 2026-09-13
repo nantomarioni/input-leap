@@ -29,6 +29,7 @@ public:
 
     virtual bool fork_parseMessage(const std::uint8_t* code);
     virtual void fork_dimScreen();
+    virtual void fork_recvLockState();
 
 protected:
     ServerProxy* host() const;

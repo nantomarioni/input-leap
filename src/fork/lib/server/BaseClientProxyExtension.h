@@ -31,6 +31,11 @@ public:
     virtual bool fork_parseMessage(const std::uint8_t* code);
     virtual bool fork_recvUndimRequest();
 
+    // Deliver the cursor-lock state to this screen: network clients get
+    // kMsgCLockState on the wire; the primary (this machine) logs the
+    // marker lines the GUI overlay router listens for.
+    virtual void fork_sendLockState(bool locked);
+
 protected:
     class BaseClientProxy* host() const;
 };

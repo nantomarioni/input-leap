@@ -43,6 +43,13 @@ public:
     // private to Server — hence this friend-powered helper).
     virtual void fork_switchToScreen(const std::string& name);
 
+    // Broadcast the cursor-lock state. On lock, every screen EXCEPT the
+    // active (locked) one gets notified — those are the screens that just
+    // became unreachable. On unlock, everyone gets notified (the active
+    // screen may have changed while locked via an explicit jump, so clear
+    // unconditionally).
+    virtual void fork_lockStateChanged(bool locked);
+
 protected:
     class Server* host() const;
 

@@ -284,7 +284,8 @@ more):
   `ServerExtension::host()`), which is undefined behavior if any other class
   ever inherits the extension. Never reuse an extension class.
 - **Fork wire messages assume fork builds on both ends.** `kMsgCDimScreen` /
-  `kMsgDUndimRequest` are sent unconditionally (no capability negotiation);
+  `kMsgDUndimRequest` / `kMsgCLockState` are sent unconditionally (no
+  capability negotiation);
   a stock upstream client receiving one will error out. Acceptable for this
   fleet (all machines run the fork) — but any new fork message inherits the
   same constraint, and mixed-fleet support would require a handshake guard in

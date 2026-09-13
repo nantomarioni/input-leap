@@ -1424,6 +1424,7 @@ void Server::handle_lock_cursor_to_screen_event(const Event& event)
 	if (newState != m_lockedToScreen) {
 		m_lockedToScreen = newState;
 		LOG_NOTE("cursor %s current screen", m_lockedToScreen ? "locked to" : "unlocked from");
+		fork_lockStateChanged(m_lockedToScreen);
 
 		m_primaryClient->reconfigure(getActivePrimarySides());
 		if (!isLockedToScreenServer()) {

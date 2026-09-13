@@ -29,4 +29,10 @@ extern const char*        kMsgCDimScreen;
 // requests the primary to undim this client.
 extern const char*        kMsgDUndimRequest;
 
+// cursor lock state:  primary -> secondary
+// $1 = 1 when the cursor is locked to some *other* screen (this client is
+// unreachable), 0 when the lock is released. Drives the client-side
+// "cursor locked elsewhere" overlay.
+extern const char*        kMsgCLockState;
+
 } // namespace inputleap

@@ -117,12 +117,14 @@ void OverlayNotification::showPersistent(const QString& key, const QString& text
     presentText(text, tone);
 }
 
-void OverlayNotification::dismissKey(const QString& key)
+bool OverlayNotification::dismissKey(const QString& key)
 {
     if (m_persistentKey == key) {
         m_persistentKey.clear();
         animateTo(0.0, kFadeOutMs, true);
+        return true;
     }
+    return false;
 }
 
 void OverlayNotification::presentText(const QString& text, Tone tone)

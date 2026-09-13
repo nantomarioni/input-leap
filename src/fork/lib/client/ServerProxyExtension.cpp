@@ -19,6 +19,7 @@
 #include "client/Client.h"
 #include "inputleap/protocol_types.h"
 #include "inputleap/ProtocolUtil.h"
+#include "base/Log.h"
 
 namespace inputleap {
 
@@ -34,7 +35,25 @@ bool ServerProxyExtension::fork_parseMessage(const std::uint8_t* code) {
         fork_dimScreen();
         return true;
     }
+    if (memcmp(code, kMsgCLockState, 4) == 0) {
+        fork_recvLockState();
+        return true;
+    }
     return false;
+}
+
+void ServerProxyExtension::fork_recvLockState() {
+    ServerProxy* sp = host();
+    std::int8_t locked;
+    ProtocolUtil::readf(sp->m_stream, kMsgCLockState + 4, &locked);
+
+    // Marker lines for the GUI overlay router — keep in sync with
+    // BaseClientProxyExtension and src/fork/gui/NotificationRouter.cpp.
+    if (locked != 0) {
+        LOG_NOTE("fork: cursor locked to another screen");
+    } else {
+        LOG_NOTE("fork: cursor lock released");
+    }
 }
 
 void ServerProxyExtension::fork_dimScreen() {

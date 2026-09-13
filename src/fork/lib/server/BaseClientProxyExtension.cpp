@@ -76,8 +76,34 @@ bool BaseClientProxyExtension::fork_parseMessage(const std::uint8_t* code) {
     return false;
 }
 
-bool BaseClientProxyExtension::fork_recvUndimRequest() {
-    BaseClientProxy* base = host();
+void BaseClientProxyExtension::fork_sendLockState(bool locked) {
+    BaseClientProxy* client = host();
+    if (!client) return;
+
+    // Network client: deliver on the wire; its ServerProxyExtension logs
+    // the marker lines for its local GUI.
+    ClientProxy* cp = dynamic_cast<ClientProxy*>(client);
+    if (cp) {
+        IClientConnection& conn = cp->get_conn();
+        IStream* stream = conn.get_stream();
+        if (!stream) return;
+        ProtocolUtil::writef(stream, kMsgCLockState, locked ? 1 : 0);
+        return;
+    }
+
+    // Primary (this machine): log the markers directly — the server GUI's
+    // overlay router picks them up. Keep the text in sync with
+    // ServerProxyExtension and src/fork/gui/NotificationRouter.cpp.
+    if (dynamic_cast<PrimaryClient*>(client) != nullptr) {
+        if (locked) {
+            LOG_NOTE("fork: cursor locked to another screen");
+        } else {
+            LOG_NOTE("fork: cursor lock released");
+        }
+    }
+}
+
+bool BaseClientProxyExtension::fork_recvUndimRequest() {    BaseClientProxy* base = host();
     if (!base) return false;
 
     ClientProxy1_6* client = dynamic_cast<ClientProxy1_6*>(base);
