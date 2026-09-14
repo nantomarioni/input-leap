@@ -51,14 +51,18 @@ void BaseClientProxyExtension::fork_dimScreen(bool dim) {
     BaseClientProxy* client = host();
     if (!client) return;
 
+    const int want = dim ? 1 : 0;
+    if (want == m_lastDimSent) return;
+
     // Guess we are dealing with a remote client
     ClientProxy* cp = dynamic_cast<ClientProxy*>(client);
     if (cp) {
         IClientConnection& conn = cp->get_conn();
         IStream* stream = conn.get_stream();
         if (!stream) return;
-    
+
         ProtocolUtil::writef(stream, kMsgCDimScreen, dim ? 1 : 0);
+        m_lastDimSent = want;
         return;
     }
 
@@ -66,6 +70,14 @@ void BaseClientProxyExtension::fork_dimScreen(bool dim) {
     PrimaryClient* pc = dynamic_cast<PrimaryClient*>(client);
     if (pc) {
         pc->m_screen->fork_dimScreen(dim);
+        m_lastDimSent = want;
+        // Marker lines for this machine's GUI overlay router — network
+        // clients log the equivalent in ClientExtension::fork_dimScreen.
+        if (dim) {
+            LOG_NOTE("fork: screen dimmed");
+        } else {
+            LOG_NOTE("fork: screen restored");
+        }
     }
 }
 
@@ -80,6 +92,9 @@ void BaseClientProxyExtension::fork_sendLockState(bool locked) {
     BaseClientProxy* client = host();
     if (!client) return;
 
+    const int want = locked ? 1 : 0;
+    if (want == m_lastLockSent) return;
+
     // Network client: deliver on the wire; its ServerProxyExtension logs
     // the marker lines for its local GUI.
     ClientProxy* cp = dynamic_cast<ClientProxy*>(client);
@@ -88,6 +103,7 @@ void BaseClientProxyExtension::fork_sendLockState(bool locked) {
         IStream* stream = conn.get_stream();
         if (!stream) return;
         ProtocolUtil::writef(stream, kMsgCLockState, locked ? 1 : 0);
+        m_lastLockSent = want;
         return;
     }
 
@@ -95,6 +111,7 @@ void BaseClientProxyExtension::fork_sendLockState(bool locked) {
     // overlay router picks them up. Keep the text in sync with
     // ServerProxyExtension and src/fork/gui/NotificationRouter.cpp.
     if (dynamic_cast<PrimaryClient*>(client) != nullptr) {
+        m_lastLockSent = want;
         if (locked) {
             LOG_NOTE("fork: cursor locked to another screen");
         } else {

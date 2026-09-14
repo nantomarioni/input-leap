@@ -38,6 +38,12 @@ public:
 
 protected:
     class BaseClientProxy* host() const;
+
+private:
+    // Edge detection so per-switch rebroadcasts (fork_dimScreenAll runs on
+    // every screen switch) don't spam the wire / the logs. -1 = unknown.
+    int m_lastDimSent = -1;
+    int m_lastLockSent = -1;
 };
 
 } // namespace inputleap

@@ -41,6 +41,13 @@ void ServerExtension::fork_dimScreenAll() {
             clientProxy->fork_dimScreen(true);
         }
     }
+
+    // The active screen may change while the cursor is locked (undim-on-
+    // touch jumps bypass the lock), which changes who is unreachable —
+    // re-evaluate. Per-proxy edge detection keeps this from spamming.
+    if (srv->m_lockedToScreen) {
+        fork_lockStateChanged(true);
+    }
 }
 
 void ServerExtension::fork_clientAdopted(BaseClientProxy* client) {
@@ -87,8 +94,11 @@ void ServerExtension::fork_lockStateChanged(bool locked) {
     for (const auto& clientPair : srv->m_clients) {
         BaseClientProxy* clientProxy = clientPair.second;
         if (clientProxy == nullptr) continue;
-        if (locked && clientProxy == srv->m_active) continue; // reachable one
-        clientProxy->fork_sendLockState(locked);
+        // A screen is "locked out" when the cursor is locked and it is not
+        // the active screen. Sending the resulting per-screen state (rather
+        // than skipping anyone) also clears stale warnings when the active
+        // screen changes while locked; per-proxy dedup suppresses no-ops.
+        clientProxy->fork_sendLockState(locked && clientProxy != srv->m_active);
     }
 }
 

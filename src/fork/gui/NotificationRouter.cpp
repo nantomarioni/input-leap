@@ -52,15 +52,18 @@ void routeLogLineToOverlay(const QString& line)
         return;
     }
 
-    // ---- screen dimming (fork markers from the client daemon) -------------
+    // ---- screen dimming (fork markers) -------------------------------------
+    // Persistent while dimmed: acts as a "touch input to wake" hint and
+    // vanishes the instant the screen restores (no lingering toast when
+    // hopping back and forth quickly).
     if (line.contains(QLatin1String("fork: screen dimmed"))) {
-        overlay->showTransient(tr("Screen dimmed \u2014 touch input to wake"),
-                               OverlayNotification::Tone::Info, 2200);
+        overlay->showPersistent(QStringLiteral("dimmed"),
+                                tr("Screen dimmed \u2014 touch input to wake"),
+                                OverlayNotification::Tone::Info);
         return;
     }
     if (line.contains(QLatin1String("fork: screen restored"))) {
-        // restoring is self-evident (the screen brightens); keep it quiet,
-        // but clear a stale lock warning if one is showing.
+        overlay->dismissKey(QStringLiteral("dimmed"));
         overlay->dismissKey(QStringLiteral("wake-ignored"));
         return;
     }
@@ -75,7 +78,7 @@ void routeLogLineToOverlay(const QString& line)
     // unreachable, never on the locked/active one) -------------------------
     if (line.contains(QLatin1String("fork: cursor locked to another screen"))) {
         overlay->showPersistent(QStringLiteral("cursor-lock"),
-                                tr("Cursor locked to another screen (Scroll Lock)"),
+                                tr("Cursor locked to another screen \u2014 press Scroll Lock there to release"),
                                 OverlayNotification::Tone::Warning);
         return;
     }
