@@ -33,6 +33,11 @@
 #include <atomic>
 #include <cstdlib>
 
+#ifndef _WIN32
+#include <execinfo.h>
+#include <pthread.h>
+#endif
+
 namespace inputleap {
 namespace fork {
 
@@ -66,6 +71,23 @@ static void exit_tracer() {
     else {
         logDebug("%s exit: exit() WITHOUT teardown — direct quit "
                  "(e.g. Cocoa [NSApp terminate] / Apple Event / library exit call)", s_tag);
+#ifndef _WIN32
+        // atexit handlers run on the thread that called exit(), with exit()
+        // still on the stack — the backtrace names the caller.
+        char threadName[64] = {0};
+        pthread_getname_np(pthread_self(), threadName, sizeof(threadName));
+        logDebug("%s exit thread: '%s'", s_tag, threadName[0] ? threadName : "(unnamed)");
+
+        void* frames[48];
+        const int depth = backtrace(frames, 48);
+        char** symbols = backtrace_symbols(frames, depth);
+        if (symbols != nullptr) {
+            for (int i = 0; i < depth; ++i) {
+                logDebug("%s exit bt[%02d]: %s", s_tag, i, symbols[i]);
+            }
+            free(symbols);
+        }
+#endif
     }
 }
 
