@@ -74,6 +74,8 @@ if(APPLE)
     list(APPEND FORK_SERVER_SOURCES
         lib/platform/OSXScreenExtension.mm
         lib/platform/OSXScreenExtension.h
+        lib/platform/OSXDragSimulatorExtension.mm
+        lib/platform/OSXDragSimulatorExtension.h
     )
 endif()
 

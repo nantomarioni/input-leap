@@ -15,6 +15,7 @@
 #import "platform/OSXDragSimulator.h"
 
 #import "platform/OSXDragView.h"
+#include "../../fork/lib/platform/OSXDragSimulatorExtension.h"
 
 #import <Foundation/Foundation.h>
 #import <CoreData/CoreData.h>
@@ -50,6 +51,7 @@ runCocoaApp()
 	g_dragView = dragView;
 	[window setContentView: dragView];
 
+	fork_disableAutomaticTermination();
 	NSLog(@"starting cocoa loop");
 	[NSApp run];
 
