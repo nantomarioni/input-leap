@@ -281,6 +281,88 @@ TEST(ClipboardTests, unmarshall_emptyData_hasTextIsFalse)
     EXPECT_FALSE(actual);
 }
 
+TEST(ClipboardTests, unmarshall_truncatedFormatCount_hasTextIsFalse)
+{
+    Clipboard clipboard;
+
+    std::string data;
+    data += static_cast<char>(0);
+    data += static_cast<char>(0); // only 2 of the 4 format count bytes
+
+    clipboard.unmarshall(data, 0);
+
+    clipboard.open(0);
+    EXPECT_FALSE(clipboard.has(IClipboard::kText));
+}
+
+TEST(ClipboardTests, unmarshall_formatCountWithoutFormats_hasTextIsFalse)
+{
+    Clipboard clipboard;
+
+    std::string data;
+    data += static_cast<char>(0xff);
+    data += static_cast<char>(0xff);
+    data += static_cast<char>(0xff);
+    data += static_cast<char>(0xff); // claims 4294967295 formats, sends none
+
+    clipboard.unmarshall(data, 0);
+
+    clipboard.open(0);
+    EXPECT_FALSE(clipboard.has(IClipboard::kText));
+}
+
+TEST(ClipboardTests, unmarshall_sizeBeyondData_hasTextIsFalse)
+{
+    Clipboard clipboard;
+
+    std::string data;
+    data += static_cast<char>(0);
+    data += static_cast<char>(0);
+    data += static_cast<char>(0);
+    data += static_cast<char>(1); // 1 format added
+    data += static_cast<char>(0);
+    data += static_cast<char>(0);
+    data += static_cast<char>(0);
+    data += static_cast<char>(IClipboard::kText);
+    data += static_cast<char>(0xff);
+    data += static_cast<char>(0xff);
+    data += static_cast<char>(0xff);
+    data += static_cast<char>(0xf0); // claims ~4 GB of text
+    data += "abc";
+
+    clipboard.unmarshall(data, 0);
+
+    clipboard.open(0);
+    EXPECT_FALSE(clipboard.has(IClipboard::kText));
+}
+
+TEST(ClipboardTests, unmarshall_secondFormatTruncated_firstFormatKept)
+{
+    Clipboard clipboard;
+
+    std::string data;
+    data += static_cast<char>(0);
+    data += static_cast<char>(0);
+    data += static_cast<char>(0);
+    data += static_cast<char>(2); // 2 formats added
+    data += static_cast<char>(0);
+    data += static_cast<char>(0);
+    data += static_cast<char>(0);
+    data += static_cast<char>(IClipboard::kText);
+    data += static_cast<char>(0);
+    data += static_cast<char>(0);
+    data += static_cast<char>(0);
+    data += static_cast<char>(3);
+    data += "abc";
+    data += static_cast<char>(0); // second format header cut short
+
+    clipboard.unmarshall(data, 0);
+
+    clipboard.open(0);
+    EXPECT_EQ("abc", clipboard.get(IClipboard::kText));
+    EXPECT_FALSE(clipboard.has(IClipboard::kHTML));
+}
+
 TEST(ClipboardTests, unmarshall_withTextSize289_getTextIsValid)
 {
     Clipboard clipboard;
