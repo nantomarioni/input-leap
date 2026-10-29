@@ -434,11 +434,12 @@ SecureSocket::secureAccept(int socket)
     checkResult(r, secure_accept_retry_);
 
     if (isFatal()) {
-        // tell user and sleep so the socket isn't hammered.
+        // Never sleep here: this runs on the multiplexer thread that services
+        // every connected socket, so a 1s sleep per failed handshake let any
+        // host on the network stall input for all clients.
         LOG_ERR("failed to accept secure socket");
         LOG_INFO("client connection may not be secure");
         m_secureReady = false;
-        inputleap::this_thread_sleep(1);
         secure_accept_retry_ = 0;
         return -1; // Failed, error out
     }
