@@ -1,0 +1,1 @@
+Ported Deskflow reliability fixes: a Windows server with TLS no longer busy-spins a CPU core when sending backs up, a connection that drops mid-message is now noticed immediately instead of lingering, TCP keep-alive is enabled as a backstop for vanished peers, and copying on Windows retries briefly when another app is holding the clipboard.

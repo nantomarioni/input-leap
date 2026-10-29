@@ -120,18 +120,27 @@ MSWindowsClipboard::open(Time time) const
 {
     LOG_DEBUG("open clipboard");
 
-    if (!OpenClipboard(m_window)) {
-        // unable to cause this in integ tests; but this can happen!
-        // * http://symless.com/pm/issues/86
-        // * http://symless.com/pm/issues/1256
-        // logging improved to see if we can catch more info next time.
-        LOG_WARN("failed to open clipboard: %d", GetLastError());
-        return false;
+    // the clipboard is a global lock and another process (a clipboard
+    // manager, an app mid-copy) often holds it for a moment, so retry
+    // briefly before giving up. based on Chromium's ScopedClipboard::Acquire()
+    const int kMaxAttempts = 5;
+    const DWORD kRetryDelayMs = 5;
+    for (int attempt = 1; attempt <= kMaxAttempts; ++attempt) {
+        if (OpenClipboard(m_window)) {
+            m_time = time;
+            return true;
+        }
+        if (attempt < kMaxAttempts) {
+            Sleep(kRetryDelayMs);
+        }
     }
 
-    m_time = time;
-
-    return true;
+    // unable to cause this in integ tests; but this can happen!
+    // * http://symless.com/pm/issues/86
+    // * http://symless.com/pm/issues/1256
+    // logging improved to see if we can catch more info next time.
+    LOG_WARN("failed to open clipboard after %d attempts: %d", kMaxAttempts, GetLastError());
+    return false;
 }
 
 void
