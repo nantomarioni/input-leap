@@ -238,6 +238,15 @@ public:
     */
     virtual bool setReuseAddrOnSocket(ArchSocket, bool reuse) = 0;
 
+    //! Reset the writable poll hint for a socket
+    /*!
+    Tells pollSocket() to wait for a fresh writable notification instead of
+    assuming the socket is still writable. Needed by callers that write to a
+    socket without going through writeSocket(), e.g. OpenSSL's SSL_write().
+    Only Winsock keeps such a hint.
+    */
+    virtual void resetPollWriteOnSocket(ArchSocket) { }
+
     //! Return local host's name
     virtual std::string getHostName() = 0;
 

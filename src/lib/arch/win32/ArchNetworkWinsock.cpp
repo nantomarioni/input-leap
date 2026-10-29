@@ -660,6 +660,13 @@ ArchNetworkWinsock::setReuseAddrOnSocket(ArchSocket s, bool reuse)
     return (oflag != 0);
 }
 
+void
+ArchNetworkWinsock::resetPollWriteOnSocket(ArchSocket s)
+{
+    assert(s != nullptr);
+    s->m_pollWrite = true;
+}
+
 std::string
 ArchNetworkWinsock::getHostName()
 {

@@ -568,6 +568,10 @@ SecureSocket::checkResult(int status, int& retry)
         // select action actually triggers on a write. This isn't necessary for
         // m_readable because the socket logic is always readable
         m_writable = true;
+        // SSL_write() bypasses ARCH->writeSocket(), which is what normally
+        // clears Winsock's "assume writable" hint on WSAEWOULDBLOCK; without
+        // this the multiplexer polls with a zero timeout and spins
+        ARCH->resetPollWriteOnSocket(getSocket());
         retry++;
         LOG_DEBUG2("want to write, error=%d, attempt=%d", errorCode, retry);
         break;
