@@ -77,6 +77,10 @@ if(APPLE)
         lib/platform/OSXDragSimulatorExtension.mm
         lib/platform/OSXDragSimulatorExtension.h
     )
+    # Real Objective-C++ (Foundation) must stay out of the C++-mode unity
+    # batches, same as src/lib/platform does for its .mm files.
+    set_source_files_properties(lib/platform/OSXDragSimulatorExtension.mm
+        PROPERTIES SKIP_UNITY_BUILD_INCLUSION TRUE)
 endif()
 
 if(LINUX)
