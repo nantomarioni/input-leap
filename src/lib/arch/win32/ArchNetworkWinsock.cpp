@@ -661,6 +661,19 @@ ArchNetworkWinsock::setReuseAddrOnSocket(ArchSocket s, bool reuse)
 }
 
 void
+ArchNetworkWinsock::setKeepAliveOnSocket(ArchSocket s, bool keepAlive)
+{
+    assert(s != nullptr);
+
+    BOOL flag = keepAlive ? 1 : 0;
+    int size  = sizeof(flag);
+    if (setsockopt_winsock(s->m_socket, SOL_SOCKET,
+                                SO_KEEPALIVE, &flag, size) == SOCKET_ERROR) {
+        throwError(getsockerror_winsock());
+    }
+}
+
+void
 ArchNetworkWinsock::resetPollWriteOnSocket(ArchSocket s)
 {
     assert(s != nullptr);

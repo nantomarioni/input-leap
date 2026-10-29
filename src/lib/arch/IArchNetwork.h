@@ -238,6 +238,13 @@ public:
     */
     virtual bool setReuseAddrOnSocket(ArchSocket, bool reuse) = 0;
 
+    //! Turn TCP keep-alive on or off on socket
+    /*!
+    Lets the OS probe an idle connection and eventually drop it if the peer
+    has gone away without closing it.
+    */
+    virtual void setKeepAliveOnSocket(ArchSocket, bool keepAlive) = 0;
+
     //! Reset the writable poll hint for a socket
     /*!
     Tells pollSocket() to wait for a fresh writable notification instead of

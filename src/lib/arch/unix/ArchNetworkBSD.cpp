@@ -473,6 +473,19 @@ ArchNetworkBSD::setReuseAddrOnSocket(ArchSocket s, bool reuse)
     return (oflag != 0);
 }
 
+void
+ArchNetworkBSD::setKeepAliveOnSocket(ArchSocket s, bool keepAlive)
+{
+    assert(s != nullptr);
+
+    int flag = keepAlive ? 1 : 0;
+    socklen_t size = static_cast<socklen_t>(sizeof(flag));
+    if (setsockopt(s->m_fd, SOL_SOCKET, SO_KEEPALIVE,
+                            reinterpret_cast<optval_t*>(&flag), size) == -1) {
+        throwError(errno);
+    }
+}
+
 std::string
 ArchNetworkBSD::getHostName()
 {

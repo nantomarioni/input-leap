@@ -315,6 +315,16 @@ TCPSocket::init()
         }
         throw XSocketCreate(e.what());
     }
+
+    try {
+        // let the OS eventually drop connections whose peer vanished without
+        // closing them. the protocol heartbeat stays the primary detector;
+        // this is a backstop, so failing to enable it isn't fatal.
+        ARCH->setKeepAliveOnSocket(m_socket, true);
+    }
+    catch (XArchNetwork& e) {
+        LOG_WARN("failed to enable TCP keep-alive: %s", e.what());
+    }
 }
 
 TCPSocket::EJobResult
