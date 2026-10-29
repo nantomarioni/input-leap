@@ -94,7 +94,8 @@ enum EDataReceived {
     kStart,
     kNotFinish,
     kFinish,
-    kError
+    kError,
+    kOversize   // declared size is over the receive limit, chunks are dropped
 };
 
 //

@@ -460,21 +460,23 @@ bool ClientProxy1_6::recvInfo()
 bool ClientProxy1_6::recvClipboard()
 {
     // parse message
-    static std::string dataCached;
     ClipboardID id;
     std::uint32_t seq;
 
-    int r = ClipboardChunk::assemble(getStream(), dataCached, id, seq);
+    int r = ClipboardChunk::assemble(getStream(), clipboard_data_cached_, id, seq,
+                                     clipboard_chunk_state_,
+                                     m_server->getMaximumClipboardSize());
 
     if (r == kStart) {
-        size_t size = ClipboardChunk::getExpectedSize();
-        LOG_DEBUG("receiving clipboard %d size=%zd", id, size);
+        LOG_DEBUG("receiving clipboard %d size=%zd", id, clipboard_chunk_state_.expected_size);
     } else if (r == kFinish) {
         LOG_DEBUG("received client \"%s\" clipboard %d seqnum=%d, size=%zd",
-                getName().c_str(), id, seq, dataCached.size());
+                getName().c_str(), id, seq, clipboard_data_cached_.size());
         // save clipboard
-        m_clipboard[id].m_clipboard.unmarshall(dataCached, 0);
+        m_clipboard[id].m_clipboard.unmarshall(clipboard_data_cached_, 0);
         m_clipboard[id].m_sequenceNumber = seq;
+        clipboard_data_cached_.clear();
+        clipboard_data_cached_.shrink_to_fit();
 
         // notify
         ClipboardInfo info;

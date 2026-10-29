@@ -165,6 +165,9 @@ public:
     //! @name accessors
     //@{
 
+    //! Get the clipboard size limit in bytes (0 when clipboard sharing is off)
+    std::size_t getMaximumClipboardSize() const { return m_maximumClipboardSize; }
+
     //! Get number of connected clients
     /*!
     Returns the number of connected clients, including the server itself.

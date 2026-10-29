@@ -18,6 +18,7 @@
 
 #pragma once
 
+#include "inputleap/ClipboardChunk.h"
 #include "inputleap/clipboard_types.h"
 #include "inputleap/key_types.h"
 #include "inputleap/Fwd.h"
@@ -130,6 +131,9 @@ private:
 
     double m_keepAliveAlarm;
     EventQueueTimer* m_keepAliveAlarmTimer;
+
+    std::string clipboard_data_cached_;
+    ClipboardChunkAssemblyState clipboard_chunk_state_;
 
     MessageParser m_parser;
     IEventQueue* m_events;

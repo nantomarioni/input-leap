@@ -28,6 +28,14 @@ namespace inputleap {
 
 class IStream;
 
+// Progress of the clipboard transfer arriving on one connection.
+struct ClipboardChunkAssemblyState {
+    std::size_t expected_size = 0;
+    bool active = false;
+    // declared size is over the receive limit: chunks are dropped, not cached
+    bool oversize = false;
+};
+
 class ClipboardChunk {
 public:
 
@@ -35,18 +43,17 @@ public:
     static ClipboardChunk data(ClipboardID id, std::uint32_t sequence, const std::string& data);
     static ClipboardChunk end(ClipboardID id, std::uint32_t sequence);
 
+    // Reads one clipboard chunk from the stream into dataCached. Never caches
+    // more than the declared size, and drops transfers declared larger than
+    // max_size (returns kOversize for each of their chunks).
     static int assemble(inputleap::IStream* stream, std::string& dataCached, ClipboardID& id,
-                        std::uint32_t& sequence);
-
-    static size_t getExpectedSize() { return s_expectedSize; }
+                        std::uint32_t& sequence, ClipboardChunkAssemblyState& state,
+                        std::size_t max_size);
 
     std::uint8_t id_ = 0;
     std::uint32_t sequence_ = 0;
     std::uint8_t mark_ = 0;
     std::string data_;
-
-private:
-    static size_t        s_expectedSize;
 };
 
 } // namespace inputleap

@@ -117,6 +117,9 @@ public:
     */
     NetworkAddress getServerAddress() const;
 
+    //! Get the clipboard size limit, in bytes, set by the server
+    std::size_t getMaximumClipboardSize() const { return m_maximumClipboardSize; }
+
     //! Return true if received file size is valid
     bool isReceivedFileSizeValid();
 
