@@ -422,6 +422,10 @@ XWindowsScreen::resetOptions()
 void
 XWindowsScreen::setOptions(const OptionsList& options)
 {
+	if (options.size() % 2 != 0) {
+		LOG_ERR("ignoring options with odd size=%zd", options.size());
+		return;
+	}
 	fork_setOptions(options);
     for (std::uint32_t i = 0, n = options.size(); i < n; i += 2) {
 		if (options[i] == kOptionXTestXineramaUnaware) {

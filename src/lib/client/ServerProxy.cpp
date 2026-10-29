@@ -812,6 +812,13 @@ ServerProxy::setOptions()
     ProtocolUtil::readf(m_stream, kMsgDSetOptions + 4, &options);
     LOG_DEBUG1("recv set options size=%zd", options.size());
 
+    // options are id/value pairs; an odd count would make every loop below
+    // (and in Client/Screen) read past the end of the list
+    if (options.size() % 2 != 0) {
+        LOG_ERR("ignoring set options with odd size=%zd", options.size());
+        return;
+    }
+
     // forward
     m_client->setOptions(options);
 
@@ -842,8 +849,14 @@ ServerProxy::setOptions()
         }
 
         if (id != kKeyModifierIDNull) {
-            m_modifierTranslationTable[id] =
-                static_cast<KeyModifierID>(options[i + 1]);
+            // the mapped value indexes s_translationTable/s_masks, so it must
+            // stay within the modifier id range
+            const auto mapped = static_cast<KeyModifierID>(options[i + 1]);
+            if (mapped >= kKeyModifierIDLast) {
+                LOG_ERR("ignoring invalid mapping of modifier %d to %u", id, mapped);
+                continue;
+            }
+            m_modifierTranslationTable[id] = mapped;
             LOG_DEBUG1("modifier %d mapped to %d", id, m_modifierTranslationTable[id]);
         }
     }

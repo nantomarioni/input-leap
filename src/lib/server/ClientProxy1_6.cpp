@@ -403,6 +403,12 @@ void ClientProxy1_6::resetOptions()
 
 void ClientProxy1_6::setOptions(const OptionsList& options)
 {
+    if (options.size() % 2 != 0) {
+        LOG_ERR("not sending options with odd size=%zd to \"%s\"", options.size(),
+                getName().c_str());
+        return;
+    }
+
     get_conn().send_set_options_1_6(options);
 
     // check options
