@@ -187,11 +187,19 @@ PacketStreamFilter::filterEvent(const Event& event)
         }
     }
     else if (event.getType() == EventType::STREAM_INPUT_SHUTDOWN) {
-        // discard this if we have buffered data
         std::lock_guard<std::mutex> lock(mutex_);
         m_inputShutdown = true;
         if (m_size != 0) {
-            return;
+            if (m_buffer.getSize() >= m_size) {
+                // a complete packet is buffered: let it be read first;
+                // read() reports the shutdown once it's consumed
+                return;
+            }
+            // the rest of this packet will never arrive. Swallowing the
+            // shutdown here left the socket in CLOSE_WAIT and the peer
+            // never noticed the disconnect, so report it now.
+            m_events->add_event(EventType::STREAM_INPUT_FORMAT_ERROR, get_event_target());
+            m_size = 0;
         }
     }
 
