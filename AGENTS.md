@@ -1,8 +1,9 @@
 # Agent guide — input-leap (fork)
 
-Primary agent guide for this repo — a *fork* with a deliberate "extension"
-discipline. No nested `AGENTS.md`. On-demand docs: `docs/fork-extension-pattern.md`
-(the concrete wiring to copy), `docs/releases.md` (dev/stable channels, signing).
+Primary agent guide for this repo — a fork of the archived upstream Input Leap.
+No nested `AGENTS.md`. On-demand docs: `docs/fork-extension-pattern.md` (how
+fork features attach to core classes), `docs/releases.md` (dev/stable channels,
+signing).
 
 ## What this is
 
@@ -14,26 +15,19 @@ C++ descended from Synergy → Barrier → Input Leap, with a Qt GUI.
   GoogleTest/GoogleMock. Deps: Qt, OpenSSL ≥ 1.1.1, Bonjour/Avahi mDNS, X11 /
   libei, Cocoa/Carbon, Win32. Submodules in `ext/`: `gtest`, `gulrak-filesystem`.
 - **Platforms:** Windows 10/11, macOS 10.12+, Linux (X11, Wayland via libei),
-  FreeBSD, OpenBSD.
+  FreeBSD, OpenBSD. This fleet: a Windows server, Apple Silicon clients.
 
-### This is a FORK — fork discipline is the #1 rule
+### Fork of an archived upstream
 
-This repo (`nantomarioni/input-leap`) is a fork of upstream
-`input-leap/input-leap`. The default branch is **`fork`**.
+`nantomarioni/input-leap` (default branch **`fork`**) forks
+`input-leap/input-leap`, which is **archived (read-only; last push Dec 2025)**.
+`master` is frozen at upstream's final commit (`34a34fb2`); `fork` is that plus
+this fork's linear commits. There is nothing left to rebase on, so fix core code
+in place.
 
-- **`master`** tracks upstream as a clean mirror (no local changes). The
-  `upstream` remote points at `input-leap/input-leap`; local `master` tracks
-  `upstream/master`.
-- **`fork`** is `master` + a small linear stack of commits: the base
-  `feat: Add dimming to inactive screens` commit (the entire `src/fork/` tree +
-  the screen-dimming feature) and one commit per addition since (AGENTS.md,
-  future features). To pick up upstream: `git fetch upstream`, fast-forward
-  `master`, then `git rebase master fork` and force-push (`rerere.enabled` is
-  set in this clone so recurring hook conflicts auto-resolve).
-
-The fork stays **rebase-friendly against upstream**: new code lives in
-`src/fork/`, edits to `src/lib/` are a tiny mechanical hook (convention 1).
-**Preserve this discipline** so the next rebase is painless.
+The live Synergy descendant is **Deskflow** (github.com/deskflow/deskflow); it
+shares this core and protocol, so its security advisories and Windows/macOS
+fixes often apply here — check and port them.
 
 ## How to build / run / test
 
@@ -48,7 +42,7 @@ git submodule update --init --recursive    # ext/gtest, ext/gulrak-filesystem
 # One-shot clean build (Debug, prefers Ninja, handles macOS sysroot):
 ./clean_build.sh
 
-# …or configure + build by hand (mirrors CI):
+# …or configure + build by hand (add -DCMAKE_UNITY_BUILD=1 to match CI):
 cmake -DCMAKE_BUILD_TYPE=Debug -S . -B build
 cmake --build build --parallel
 ```
@@ -57,9 +51,10 @@ cmake --build build --parallel
 `B_BUILD_DIR` (default `build`), `B_CMAKE_FLAGS`, `B_CMAKE`.
 
 > macOS: `ld: library 'c++' not found` → reconfigure with
-> `-DCMAKE_OSX_SYSROOT="$(xcrun --show-sdk-path)"`; with `-DINPUTLEAP_BUILD_GUI=OFF`
-> build explicit targets (`--target input-leaps input-leapc unittests integtests`)
-> because the default bundle target needs the GUI binary.
+> `-DCMAKE_OSX_SYSROOT="$(xcrun --show-sdk-path)"`; Homebrew deps need
+> `-DCMAKE_PREFIX_PATH="/opt/homebrew/opt/qt6;/opt/homebrew/opt/openssl@3"`. With
+> `-DINPUTLEAP_BUILD_GUI=OFF` build explicit targets (`--target input-leaps
+> input-leapc unittests integtests`); the default bundle target needs the GUI.
 
 Outputs land in `build/bin/` (executables) and `build/lib/`. The four binaries:
 
@@ -88,14 +83,15 @@ hard-codes machine-local defaults near the top — **override, don't commit your
 ### Tests (GoogleTest)
 
 Built by default (`INPUTLEAP_BUILD_TESTS=ON`): `unittests`, `integtests`
-(`src/test/{unittests,integtests,mock}`) and the GUI's `guiunittests`.
+(`src/test/{unittests,integtests,mock}`) and the GUI's `guiunittests`. Test
+sources are globbed: re-run `cmake` after adding a test file.
 
 ```bash
-ctest --test-dir build --verbose   # what CI runs; or ./build/bin/unittests, ./build/bin/integtests
+ctest --test-dir build --verbose   # or ./build/bin/unittests, ./build/bin/integtests
 ```
 
-`integtests` touches real platform/network/IPC paths and can be flaky headless
-(upstream runs it under `xvfb`); prefer `unittests` for fast iteration.
+`integtests` uses the real machine: on macOS it writes the system clipboard and
+injects keystrokes, so don't run it while using the Mac. Prefer `unittests`.
 
 ### Useful CMake options (defaults in parens)
 
@@ -105,30 +101,34 @@ needs at least one of X11 / libei.
 
 ## Quality gate
 
-1. **Builds clean** on the platform(s) you touched — and ideally the others (a
-   `#if`-guarded edit can break a platform you didn't test). CI builds Linux
-   (gcc + clang, several Ubuntu/Debian, libei variants), macOS, Windows.
-2. **Tests pass:** `ctest --test-dir build` (CI runs this on non-Release builds).
-3. **CI builds with `-Werror`** on Debug (`-DCMAKE_CXX_FLAGS_DEBUG="-g -Werror"`,
-   plus `-Wall -Wextra`). Treat warnings as errors locally too.
-4. **No new upstream-file churn** beyond the minimal extension hooks (see below).
-5. **Release note** for user-visible changes: add a `doc/newsfragments/*.feature`
-   (or `.bugfix`, etc.) towncrier fragment — see `doc/newsfragments/README.md`.
+The fork's only CI is `.github/workflows/release.yml` (every push to `fork`):
+Release, `CMAKE_UNITY_BUILD=1` builds for macOS arm64 and Windows. It runs **no
+tests**, builds **no Linux**, and doesn't use `-Werror` (`builds.yml` only
+triggers on `master`). So before pushing:
 
-There is **no clang-format or clang-tidy config** in the repo. Style is enforced
-by convention + `.editorconfig` only.
+1. **Build with `-DCMAKE_UNITY_BUILD=1`** on the platform you touched. A `.mm`
+   that imports Foundation/AppKit needs `SKIP_UNITY_BUILD_INCLUSION TRUE`, or it
+   lands in a C++-mode unity batch. Windows-only code is first compiled by CI.
+2. **No new warnings** in the files you touched. `-Werror` can't be used on
+   macOS (upstream `OSX*` files use deprecated AppKit/IOKit APIs).
+3. **Tests pass locally:** `ctest --test-dir build`. Known macOS failures, not
+   regressions: `SecureUtilsTest` ×2 (libstdc++-specific expectations),
+   `OSXClipboardTests.add_*` ×2 (test bug), `OSXKeyStateTests.fakeAndPoll_*` ×3
+   (need Accessibility + Input Monitoring).
+4. **Release note** for user-visible changes: a `doc/newsfragments/*.feature`
+   (or `.bugfix`, `.security`, …) fragment — see `doc/newsfragments/README.md`.
 
 ## Non-negotiables / conventions
 
-1. **Fork discipline (the prime directive).** New feature code goes in
-   `src/fork/lib/<component>/<Name>Extension.{h,cpp,mm}`; the upstream class
-   inherits its extension and `friend`s it (always via a relative include into
-   `src/fork/lib/<component>/`, never the public include path), or calls a `fork_*` free-function
-   hook where inheritance doesn't fit. Edits to `src/lib/**` and the
-   `CMakeLists.txt` files are limited to that mechanical hook. Fork sources are
-   listed in `src/fork/CMakeLists.txt` (target `inputleap_fork_server`,
-   platform-gated); GUI fork code is the exception — `src/fork/gui/` is compiled
-   into the gui target for AUTOMOC. Fork-only logging is `FORK_LOG(...)`
+1. **Where code goes.** Fixes to existing behaviour (bugs, security, Deskflow
+   ports) are edited in place in `src/lib/**`. New **fork features** go in
+   `src/fork/lib/<component>/<Name>Extension.{h,cpp,mm}`, attached to the core
+   class by inheritance + `friend` (via a relative include into
+   `src/fork/lib/<component>/`) or a `fork_*` free-function hook; this keeps
+   them in one place and portable (e.g. to Deskflow). Fork sources are listed in
+   `src/fork/CMakeLists.txt` (target `inputleap_fork_server`, platform-gated);
+   GUI fork code is the exception — `src/fork/gui/` is compiled into the gui
+   target for AUTOMOC. Fork-only logging is `FORK_LOG(...)`
    (`src/fork/lib/base/LogExtension.h` → `inputleap_fork_debug.log` in the temp
    dir). Wiring examples: `docs/fork-extension-pattern.md`.
 2. **Each `*Extension` class has exactly one inheritor** — its host recovers
@@ -138,9 +138,9 @@ by convention + `.editorconfig` only.
    `kMsgDUndimRequest`, `kMsgCLockState` are sent without capability
    negotiation; a stock client errors out). Fine for this fleet; a new fork
    message inherits the constraint.
-4. **Code style** (`.editorconfig`): 4-space indent, LF, UTF-8, trimmed
-   whitespace, final newline. Some `src/lib/` files use tabs — match the file
-   you're editing. Prefer RAII / smart pointers; C++17 is fine under Qt6.
+4. **Code style** (`.editorconfig` only; no clang-format/clang-tidy): 4-space
+   indent, LF, UTF-8, trimmed whitespace, final newline. Some `src/lib/` files
+   use tabs — match the file you're editing. Prefer RAII / smart pointers.
 5. **Platform abstraction.** OS-specific code is selected by preprocessor macros
    and file-name prefix — never `#ifdef _WIN32` ad hoc:
    - Macros: `WINAPI_MSWINDOWS`, `WINAPI_XWINDOWS`, `WINAPI_LIBEI`,
@@ -153,8 +153,9 @@ by convention + `.editorconfig` only.
    `src/lib/inputleap` (shared domain: `Screen`, protocol/option types),
    `src/lib/net` (TCP + TLS), `src/lib/platform` (input injection/capture). The
    wire protocol is versioned (`ClientProxy1_x`); don't break it casually.
-7. **No reformatting unrelated code.** A drive-by reformat balloons the upstream
-   diff — exactly what the fork is structured to avoid.
+   Bounds-check all wire input.
+7. **No reformatting unrelated code.** It hides the real change and makes
+   porting fixes to or from Deskflow harder.
 
 ## Where things live
 
@@ -171,11 +172,10 @@ by convention + `.editorconfig` only.
 ├── docs/                       # agent knowledge: fork-extension-pattern.md, releases.md
 ├── res/                        # icons, desktop/appdata, platform resources
 └── src/
-    ├── client/                 # input-leapc executable (thin main)
-    ├── server/                 # input-leaps executable (thin main)
+    ├── client/ server/         # input-leapc / input-leaps executables (thin mains)
     ├── daemon/                 # input-leapd Windows service (Win only)
     ├── gui/                    # Qt GUI app `input-leap` (src/, res/, test/)
-    ├── lib/                    # UPSTREAM core libraries (edit minimally)
+    ├── lib/                    # core libraries (from upstream; fix in place)
     │   ├── arch/{unix,win32}   # arch abstraction
     │   ├── base/               # logging, utilities
     │   ├── client/ server/     # client- and server-side logic + ClientProxy versions
@@ -183,7 +183,7 @@ by convention + `.editorconfig` only.
     │   ├── net/                # TCP + SSL/TLS
     │   ├── platform/           # MSWindows*/OSX*/XWindows*/Ei* screen + clipboard impls
     │   ├── io/ ipc/ mt/ common/
-    ├── fork/                   # ALL fork-only code lives here (see below)
+    ├── fork/                   # fork features (extension pattern)
     │   ├── CMakeLists.txt       # builds the inputleap_fork_server static lib
     │   ├── lib/{base,client,inputleap,platform,server}/  # *Extension.{h,cpp,mm}, QuitReason, LogExtension
     │   └── gui/                 # UpdateChecker, NotificationRouter, OverlayNotification (built into the gui target)
@@ -197,31 +197,32 @@ the fork's own wire messages, intra-repo, see convention 3).
 
 ## Making a change — walkthrough
 
-**Adding/altering fork behavior (the common case):**
-1. Decide the upstream class to extend (e.g. `Server`, `Screen`, a platform
+**A fork feature (new behaviour):**
+1. Pick the core class to extend (e.g. `Server`, `Screen`, a platform
    `*Screen`). Find or create `src/fork/lib/<component>/<Name>Extension.{h,cpp}`.
 2. Put the logic in the extension. Need private access? `friend class
-   <Name>Extension;` already exists on the upstream class (add it if not).
-3. Need a new fork source? List it in `src/fork/CMakeLists.txt` (in the right
-   platform `if()` block for `*Windows*`/`OSX*`/`XWindows*` files).
-4. For platform behavior, implement per-OS (`MSWindowsScreenExtension.cpp`,
-   `OSXScreenExtension.mm`, `XWindowsScreenExtension.cpp`) — mirror the existing
-   screen-dimming feature, which is implemented across all three.
-5. Build the relevant target, then `ctest`. Keep the `src/lib/**` diff to the
-   minimal hook.
+   <Name>Extension;` already exists on the core class (add it if not).
+3. List new sources in `src/fork/CMakeLists.txt` (in the right platform `if()`
+   block for `*Windows*`/`OSX*`/`XWindows*` files).
+4. For platform behaviour, implement per OS — mirror screen dimming
+   (`MSWindowsScreenExtension.cpp`, `OSXScreenExtension.mm`,
+   `XWindowsScreenExtension.cpp`).
 
-**An upstream-shaped change** (a fix you'd send upstream): edit `src/lib/**` in
-upstream style, add a `doc/newsfragments/*.bugfix`, base it on `master`.
+**A fix (bug, security, Deskflow port):** edit `src/lib/**` in that file's
+style, add a test under `src/test/unittests/` where feasible, add a
+`.bugfix`/`.security` fragment, and credit the Deskflow commit or CVE in the
+commit message. Example: `f5c54fb1`..`689cbd3d`.
+
+Then run the quality gate and push to `fork` (CI publishes `latest-build`).
 
 ## When stuck
 
 - **Upstream project / wiki / config syntax:** github.com/input-leap/input-leap
-  and its wiki; config examples in `doc/`.
-- **Exact build/test invocations per platform:** `.github/workflows/builds.yml`
-  is the source of truth (Linux/macOS/Windows + Flatpak); upstream release flow
-  in `RELEASING.md`; the fork's own release pipeline in
-  `.github/workflows/release.yml` + `docs/releases.md`.
+  (archived, still readable) and its wiki; config examples in `doc/`.
+- **Fixes and advisories to port:** github.com/deskflow/deskflow — its Security
+  tab and release notes.
+- **Release pipeline:** `.github/workflows/release.yml` + `docs/releases.md`.
+  `builds.yml` / `RELEASING.md` are upstream's (Linux recipes too), reference only.
 - **The fork pattern in detail:** `docs/fork-extension-pattern.md` and the
   existing `src/fork/lib/**` files.
 - **Release notes:** `doc/newsfragments/README.md`.
-```

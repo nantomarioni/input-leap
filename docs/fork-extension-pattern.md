@@ -1,12 +1,14 @@
-# The fork extension pattern — how local changes are isolated
+# The fork extension pattern — how fork features are isolated
 
 Knowledge file (load on demand). The rule itself is in `AGENTS.md`
 ("Conventions"); this is the concrete wiring to copy.
 
-The fork keeps upstream files nearly untouched by putting behavior in
-`src/fork/lib/<component>/<Name>Extension.{h,cpp}` and attaching it to the
-upstream class. The actual wiring used in this repo (study it before adding
-more):
+Fork *features* live in `src/fork/lib/<component>/<Name>Extension.{h,cpp}` and
+attach to the core (upstream-derived) class. The pattern started as a way to
+keep rebases on upstream painless; upstream is now archived, so fixes to core
+behaviour are edited in place, but features still use this pattern so they
+stay in one place and portable (e.g. to Deskflow). The actual wiring used in
+this repo (study it before adding more):
 
 - **Inheritance + friend.** The upstream class inherits its fork extension and
   friends it. E.g. `src/lib/server/Server.h`:
