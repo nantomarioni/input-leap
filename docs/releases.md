@@ -6,11 +6,11 @@ Knowledge file (load on demand).
 fleet is Windows host + Apple Silicon satellites) and a Windows Inno installer.
 Two channels:
 
-- **Dev (default):** every push to `fork` rebuilds and force-updates the
+- **Dev (default):** every push to `main` rebuilds and force-updates the
   rolling `latest-build` prerelease with fresh installers. Versioning is
   commit-based (`INPUTLEAP_VERSION_DESC=git` → `3.0.3-git-<date>-<hash>`), so
   the version string in the app/dmg identifies the exact commit.
-- **Stable (optional):** pushing a `fork-v*` tag creates a permanent Release —
+- **Stable (optional):** pushing a `v*` tag creates a permanent Release —
   used only to bless known-good builds.
 
 The macOS bundle is **codesigned with a stable self-signed identity**

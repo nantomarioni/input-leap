@@ -28,7 +28,7 @@ namespace fork_gui {
 
 /* Checks the fork's rolling `latest-build` GitHub Release for a newer build.
  *
- * The dev-channel release is force-updated by CI on every push to `fork`
+ * The dev-channel release is force-updated by CI on every push to `main`
  * (see .github/workflows/release.yml). The compiled-in version string
  * (INPUTLEAP_VERSION, e.g. "3.0.3-git-2026-09-10-eb2961d0") carries the
  * commit short-hash; a build is outdated when the release's target commit

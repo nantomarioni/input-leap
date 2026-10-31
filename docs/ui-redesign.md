@@ -334,11 +334,11 @@ without blocking fixes to the core.
 
 ## 8. Working on it locally (M0 onwards)
 
-Branch `ui-rewrite` holds the rewrite. CI runs only on pushes to `fork` and on
-`fork-v*` tags, so pushing the branch costs nothing; merge into `fork` a few
-times per milestone at most, since each push there builds the macOS and Windows
-installers (the macOS runner is the expensive one). Since M4 the Qt Quick GUI
-is the only GUI and CI builds it on Qt 6.9.
+The rewrite was done on a branch and merged into `main` once M7 was built
+(2026-10-31). CI runs only on pushes to `main` and on `v*` tags, and each run
+builds the macOS and Windows installers (the macOS runner is the expensive
+one), so iterate locally and push a few times per milestone at most. Since
+M4 the Qt Quick GUI is the only GUI and CI builds it on Qt 6.9.
 
 Build tree `build/ui` (ignored by git):
 
@@ -406,6 +406,6 @@ with where it lands; the loopback tests cover the exchange, access levels,
 a request and its ack, and the rejection of an untrusted peer. On this Mac
 the channel runs on Qt's Secure Transport backend (the deployed bundle
 carries that plugin; no OpenSSL library is needed). Not yet verified: a
-Windows build (the next push to `fork` makes one) and the channel between
+Windows build (the next push to `main` makes one) and the channel between
 two real machines.
 

@@ -20,11 +20,11 @@ C++ descended from Synergy → Barrier → Input Leap, with a Qt GUI.
 
 ### Fork of an archived upstream
 
-`nantomarioni/input-leap` (default branch **`fork`**) forks
+`nantomarioni/input-leap` (default branch **`main`**) forks
 `input-leap/input-leap`, which is **archived (read-only; last push Dec 2025)**.
-`master` is frozen at upstream's final commit (`34a34fb2`); `fork` is that plus
+`master` is frozen at upstream's final commit (`34a34fb2`); `main` is that plus
 this fork's linear commits. There is nothing left to rebase on, so fix core code
-in place.
+in place; there is no separate "fork" branch any more.
 
 The live Synergy descendant is **Deskflow** (github.com/deskflow/deskflow); it
 shares this core and protocol, so its security advisories and Windows/macOS
@@ -104,7 +104,7 @@ at least one of X11 / libei. GUI workflow and dev hooks: `docs/ui-redesign.md` �
 
 ## Quality gate
 
-The fork's only CI is `.github/workflows/release.yml` (every push to `fork`):
+The fork's only CI is `.github/workflows/release.yml` (every push to `main`):
 Release, `CMAKE_UNITY_BUILD=1` builds for macOS arm64 and Windows. It runs **no
 tests**, builds **no Linux**, and doesn't use `-Werror` (`builds.yml` only
 triggers on `master`). So before pushing:
@@ -216,7 +216,8 @@ style, add a test under `src/test/unittests/` where feasible, add a
 `.bugfix`/`.security` fragment, and credit the Deskflow commit or CVE in the
 commit message. Example: `f5c54fb1`..`689cbd3d`.
 
-Then run the quality gate and push to `fork` (CI publishes `latest-build`).
+Then run the quality gate and push to `main` (CI publishes `latest-build`; a
+`v*` tag makes a permanent release).
 
 ## When stuck
 
