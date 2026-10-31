@@ -46,8 +46,9 @@ Rectangle {
 
         StatusPill {
             text: App.statusText
-            tone: App.runState === App.Running ? "success"
-                : App.runState === App.Failed ? "danger"
+            tone: App.runState === App.Failed ? "danger"
+                : App.runState === App.Running && App.connected ? "success"
+                : App.runState === App.Running ? "info"
                 : header.stopped ? "neutral" : "warning"
         }
 
@@ -60,6 +61,7 @@ Rectangle {
         Button {
             text: header.stopped ? qsTr("Start") : qsTr("Stop")
             highlighted: true
+            enabled: App.runState !== App.Stopping
             onClicked: header.stopped ? App.start() : App.stop()
         }
     }

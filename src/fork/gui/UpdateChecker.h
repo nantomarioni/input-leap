@@ -48,9 +48,19 @@ public:
     // shortly after launch.
     void maybeCheckOnStartup();
 
+    // Download the asset and install it (Windows: silent installer and
+    // relaunch; macOS: swap the bundle and relaunch).
+    void startSelfUpdate(const QString& assetUrl, const QString& assetName);
+
+signals:
+    // A newer build exists; assetUrl/assetName are empty when no installer
+    // matches this platform.
+    void updateAvailable(const QString& releaseName, const QString& assetUrl, const QString& assetName);
+    void upToDate();
+    void checkFailed(const QString& error);
+
 private:
     void handleReply(QNetworkReply* reply, bool quiet);
-    void startSelfUpdate(const QString& assetUrl, const QString& assetName);
     void finishSelfUpdate(const QString& installerPath);
     static QString currentCommitHash();
     static QString platformAssetSuffix();

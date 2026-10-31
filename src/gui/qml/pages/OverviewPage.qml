@@ -15,40 +15,39 @@ ScrollView {
         width: page.availableWidth - 48
         spacing: 16
 
-        // Inline request instead of a pop-up: a client wants to join.
+        // Inline requests instead of pop-ups.
+        Repeater {
+            model: App.requests
+            delegate: Banner {
+                required property var modelData
+                request: modelData
+            }
+        }
+
+        // First run: no wizard, just the two decisions and Start.
         Card {
             Layout.fillWidth: true
-            visible: App.pendingJoin.length > 0
-            color: Theme.warningSoft
-            border.color: Theme.warning
-            padding: 12
+            visible: App.firstRun && App.runState !== App.Running
+            color: Theme.accentSoft
+            border.color: Theme.accent
+            padding: 14
 
             RowLayout {
                 spacing: 14
-
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 2
-                    Label {
-                        text: qsTr("%1 wants to join").arg(App.pendingJoin)
-                        font.weight: Font.DemiBold
-                        color: Theme.text
-                    }
+                    Label { text: qsTr("Get started"); font.weight: Font.DemiBold; color: Theme.text }
                     Label {
                         Layout.fillWidth: true
-                        text: qsTr("Discovered on the network. Choose where it sits next to %1, or ignore it.").arg(App.screenName)
+                        text: App.role === App.Server
+                              ? qsTr("This computer will share its keyboard and mouse. Press Start, then add the other computers on the Layout page, or let them find you and place them when they ask to join.")
+                              : qsTr("This computer will be controlled by another one. Enter the server's address on the Computers page or let discovery find it, then press Start.")
                         color: Theme.muted
                         wrapMode: Text.WordWrap
                     }
                 }
-                Button {
-                    text: qsTr("Ignore")
-                    onClicked: App.ignorePendingJoin()
-                }
-                Button {
-                    text: qsTr("Place on layout")
-                    highlighted: true
-                }
+                Button { text: qsTr("Start"); highlighted: true; onClicked: App.start() }
             }
         }
 
@@ -70,80 +69,132 @@ ScrollView {
                         width: 10
                         height: 10
                         radius: 5
-                        color: App.runState === App.Running ? Theme.success : Theme.offline
+                        color: App.runState === App.Failed ? Theme.danger
+                             : App.runState === App.Running && App.connected ? Theme.success
+                             : App.runState === App.Running ? Theme.accent
+                             : Theme.offline
                     }
                     Label {
+                        Layout.fillWidth: true
                         text: App.statusText
                         font.pixelSize: Theme.titleFontSize
                         font.weight: Font.DemiBold
                         color: Theme.text
+                        elide: Text.ElideRight
                     }
                 }
 
-                GridLayout {
-                    columns: 2
-                    columnSpacing: 12
-                    rowSpacing: 8
-
-                    Label { text: qsTr("Screen name"); color: Theme.muted }
-                    Label { text: App.screenName; font.family: App.monoFontFamily; color: Theme.text }
-
-                    Label { text: qsTr("Addresses"); color: Theme.muted }
-                    Label {
-                        text: App.addresses.length > 0 ? App.addresses.join(", ") : qsTr("none found")
-                        font.family: App.monoFontFamily
-                        color: Theme.text
-                        wrapMode: Text.WrapAnywhere
-                        Layout.fillWidth: true
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 6
+                    InfoRow { label: qsTr("Screen name"); value: App.screenName; mono: true }
+                    InfoRow {
+                        label: App.role === App.Server ? qsTr("Listening on") : qsTr("Addresses")
+                        value: (App.addresses.length > 0 ? App.addresses.join(", ") : qsTr("no network address"))
+                               + (App.role === App.Server ? "  ·  " + qsTr("port %1").arg(App.settings.port) : "")
+                        mono: true
                     }
-
-                    Label { text: qsTr("Role"); color: Theme.muted }
-                    Label { text: App.role === App.Server ? qsTr("server · shares this keyboard and mouse") : qsTr("client · controlled by a server"); color: Theme.text }
-
-                    Label { text: qsTr("Encryption"); color: Theme.muted }
-                    StatusPill { text: qsTr("TLS on"); tone: "success" }
+                    InfoRow {
+                        visible: App.role === App.Client
+                        label: qsTr("Server")
+                        value: App.serverAddress.length > 0 ? App.serverAddress : qsTr("none yet")
+                        mono: true
+                    }
+                    RowLayout {
+                        spacing: 12
+                        Label { Layout.preferredWidth: 120; text: qsTr("Encryption"); color: Theme.muted }
+                        StatusPill {
+                            text: App.settings.cryptoEnabled ? qsTr("TLS on") : qsTr("TLS off")
+                            tone: App.settings.cryptoEnabled ? "success" : "warning"
+                        }
+                        Label {
+                            visible: App.settings.cryptoEnabled && App.identity.ready
+                            text: App.identity.sha256Short
+                            font.family: App.monoFontFamily
+                            color: Theme.muted
+                        }
+                    }
+                    InfoRow {
+                        visible: App.role === App.Server
+                        label: qsTr("Configuration")
+                        value: App.settings.useExternalConfig
+                               ? qsTr("file %1").arg(App.settings.configFile)
+                               : qsTr("generated from the layout · %1 screens, %2 hotkeys").arg(App.layout.screenCount).arg(App.layout.hotkeys.length)
+                    }
+                    InfoRow {
+                        label: qsTr("Cursor")
+                        value: App.runState !== App.Running ? qsTr("—")
+                             : App.cursorLockedElsewhere ? qsTr("locked to another screen")
+                             : App.cursorLocked ? qsTr("locked to this screen")
+                             : App.role === App.Server
+                               ? (App.activeScreen.length > 0 ? qsTr("on %1").arg(App.activeScreen) : qsTr("on this computer"))
+                               : (App.dimmed ? qsTr("elsewhere · this screen is dimmed") : qsTr("free"))
+                    }
                 }
             }
 
             Card {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
+                Layout.preferredWidth: 360
 
                 RowLayout {
                     Layout.fillWidth: true
                     SectionTitle { text: qsTr("Layout") }
                     Item { Layout.fillWidth: true }
-                    Label { text: qsTr("Edit layout"); color: Theme.accent }
+                    Label {
+                        text: App.role === App.Server ? qsTr("%1 screens").arg(App.layout.screenCount) : qsTr("set on the server")
+                        color: Theme.muted
+                    }
                 }
 
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 150
+                    Layout.fillHeight: true
+                    Layout.minimumHeight: grid.implicitHeight + 20
                     radius: Theme.radiusSmall
                     color: Theme.bg
 
-                    Rectangle {
+                    Grid {
+                        id: grid
                         anchors.centerIn: parent
-                        width: 150
-                        height: 76
-                        radius: Theme.radiusSmall
-                        color: Theme.accentSoft
-                        border.color: Theme.accent
-                        border.width: 2
+                        columns: App.layout.columns
+                        spacing: 4
 
-                        Column {
-                            anchors.centerIn: parent
-                            Label {
-                                text: App.screenName
-                                font.weight: Font.Bold
-                                color: Theme.accent
-                                anchors.horizontalCenter: parent.horizontalCenter
-                            }
-                            Label {
-                                text: App.role === App.Server ? qsTr("this computer · server") : qsTr("this computer · client")
-                                font.pixelSize: 11
-                                color: Theme.accent
-                                anchors.horizontalCenter: parent.horizontalCenter
+                        Repeater {
+                            model: App.layout
+                            delegate: Rectangle {
+                                required property string name
+                                required property bool occupied
+                                required property bool isServer
+                                required property string state
+                                width: 72
+                                height: 40
+                                radius: 6
+                                color: !occupied ? "transparent" : isServer ? Theme.accentSoft : Theme.surface
+                                border.color: !occupied ? "transparent" : isServer ? Theme.accent : Theme.border
+                                border.width: isServer ? 2 : 1
+                                Column {
+                                    anchors.centerIn: parent
+                                    width: parent.width - 6
+                                    Label {
+                                        width: parent.width
+                                        text: name
+                                        font.pixelSize: 10
+                                        font.weight: Font.DemiBold
+                                        color: isServer ? Theme.accent : Theme.text
+                                        elide: Text.ElideMiddle
+                                        horizontalAlignment: Text.AlignHCenter
+                                    }
+                                    Label {
+                                        width: parent.width
+                                        visible: occupied && !isServer
+                                        text: state === "connected" ? qsTr("on") : state === "offline" ? qsTr("off") : "·"
+                                        font.pixelSize: 9
+                                        color: state === "connected" ? Theme.success : Theme.muted
+                                        horizontalAlignment: Text.AlignHCenter
+                                    }
+                                }
                             }
                         }
                     }
@@ -185,13 +236,23 @@ ScrollView {
                         font.family: App.monoFontFamily
                         font.weight: Font.Medium
                         color: Theme.text
-                        Layout.preferredWidth: 160
+                        Layout.preferredWidth: 170
+                        elide: Text.ElideRight
                     }
-                    Label { text: modelData.position; color: Theme.text; Layout.preferredWidth: 140 }
+                    Label { text: modelData.position; color: Theme.text; Layout.preferredWidth: 150; elide: Text.ElideRight }
                     StatusPill { text: modelData.state; tone: modelData.stateTone }
                     Item { Layout.fillWidth: true }
+                    Label { text: modelData.since.length > 0 ? qsTr("since %1").arg(modelData.since) : ""; color: Theme.muted }
                     Label { text: modelData.address; font.family: App.monoFontFamily; color: Theme.muted }
                 }
+            }
+
+            Label {
+                visible: App.computers.length === 0
+                Layout.margins: 16
+                Layout.topMargin: 0
+                text: qsTr("No computers yet")
+                color: Theme.muted
             }
         }
 
@@ -199,12 +260,7 @@ ScrollView {
             Layout.fillWidth: true
             spacing: 8
 
-            RowLayout {
-                Layout.fillWidth: true
-                SectionTitle { text: qsTr("What is running") }
-                Item { Layout.fillWidth: true }
-                Label { text: qsTr("All processes"); color: Theme.accent }
-            }
+            SectionTitle { text: qsTr("What is running") }
 
             RowLayout {
                 Layout.fillWidth: true
@@ -221,6 +277,7 @@ ScrollView {
                         Layout.fillHeight: true
                         padding: 12
                         spacing: 4
+                        opacity: modelData.relevant ? 1 : 0.7
 
                         RowLayout {
                             spacing: 8

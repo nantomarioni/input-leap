@@ -16,11 +16,17 @@ ApplicationWindow {
 
     property int currentPage: 0
 
+    // Closing keeps Input Leap running in the tray; Quit lives in the tray menu.
+    onClosing: (close) => {
+        close.accepted = false
+        root.hide()
+    }
+
     header: AppHeader {}
 
     footer: AppStatusBar {
-        logOpen: logDrawer.open
-        onToggleLog: logDrawer.open = !logDrawer.open
+        logOpen: App.settings.logDrawerOpen
+        onToggleLog: App.settings.logDrawerOpen = !App.settings.logDrawerOpen
     }
 
     RowLayout {
@@ -53,8 +59,8 @@ ApplicationWindow {
             }
 
             LogDrawer {
-                id: logDrawer
                 Layout.fillWidth: true
+                open: App.settings.logDrawerOpen
             }
         }
     }

@@ -15,6 +15,7 @@
 */
 
 #include "AppController.h"
+#include "AppSettings.h"
 #include "TrayController.h"
 #include "../../fork/gui/OverlayNotification.h"
 
@@ -29,6 +30,21 @@
 
 #include <cstdio>
 
+namespace {
+
+void applyColorScheme(const QString& scheme)
+{
+    if (scheme == QLatin1String("dark")) {
+        QGuiApplication::styleHints()->setColorScheme(Qt::ColorScheme::Dark);
+    } else if (scheme == QLatin1String("light")) {
+        QGuiApplication::styleHints()->setColorScheme(Qt::ColorScheme::Light);
+    } else {
+        QGuiApplication::styleHints()->unsetColorScheme();
+    }
+}
+
+} // namespace
+
 int main(int argc, char* argv[])
 {
     QCoreApplication::setOrganizationName(QStringLiteral("InputLeap"));
@@ -40,22 +56,17 @@ int main(int argc, char* argv[])
     QApplication app(argc, argv);
     app.setQuitOnLastWindowClosed(false);
     app.setWindowIcon(QIcon(QStringLiteral(":/tray/icons/256x256/input-leap.png")));
-#if QT_VERSION >= QT_VERSION_CHECK(5, 15, 0)
     app.setDesktopFileName(QStringLiteral("io.github.input_leap.input-leap"));
-#endif
 
-    // One look on every platform; light/dark follow the system.
+    // One look on every platform; light/dark follow the system unless set.
     QQuickStyle::setStyle(QStringLiteral("FluentWinUI3"));
 
-    // INPUTLEAP_UI_COLOR_SCHEME=dark|light forces the scheme (development aid).
+    AppController* controller = AppController::instance();
     const QString forcedScheme = qEnvironmentVariable("INPUTLEAP_UI_COLOR_SCHEME");
-    if (forcedScheme == QLatin1String("dark")) {
-        app.styleHints()->setColorScheme(Qt::ColorScheme::Dark);
-    } else if (forcedScheme == QLatin1String("light")) {
-        app.styleHints()->setColorScheme(Qt::ColorScheme::Light);
-    }
-
-    AppController::instance();
+    applyColorScheme(forcedScheme.isEmpty() ? controller->settings()->colorScheme() : forcedScheme);
+    QObject::connect(controller->settings(), &AppSettings::changed, &app, [controller]() {
+        applyColorScheme(controller->settings()->colorScheme());
+    });
 
     QQmlApplicationEngine engine;
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app,
@@ -69,16 +80,29 @@ int main(int argc, char* argv[])
     }
 
     TrayController tray(window);
+    const bool openHidden = controller->settings()->openHidden() && tray.available()
+                            && !qEnvironmentVariableIsSet("INPUTLEAP_UI_GRAB");
+    if (openHidden) {
+        window->hide();
+    }
 
-    // M0 checks. INPUTLEAP_UI_DEMO_OVERLAY=1 shows the HUD overlay once;
-    // INPUTLEAP_UI_GRAB=<file.png> renders the window to a file and exits,
-    // which works headless with QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software.
+    controller->startup();
+
+    // Development hooks. INPUTLEAP_UI_DEMO_OVERLAY=1 shows the HUD overlay
+    // once; INPUTLEAP_UI_GRAB=<file.png> renders the window to a file and
+    // exits (headless with QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software).
     if (qEnvironmentVariableIsSet("INPUTLEAP_UI_DEMO_OVERLAY")) {
         QTimer::singleShot(400, window, []() {
             inputleap::fork_gui::OverlayNotification::instance()->showTransient(
                 QObject::tr("Input Leap connected"),
                 inputleap::fork_gui::OverlayNotification::Tone::Success);
         });
+    }
+    // INPUTLEAP_UI_PAGE=<index> opens that page (for the grabs).
+    bool pageOk = false;
+    const int page = qEnvironmentVariableIntValue("INPUTLEAP_UI_PAGE", &pageOk);
+    if (pageOk) {
+        window->setProperty("currentPage", page);
     }
     const QString grabPath = qEnvironmentVariable("INPUTLEAP_UI_GRAB");
     if (!grabPath.isEmpty()) {

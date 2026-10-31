@@ -5,7 +5,7 @@
 # ---------------------------------------------------------------------------
 if(INPUTLEAP_NEW_GUI)
     # Svg is linked only so the deploy tools ship the SVG image/icon plugins the rail icons need.
-    find_package(Qt6 6.8 COMPONENTS Core Gui Widgets Network Qml Quick QuickControls2 Svg REQUIRED)
+    find_package(Qt6 6.8 COMPONENTS Core Gui Widgets Network Qml Quick QuickControls2 Svg Test REQUIRED)
     message(STATUS "Building the new Qt Quick GUI with Qt ${Qt6_VERSION}")
 
     set(CMAKE_AUTOMOC ON)
@@ -17,16 +17,61 @@ if(INPUTLEAP_NEW_GUI)
     if (WIN32)
         set(NEWGUI_RC_FILES res/win/InputLeap.rc)
         set_property(SOURCE res/win/InputLeap.rc PROPERTY COMPILE_FLAGS /nologo)
+        set(NEWGUI_PLATFORM_SOURCES app/Platform_win.cpp)
+    elseif (APPLE)
+        set(NEWGUI_PLATFORM_SOURCES app/Platform_mac.cpp)
+    else()
+        set(NEWGUI_PLATFORM_SOURCES app/Platform_other.cpp)
     endif()
+
+    # Application layer (docs/ui-redesign.md §4.3). The classes under test
+    # need nothing from Qt Quick.
+    set(NEWGUI_APP_SOURCES
+        app/AppSettings.cpp
+        app/AppSettings.h
+        app/CoreEventParser.cpp
+        app/CoreEventParser.h
+        app/LayoutModel.cpp
+        app/LayoutModel.h
+        app/LogModel.cpp
+        app/LogModel.h
+    )
+    # Legacy GUI classes kept as they are: UI-free models and the mDNS/IPC glue.
+    set(NEWGUI_REUSED_SOURCES
+        src/Action.cpp
+        src/Hotkey.cpp
+        src/KeySequence.cpp
+        src/Ipc.cpp
+        src/IpcClient.cpp
+        src/IpcReader.cpp
+        src/ZeroconfBrowser.cpp
+        src/ZeroconfRegister.cpp
+        src/ZeroconfServer.cpp
+        src/ZeroconfThread.cpp
+    )
 
     qt_add_executable(input-leap WIN32
         app/main.cpp
         app/AppController.cpp
         app/AppController.h
+        app/CoreProcess.cpp
+        app/CoreProcess.h
+        app/Discovery.cpp
+        app/Discovery.h
+        app/TlsIdentity.cpp
+        app/TlsIdentity.h
         app/TrayController.cpp
         app/TrayController.h
+        app/Platform.h
+        ${NEWGUI_PLATFORM_SOURCES}
+        ${NEWGUI_APP_SOURCES}
+        ${NEWGUI_REUSED_SOURCES}
+        ../fork/gui/NotificationRouter.cpp
+        ../fork/gui/NotificationRouter.h
         ../fork/gui/OverlayNotification.cpp
         ../fork/gui/OverlayNotification.h
+        ../fork/gui/UpdateChecker.cpp
+        ../fork/gui/UpdateChecker.h
         ${NEWGUI_RC_FILES}
     )
 
@@ -40,7 +85,10 @@ if(INPUTLEAP_NEW_GUI)
             qml/Theme.qml
             qml/components/AppHeader.qml
             qml/components/AppStatusBar.qml
+            qml/components/Banner.qml
             qml/components/Card.qml
+            qml/components/SettingRow.qml
+            qml/components/InfoRow.qml
             qml/components/LogDrawer.qml
             qml/components/NavRail.qml
             qml/components/PagePlaceholder.qml
@@ -84,9 +132,42 @@ if(INPUTLEAP_NEW_GUI)
         INPUTLEAP_VERSION_STAGE="${INPUTLEAP_VERSION_STAGE}"
         INPUTLEAP_REVISION="${INPUTLEAP_REVISION}")
     # the generated QML type registration includes the headers by basename
-    target_include_directories(input-leap PRIVATE app)
+    target_include_directories(input-leap PRIVATE app src)
     target_link_libraries(input-leap PRIVATE
-        Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Svg)
+        Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Svg
+        net arch base io common ${libs} OpenSSL::SSL OpenSSL::Crypto)
+    if (BUILD_MSWINDOWS)
+        target_include_directories(input-leap PRIVATE $ENV{BONJOUR_SDK_HOME}/Include)
+        find_library(DNSSD_LIB dnssd.lib HINTS ENV BONJOUR_SDK_HOME PATH_SUFFIXES "Lib/x64")
+        set_target_properties(input-leap PROPERTIES LINK_FLAGS "/NODEFAULTLIB:LIBCMT")
+        target_link_libraries(input-leap PRIVATE ${DNSSD_LIB})
+    endif()
+    if (BUILD_CARBON)
+        find_library(APPSERVICES_LIB ApplicationServices)
+        target_link_libraries(input-leap PRIVATE ${APPSERVICES_LIB})
+    endif()
+    if (BUILD_XWINDOWS OR BUILD_LIBEI)
+        target_link_libraries(input-leap PRIVATE dns_sd Threads::Threads)
+    endif()
+
+    if(INPUTLEAP_BUILD_TESTS)
+        add_executable(guiunittests
+            test/main.cpp
+            test/KeySequenceTests.cpp
+            test/HotkeyTests.cpp
+            test/CoreEventParserTests.cpp
+            test/LayoutModelTests.cpp
+            test/AppSettingsTests.cpp
+            src/Action.cpp
+            src/Hotkey.cpp
+            src/KeySequence.cpp
+            ${NEWGUI_APP_SOURCES}
+        )
+        target_include_directories(guiunittests PRIVATE app src ../../ext)
+        target_link_libraries(guiunittests gtest gmock
+            Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Qml Qt6::Test ${libs})
+        add_test(NAME guiunittests COMMAND guiunittests WORKING_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
+    endif()
 
     if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
         install(TARGETS input-leap DESTINATION ${INPUTLEAP_BUNDLE_BINARY_DIR})

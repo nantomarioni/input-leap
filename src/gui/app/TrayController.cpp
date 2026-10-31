@@ -16,6 +16,8 @@
 
 #include "TrayController.h"
 #include "AppController.h"
+#include "AppSettings.h"
+#include "Platform.h"
 
 #include <QAction>
 #include <QCoreApplication>
@@ -26,17 +28,16 @@
 
 namespace {
 
-QIcon trayIcon(AppController::RunState state)
+QIcon trayIcon(bool connected)
 {
 #if defined(Q_OS_MAC)
-    const char* file = state == AppController::Running
-        ? ":/tray/icons/128x128/input-leap-connected-mask.png"
-        : ":/tray/icons/128x128/input-leap-disconnected-mask.png";
+    const char* file = connected ? ":/tray/icons/128x128/input-leap-connected-mask.png"
+                                 : ":/tray/icons/128x128/input-leap-disconnected-mask.png";
     QIcon icon(QString::fromLatin1(file));
     icon.setIsMask(true);
     return icon;
 #else
-    const char* name = state == AppController::Running ? "input-leap-connected" : "input-leap-disconnected";
+    const char* name = connected ? "input-leap-connected" : "input-leap-disconnected";
     const QString file = QStringLiteral(":/tray/icons/128x128/%1.png").arg(QLatin1String(name));
     return QIcon::fromTheme(QLatin1String(name), QIcon(file));
 #endif
@@ -48,17 +49,23 @@ TrayController::TrayController(QQuickWindow* window, QObject* parent) :
     QObject(parent),
     m_window(window)
 {
+    AppController* app = AppController::instance();
+
+    if (m_window != nullptr) {
+        connect(m_window, &QWindow::visibleChanged, this, [](bool visible) {
+            Platform::setDockIconVisible(visible);
+        });
+        Platform::setDockIconVisible(m_window->isVisible());
+    }
+
     if (!QSystemTrayIcon::isSystemTrayAvailable()) {
         return;
     }
 
-    AppController* app = AppController::instance();
-
     m_menu = new QMenu();
     m_menu->addAction(tr("Show Input Leap"), this, &TrayController::showWindow);
     m_startStopAction = m_menu->addAction(QString(), this, [app]() {
-        const auto state = app->runState();
-        if (state == AppController::Stopped || state == AppController::Failed) {
+        if (app->canSwitchRole()) {
             app->start();
         } else {
             app->stop();
@@ -66,17 +73,24 @@ TrayController::TrayController(QQuickWindow* window, QObject* parent) :
     });
     m_menu->addAction(tr("Restart"), app, &AppController::restart);
     m_menu->addSeparator();
+    m_menu->addAction(tr("Check for Updates…"), app, &AppController::checkForUpdates);
+    m_menu->addSeparator();
     m_menu->addAction(tr("Quit Input Leap"), qApp, &QCoreApplication::quit);
 
     m_tray = new QSystemTrayIcon(this);
     m_tray->setContextMenu(m_menu);
-    m_tray->setToolTip(QStringLiteral("Input Leap"));
     connect(m_tray, &QSystemTrayIcon::activated, this, [this](QSystemTrayIcon::ActivationReason reason) {
         if (reason == QSystemTrayIcon::DoubleClick) {
             toggleWindow();
         }
     });
     connect(app, &AppController::stateChanged, this, &TrayController::sync);
+    connect(app, &AppController::notify, this, [this, app](const QString& title, const QString& text) {
+        if (m_tray != nullptr && app->settings()->systemNotifications() && (m_window == nullptr || !m_window->isVisible())) {
+            m_tray->showMessage(title, text, QSystemTrayIcon::Information, 5000);
+        }
+    });
+    connect(m_tray, &QSystemTrayIcon::messageClicked, this, &TrayController::showWindow);
 
     sync();
     m_tray->show();
@@ -112,9 +126,7 @@ void TrayController::toggleWindow()
 void TrayController::sync()
 {
     AppController* app = AppController::instance();
-    const auto state = app->runState();
-    m_tray->setIcon(trayIcon(state));
+    m_tray->setIcon(trayIcon(app->connected()));
     m_tray->setToolTip(QStringLiteral("Input Leap · ") + app->statusText());
-    const bool stopped = state == AppController::Stopped || state == AppController::Failed;
-    m_startStopAction->setText(stopped ? tr("Start") : tr("Stop"));
+    m_startStopAction->setText(app->canSwitchRole() ? tr("Start") : tr("Stop"));
 }

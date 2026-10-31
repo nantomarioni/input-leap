@@ -112,6 +112,7 @@ void UpdateChecker::handleReply(QNetworkReply* reply, bool quiet)
     reply->deleteLater();
 
     if (reply->error() != QNetworkReply::NoError) {
+        emit checkFailed(reply->errorString());
         if (!quiet) {
             QMessageBox::warning(m_parentWindow, tr("Check for Updates"),
                                  tr("Could not reach GitHub:\n%1").arg(reply->errorString()));
@@ -134,6 +135,7 @@ void UpdateChecker::handleReply(QNetworkReply* reply, bool quiet)
     }
 
     if (remoteCommit.startsWith(localHash)) {
+        emit upToDate();
         if (!quiet) {
             QMessageBox::information(m_parentWindow, tr("Check for Updates"),
                 tr("You are running the latest build (%1).")
@@ -158,6 +160,8 @@ void UpdateChecker::handleReply(QNetworkReply* reply, bool quiet)
             }
         }
     }
+
+    emit updateAvailable(releaseName, assetUrl, assetName);
 
     // Newer build available. Quiet (startup) checks surface a click-to-
     // install overlay; manual checks keep the explicit dialog.
