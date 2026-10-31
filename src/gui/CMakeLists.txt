@@ -60,6 +60,8 @@ if(INPUTLEAP_NEW_GUI)
         app/Discovery.h
         app/TlsIdentity.cpp
         app/TlsIdentity.h
+        app/KeyCaptureItem.cpp
+        app/KeyCaptureItem.h
         app/TrayController.cpp
         app/TrayController.h
         app/Platform.h
@@ -89,6 +91,11 @@ if(INPUTLEAP_NEW_GUI)
             qml/components/Card.qml
             qml/components/SettingRow.qml
             qml/components/InfoRow.qml
+            qml/components/EmptyState.qml
+            qml/components/HotkeyEditor.qml
+            qml/components/KeyCaptureField.qml
+            qml/components/NumberBox.qml
+            qml/components/ScreenSettingsPanel.qml
             qml/components/LogDrawer.qml
             qml/components/NavRail.qml
             qml/components/PagePlaceholder.qml

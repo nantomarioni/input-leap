@@ -19,7 +19,9 @@ Rectangle {
 
     ColumnLayout {
         id: column
-        anchors.fill: parent
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
         anchors.margins: card.padding
         spacing: card.spacing
     }

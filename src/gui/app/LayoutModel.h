@@ -189,6 +189,8 @@ public:
     const std::vector<Hotkey>& hotkeys() const { return m_hotkeys; }
     std::vector<Hotkey>& hotkeys() { return m_hotkeys; }
     QVariantList hotkeyList() const;
+    int addHotkey(const KeySequence& keys);                 // returns the new index, -1 when invalid/duplicate
+    bool addAction(int hotkeyIndex, const Action& action);
     Q_INVOKABLE void removeHotkey(int index);
     Q_INVOKABLE void removeAction(int hotkeyIndex, int actionIndex);
     void hotkeysEdited();   // after direct edits through hotkeys()

@@ -430,6 +430,33 @@ QVariantList LayoutModel::hotkeyList() const
     return list;
 }
 
+int LayoutModel::addHotkey(const KeySequence& keys)
+{
+    if (!keys.valid()) {
+        return -1;
+    }
+    for (const Hotkey& existing : m_hotkeys) {
+        if (existing.keySequence().toString() == keys.toString()) {
+            return -1;
+        }
+    }
+    Hotkey hotkey;
+    hotkey.setKeySequence(keys);
+    m_hotkeys.push_back(hotkey);
+    hotkeysEdited();
+    return int(m_hotkeys.size()) - 1;
+}
+
+bool LayoutModel::addAction(int hotkeyIndex, const Action& action)
+{
+    if (hotkeyIndex < 0 || hotkeyIndex >= int(m_hotkeys.size())) {
+        return false;
+    }
+    m_hotkeys[hotkeyIndex].appendAction(action);
+    hotkeysEdited();
+    return true;
+}
+
 void LayoutModel::removeHotkey(int index)
 {
     if (index < 0 || index >= int(m_hotkeys.size())) {

@@ -20,6 +20,7 @@
 #include "CoreEventParser.h"
 #include "CoreProcess.h"
 #include "Discovery.h"
+#include "KeyCaptureItem.h"
 #include "LayoutModel.h"
 #include "LogModel.h"
 #include "Platform.h"
@@ -32,6 +33,7 @@
 #include <QDesktopServices>
 #include <QDir>
 #include <QFile>
+#include <QFileDialog>
 #include <QFileInfo>
 #include <QFontDatabase>
 #include <QGuiApplication>
@@ -920,6 +922,67 @@ void AppController::setLaunchAtLogin(bool enabled)
         log(tr("could not change the launch at login setting"), QStringLiteral("WARNING"));
     }
     emit stateChanged();
+}
+
+void AppController::copyText(const QString& text)
+{
+    QGuiApplication::clipboard()->setText(text);
+}
+
+QString AppController::pickFile(const QString& title, const QString& start, bool save)
+{
+    return save ? QFileDialog::getSaveFileName(nullptr, title, start)
+                : QFileDialog::getOpenFileName(nullptr, title, start);
+}
+
+int AppController::addHotkey(QObject* capture)
+{
+    auto* keys = qobject_cast<KeyCaptureItem*>(capture);
+    if (keys == nullptr || !keys->valid()) {
+        return -1;
+    }
+    const int index = m_layout->addHotkey(keys->sequence());
+    if (index < 0) {
+        log(tr("that hotkey already exists"), QStringLiteral("WARNING"));
+    }
+    return index;
+}
+
+bool AppController::addHotkeyAction(int hotkeyIndex, const QVariantMap& map, QObject* capture)
+{
+    static const QHash<QString, int> types{
+        {QStringLiteral("keyDown"), Action::keyDown}, {QStringLiteral("keyUp"), Action::keyUp},
+        {QStringLiteral("keystroke"), Action::keystroke}, {QStringLiteral("switchToScreen"), Action::switchToScreen},
+        {QStringLiteral("toggleScreen"), Action::toggleScreen}, {QStringLiteral("switchInDirection"), Action::switchInDirection},
+        {QStringLiteral("lockCursorToScreen"), Action::lockCursorToScreen}};
+    const QString typeName = map.value(QStringLiteral("type")).toString();
+    if (!types.contains(typeName)) {
+        return false;
+    }
+    Action action;
+    action.setType(types.value(typeName));
+    if (action.type() == Action::keyDown || action.type() == Action::keyUp || action.type() == Action::keystroke) {
+        auto* keys = qobject_cast<KeyCaptureItem*>(capture);
+        if (keys == nullptr || !keys->valid()) {
+            log(tr("record the keys the action should press first"), QStringLiteral("WARNING"));
+            return false;
+        }
+        action.setKeySequence(keys->sequence());
+        const QStringList screens = map.value(QStringLiteral("screens")).toStringList();
+        action.setHaveScreens(!screens.isEmpty());
+        for (const QString& screen : screens) {
+            action.appendTypeScreenName(screen);
+        }
+    }
+    action.setSwitchScreenName(map.value(QStringLiteral("switchScreen")).toString());
+    action.setSwitchDirection(map.value(QStringLiteral("direction"), Action::switchLeft).toInt());
+    action.setLockCursorMode(map.value(QStringLiteral("lockMode"), Action::lockCursorToggle).toInt());
+    action.setActiveOnRelease(map.value(QStringLiteral("onRelease"), false).toBool());
+    if (!m_layout->addAction(hotkeyIndex, action)) {
+        return false;
+    }
+    applyLayout();
+    return true;
 }
 
 void AppController::log(const QString& text, const QString& level)

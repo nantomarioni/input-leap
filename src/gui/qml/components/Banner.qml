@@ -65,6 +65,7 @@ Card {
             }
             ColumnLayout {
                 Layout.fillWidth: true
+                Layout.preferredWidth: 1
                 spacing: 6
                 Label {
                     Layout.fillWidth: true

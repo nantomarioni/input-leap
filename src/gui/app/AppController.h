@@ -168,6 +168,10 @@ public slots:
     void copyLogToClipboard();
     void appendLog(const QString& line);
     void setLaunchAtLogin(bool enabled);
+    void copyText(const QString& text);
+    QString pickFile(const QString& title, const QString& start, bool save);
+    int addHotkey(QObject* capture);
+    bool addHotkeyAction(int hotkeyIndex, const QVariantMap& action, QObject* capture);
 
 signals:
     void roleChanged();
