@@ -212,7 +212,8 @@ bool SyncService::start()
         return false;
     }
     m_listener = new Listener([this](qintptr descriptor) { acceptIncoming(descriptor); }, this);
-    if (!m_listener->listen(QHostAddress::Any, 0)) {
+    // the well-known port first (one window per machine normally has it), any port otherwise
+    if (!m_listener->listen(QHostAddress::Any, kDefaultPort) && !m_listener->listen(QHostAddress::Any, 0)) {
         m_error = tr("cannot listen: %1").arg(m_listener->errorString());
         delete m_listener;
         m_listener = nullptr;
@@ -375,20 +376,26 @@ void SyncService::acceptIncoming(qintptr descriptor)
         socket->deleteLater();
         return;
     }
-    attach(socket, true, QString());
+    attach(socket, true, nullptr);
     socket->startServerEncryption();
 }
 
 void SyncService::connectTo(const QString& name, const QString& host, quint16 port)
 {
-    if (name.isEmpty() || host.isEmpty() || port == 0) {
+    if (host.isEmpty() || port == 0) {
         return;
     }
-    Target& target = m_targets[name];
-    const bool known = !target.name.isEmpty();
-    if (known && target.host == host && target.port == port && peerNamed(name) != nullptr) {
-        return;   // already connected there
+    const QString key = name.isEmpty() ? host + QLatin1Char(':') + QString::number(port) : name;
+    Target& target = m_targets[key];
+    const bool known = !target.key.isEmpty();
+    if (known && target.host == host && target.port == port) {
+        for (const Peer* peer : std::as_const(m_peers)) {
+            if (!peer->incoming && peer->targetKey == key) {
+                return;   // connected or connecting there already
+            }
+        }
     }
+    target.key = key;
     target.name = name;
     target.host = host;
     target.port = port;
@@ -396,8 +403,8 @@ void SyncService::connectTo(const QString& name, const QString& host, quint16 po
     if (target.timer == nullptr) {
         target.timer = new QTimer(this);
         target.timer->setSingleShot(true);
-        connect(target.timer, &QTimer::timeout, this, [this, name]() {
-            auto it = m_targets.find(name);
+        connect(target.timer, &QTimer::timeout, this, [this, key]() {
+            auto it = m_targets.find(key);
             if (it != m_targets.end()) {
                 attempt(*it);
             }
@@ -405,24 +412,24 @@ void SyncService::connectTo(const QString& name, const QString& host, quint16 po
     }
     // a stale connection to the old address goes
     for (Peer* peer : std::as_const(m_peers)) {
-        if (!peer->incoming && peer->targetName == name) {
-            dropPeer(peer, tr("reconnecting to %1").arg(name));
+        if (!peer->incoming && peer->targetKey == key) {
+            dropPeer(peer, tr("reconnecting to %1").arg(key));
             break;
         }
     }
     attempt(target);
 }
 
-void SyncService::forget(const QString& name)
+void SyncService::forget(const QString& nameOrHostPort)
 {
-    auto it = m_targets.find(name);
+    auto it = m_targets.find(nameOrHostPort);
     if (it != m_targets.end()) {
         delete it->timer;
         m_targets.erase(it);
     }
     for (Peer* peer : std::as_const(m_peers)) {
-        if (!peer->incoming && peer->targetName == name) {
-            dropPeer(peer, tr("%1 forgotten").arg(name));
+        if (!peer->incoming && peer->targetKey == nameOrHostPort) {
+            dropPeer(peer, tr("%1 forgotten").arg(nameOrHostPort));
             break;
         }
     }
@@ -431,7 +438,11 @@ void SyncService::forget(const QString& name)
 void SyncService::retryNow()
 {
     for (auto it = m_targets.begin(); it != m_targets.end(); ++it) {
-        if (peerNamed(it->name) == nullptr) {
+        bool busy = false;
+        for (const Peer* peer : std::as_const(m_peers)) {
+            if (!peer->incoming && peer->targetKey == it->key) busy = true;
+        }
+        if (!busy) {
             it->retryMs = 0;
             attempt(*it);
         }
@@ -444,20 +455,20 @@ void SyncService::attempt(Target& target)
         return;
     }
     for (Peer* peer : std::as_const(m_peers)) {
-        if (!peer->incoming && peer->targetName == target.name) {
+        if (!peer->incoming && peer->targetKey == target.key) {
             return;   // an attempt is already under way
         }
     }
     target.timer->stop();
     auto* socket = new QSslSocket(this);
     socket->setSslConfiguration(m_tls);
-    attach(socket, false, target.name);
+    attach(socket, false, &target);
     socket->connectToHostEncrypted(target.host, target.port);
 }
 
-void SyncService::scheduleRetry(const QString& targetName, bool reset)
+void SyncService::scheduleRetry(const QString& targetKey, bool reset)
 {
-    auto it = m_targets.find(targetName);
+    auto it = m_targets.find(targetKey);
     if (it == m_targets.end()) {
         return;
     }
@@ -465,12 +476,15 @@ void SyncService::scheduleRetry(const QString& targetName, bool reset)
     it->timer->start(it->retryMs);
 }
 
-SyncService::Peer* SyncService::attach(QSslSocket* socket, bool incoming, const QString& targetName)
+SyncService::Peer* SyncService::attach(QSslSocket* socket, bool incoming, const Target* target)
 {
     auto* peer = new Peer;
     peer->socket = socket;
     peer->incoming = incoming;
-    peer->targetName = targetName;
+    if (target != nullptr) {
+        peer->targetKey = target->key;
+        peer->targetName = target->name;
+    }
     peer->since = QDateTime::currentDateTime();
     peer->helloTimer = new QTimer(this);
     peer->helloTimer->setSingleShot(true);
@@ -624,7 +638,7 @@ void SyncService::dropPeer(Peer* peer, const QString& why)
         return;
     }
     const bool wasServer = peer->verified && peer->role == QLatin1String("server");
-    const QString targetName = peer->targetName;
+    const QString targetKey = peer->targetKey;
     const bool incoming = peer->incoming;
     if (peer->verified) {
         const QStringList ids = m_pending.keys();
@@ -644,7 +658,7 @@ void SyncService::dropPeer(Peer* peer, const QString& why)
     delete peer->helloTimer;
     delete peer;
     if (!incoming) {
-        scheduleRetry(targetName, false);
+        scheduleRetry(targetKey, false);
     }
     emit changed();
     if (wasServer) {

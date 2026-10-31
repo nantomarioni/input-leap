@@ -113,6 +113,9 @@ AppController::AppController(QObject* parent) :
         if (m_settings->useExternalConfig() != m_externalActive || m_settings->configFile() != m_externalPath) {
             reloadExternalLayout();
         }
+        if (m_settings->serverHostname() != m_syncServerHost) {
+            dialServerAddress();
+        }
         // the channel follows its switch; a new name is announced to the
         // peers and re-registered, both deferred so a change a peer asked
         // for is answered first
@@ -994,6 +997,21 @@ void AppController::startSync()
                 m_sync->connectTo(name, peer.host, peer.port);
             }
         }
+        dialServerAddress();
+    }
+}
+
+// A server address typed by hand (discovery off, or a different network):
+// its window listens on the well-known channel port.
+void AppController::dialServerAddress()
+{
+    const QString host = m_settings->serverHostname();
+    if (!m_syncServerHost.isEmpty() && m_syncServerHost != host) {
+        m_sync->forget(m_syncServerHost + QLatin1Char(':') + QString::number(SyncService::kDefaultPort));
+    }
+    m_syncServerHost = host;
+    if (role() == Client && m_sync->listening() && !host.isEmpty()) {
+        m_sync->connectTo(QString(), host, SyncService::kDefaultPort);
     }
 }
 

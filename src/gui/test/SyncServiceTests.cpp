@@ -79,7 +79,8 @@ TEST(SyncService, exchangesDocumentsBetweenTrustedPeers)
     ASSERT_TRUE(server.setIdentity(serverPem, &error)) << error.toStdString();
     server.setLocalInfo(QStringLiteral("desk-win"), QStringLiteral("server"), QStringLiteral("test"));
     server.setTrustCheck([&](const QString& sha, const QString& name, bool incoming) {
-        return incoming && sha == clientFp && name == QLatin1String("macbook") ? SyncService::Read : SyncService::None;
+        return incoming && sha == clientFp && (name == QLatin1String("macbook") || name == QLatin1String("mini"))
+               ? SyncService::Read : SyncService::None;
     });
     QJsonObject lastRequest;
     server.setRequestHandler([&](const QString& peer, const QString& kind, const QJsonObject& body, int access) {
@@ -150,6 +151,20 @@ TEST(SyncService, exchangesDocumentsBetweenTrustedPeers)
     EXPECT_FALSE(gotAck.value(QStringLiteral("ok")).toBool());
     EXPECT_EQ(lastRequest.value(QStringLiteral("peer")).toString(), QStringLiteral("macbook"));
     EXPECT_EQ(lastRequest.value(QStringLiteral("key")).toString(), QStringLiteral("logLevel"));
+
+    // a typed-in address, no name known: whatever server answers is taken
+    SyncService mini;
+    ASSERT_TRUE(mini.setIdentity(clientPem, &error)) << error.toStdString();
+    mini.setLocalInfo(QStringLiteral("mini"), QStringLiteral("client"), QStringLiteral("test"));
+    mini.setTrustCheck([&](const QString& sha, const QString&, bool incoming) {
+        return !incoming && sha == serverFp ? SyncService::Write : SyncService::None;
+    });
+    ASSERT_TRUE(mini.start());
+    mini.connectTo(QString(), QStringLiteral("127.0.0.1"), quint16(server.port()));
+    ASSERT_TRUE(waitFor([&]() { return mini.serverConnected(); }));
+    EXPECT_EQ(mini.serverName(), QStringLiteral("desk-win"));
+    mini.forget(QStringLiteral("127.0.0.1:") + QString::number(server.port()));
+    ASSERT_TRUE(waitFor([&]() { return !mini.serverConnected(); }));
 
     // a request to nobody fails at once
     gotAck = QJsonObject();

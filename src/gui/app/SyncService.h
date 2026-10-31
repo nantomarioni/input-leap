@@ -69,6 +69,10 @@ public:
     enum Access { None = 0, Read = 1, Write = 2 };
     Q_ENUM(Access)
 
+    // The port tried first when listening: a client with a server address but
+    // no discovery (or a server without Bonjour) reaches the server's GUI here.
+    static constexpr quint16 kDefaultPort = 24802;
+
     // sha256: "AB:CD:…" of the peer's certificate; name: what the peer calls
     // itself in its hello; incoming: it connected to us.
     using TrustCheck = std::function<int(const QString& sha256, const QString& name, bool incoming)>;
@@ -104,8 +108,10 @@ public:
     QString request(const QString& peerName, const QString& kind, const QJsonObject& body, AckHandler handler);
 
     // Client role: reach the server's GUI; retried until forget() or stop().
+    // An empty name accepts whatever server answers there (an address typed
+    // by hand); forget() then takes "host:port".
     void connectTo(const QString& name, const QString& host, quint16 port);
-    void forget(const QString& name);
+    void forget(const QString& nameOrHostPort);
     Q_INVOKABLE void retryNow();   // the trust database changed: try the pending peers again
 
     QVariantList peers() const;
@@ -138,7 +144,8 @@ private:
         int access = None;         // what it may do here
         int accessThere = None;    // what we may do there (its "access" message)
         int protocol = 1;
-        QString targetName;        // outgoing: the name we were told
+        QString targetKey;         // outgoing: the entry in m_targets
+        QString targetName;        // outgoing: the name we were told, if any
         QString name;              // from its hello
         QString role;
         QString version;
@@ -150,6 +157,7 @@ private:
     };
     struct Target
     {
+        QString key;
         QString name;
         QString host;
         quint16 port = 0;
@@ -165,12 +173,12 @@ private:
 
     void acceptIncoming(qintptr descriptor);
     void attempt(Target& target);
-    Peer* attach(QSslSocket* socket, bool incoming, const QString& targetName);
+    Peer* attach(QSslSocket* socket, bool incoming, const Target* target);
     void onEncrypted(Peer* peer);
     void onReadyRead(Peer* peer);
     void handleLine(Peer* peer, const QByteArray& line);
     void dropPeer(Peer* peer, const QString& why);
-    void scheduleRetry(const QString& targetName, bool reset);
+    void scheduleRetry(const QString& targetKey, bool reset);
     void sendDocument(Peer* peer, const QString& kind, const QJsonObject& document);
     void sendAll(Peer* peer);
     void broadcast();

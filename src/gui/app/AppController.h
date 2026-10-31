@@ -224,6 +224,7 @@ private:
     void startDiscovery();
     void startSync();
     void reloadExternalLayout();
+    void dialServerAddress();
     void publishSync();
     int syncTrusted(const QString& sha256, const QString& name, bool incoming) const;
     QJsonObject handleSyncRequest(const QString& peer, const QString& kind, const QJsonObject& body, int access);
@@ -251,6 +252,7 @@ private:
     bool m_dryRun = false;
     bool m_trayAvailable = false;
     QString m_syncName;
+    QString m_syncServerHost;
     QHash<QString, QHash<QString, QVariantMap>> m_remoteResults;
     LogModel* m_logModel = nullptr;
     LogFilterModel* m_log = nullptr;

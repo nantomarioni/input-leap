@@ -269,7 +269,10 @@ mirrors the core's posture: a certificate in the trusted database grants
 without client-certificate checks grants **Read** to the computers of its
 layout, a client with TLS off grants Read to the server it found; anybody
 else is dropped before anything is shared. Each side tells the other what
-it granted (`access`).
+it granted (`access`). A window listens on port 24802 when it is free (any
+port otherwise); a client whose server address was typed in, with
+discovery off, dials that port on the server directly, and the Windows
+installer's firewall rule covers it.
 
 Messages are one JSON document per line, each with a `type`: snapshots
 kept per peer and resent on change (`hello` name/role/build/protocol,
