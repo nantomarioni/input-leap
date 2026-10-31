@@ -234,9 +234,12 @@ ScrollView {
 
             SectionTitle { text: qsTr("What is running") }
 
-            RowLayout {
+            // five pieces: three and two, so the names stay readable
+            GridLayout {
                 Layout.fillWidth: true
-                spacing: 12
+                columns: 3
+                columnSpacing: 12
+                rowSpacing: 12
 
                 Repeater {
                     model: App.processes
