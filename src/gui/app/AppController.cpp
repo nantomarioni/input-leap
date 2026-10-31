@@ -25,6 +25,7 @@
 #include "LogModel.h"
 #include "Platform.h"
 #include "TlsIdentity.h"
+#include "common/DataDirectories.h"
 #include "../../fork/gui/NotificationRouter.h"
 #include "../../fork/gui/UpdateChecker.h"
 
@@ -514,7 +515,11 @@ bool AppController::buildLaunch(QString& program, QStringList& arguments, QStrin
         arguments << QStringLiteral("--disable-crypto");
     }
 #if defined(Q_OS_WIN)
-    arguments << QStringLiteral("--profile-dir") << QDir::toNativeSeparators(dataFolder());
+    // The core's own profile (certificate, trusted fingerprints), the same
+    // folder TlsIdentity reads: not the app's data folder. On Windows this
+    // also keeps one profile however the core gets launched (elevated or not).
+    arguments << QStringLiteral("--profile-dir")
+              << QDir::toNativeSeparators(QString::fromStdString(inputleap::DataDirectories::profile().u8string()));
 #endif
     if (m_settings->logToFile()) {
         QDir().mkpath(QFileInfo(m_settings->logFilename()).path());
