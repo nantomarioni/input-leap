@@ -20,6 +20,7 @@
 
 #include <QAbstractListModel>
 #include <QHash>
+#include <QJsonObject>
 #include <QRect>
 #include <QSettings>
 #include <QString>
@@ -160,7 +161,10 @@ public:
     static constexpr int kDefaultWidth = 1920;
     static constexpr int kDefaultHeight = 1080;
 
+    // store = nullptr: a mirror, filled with loadJson() and never saved
+    // (the server's layout as a client sees it, docs/ui-redesign.md §4.7).
     explicit LayoutModel(QSettings* store, QObject* parent = nullptr);
+    bool isMirror() const { return m_store == nullptr; }
 
     // QAbstractListModel
     int rowCount(const QModelIndex& parent = QModelIndex()) const override;
@@ -252,6 +256,8 @@ public:
     // ---- persistence & output ---------------------------------------------
     void load();
     void save();
+    QJsonObject toJson() const;                 // the whole server configuration
+    void loadJson(const QJsonObject& json);     // replaces everything; a mirror's only input
     Q_INVOKABLE QString configText() const;
     Q_INVOKABLE bool writeConfig(const QString& path) const;
 
@@ -293,4 +299,5 @@ private:
     int m_dimmingPercentage = 30;
 
     std::vector<Hotkey> m_hotkeys;
+    QVariantList m_mirrorHotkeys;   // a mirror shows the server's hotkeys as text
 };

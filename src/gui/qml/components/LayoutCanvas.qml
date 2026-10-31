@@ -10,6 +10,7 @@ import InputLeap.Ui
 Item {
     id: canvas
 
+    property var model: App.layout       // App.mirrorLayout on a client
     property bool interactive: false
     property bool showDetails: true      // state/position under the name, display outlines
     property int selectedIndex: -1
@@ -18,7 +19,7 @@ Item {
     signal selected(int index)
     signal rejected()                    // a drop that would overlap another computer
 
-    readonly property rect bounds: App.layout.bounds
+    readonly property rect bounds: model.bounds
     readonly property real pxScale: {
         const b = bounds
         if (b.width <= 0 || b.height <= 0)
@@ -38,10 +39,10 @@ Item {
 
     // Snap to a nearby edge, then move; refuse (and say so) when the place is taken.
     function dropAt(index, x, y, snapThreshold) {
-        const snapped = App.layout.snapPosition(index, x, y, snapThreshold)
-        if (App.layout.moveTo(index, snapped.x, snapped.y))
+        const snapped = canvas.model.snapPosition(index, x, y, snapThreshold)
+        if (canvas.model.moveTo(index, snapped.x, snapped.y))
             return true
-        if (!snapped.snapped || !App.layout.moveTo(index, x, y)) {
+        if (!snapped.snapped || !canvas.model.moveTo(index, x, y)) {
             rejected()
             return false
         }
@@ -50,7 +51,7 @@ Item {
 
     Repeater {
         id: tiles
-        model: App.layout
+        model: canvas.model
 
         delegate: Item {
             id: slot
@@ -107,7 +108,7 @@ Item {
                 Keys.onDownPressed: slot.moveBy(0, slot.nudge)
                 Keys.onPressed: (event) => {
                     if ((event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace) && canvas.interactive && !slot.isServer) {
-                        App.layout.removeScreen(slot.index)
+                        canvas.model.removeScreen(slot.index)
                         canvas.selected(-1)
                         event.accepted = true
                     }

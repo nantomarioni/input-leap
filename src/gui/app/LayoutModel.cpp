@@ -17,6 +17,7 @@
 #include "LayoutModel.h"
 
 #include <QFile>
+#include <QJsonArray>
 #include <QTextStream>
 
 #include <algorithm>
@@ -139,7 +140,9 @@ LayoutModel::LayoutModel(QSettings* store, QObject* parent) :
     QAbstractListModel(parent),
     m_store(store)
 {
-    load();
+    if (m_store != nullptr) {
+        load();
+    }
 }
 
 int LayoutModel::rowCount(const QModelIndex& parent) const
@@ -701,6 +704,9 @@ void LayoutModel::setDimmingPercentage(int percent) { setOption(m_dimmingPercent
 
 QVariantList LayoutModel::hotkeyList() const
 {
+    if (isMirror()) {
+        return m_mirrorHotkeys;
+    }
     QVariantList list;
     for (const Hotkey& hotkey : m_hotkeys) {
         QVariantMap map;
@@ -775,6 +781,9 @@ void LayoutModel::hotkeysEdited()
 
 void LayoutModel::load()
 {
+    if (m_store == nullptr) {
+        return;
+    }
     QSettings& s = *m_store;
     s.beginGroup(QStringLiteral("internalConfig"));
 
@@ -924,6 +933,9 @@ void LayoutModel::saveScreen(const ScreenConfig& screen)
 
 void LayoutModel::save()
 {
+    if (m_store == nullptr) {
+        return;
+    }
     QSettings& s = *m_store;
     s.beginGroup(QStringLiteral("internalConfig"));
     s.remove(QString());
@@ -962,6 +974,125 @@ void LayoutModel::save()
     s.endArray();
 
     s.endGroup();
+}
+
+// ---- JSON (the settings channel) -----------------------------------------------
+
+QJsonObject LayoutModel::toJson() const
+{
+    QJsonObject json;
+    json.insert(QStringLiteral("serverName"), m_serverName);
+    QJsonArray screens;
+    for (const ScreenConfig& s : m_screens) {
+        QJsonObject screen;
+        screen.insert(QStringLiteral("name"), s.name);
+        screen.insert(QStringLiteral("x"), s.x);
+        screen.insert(QStringLiteral("y"), s.y);
+        QJsonArray displays;
+        for (const DisplayConfig& d : s.displays) {
+            displays << QJsonObject::fromVariantMap(displayMap(d));
+        }
+        screen.insert(QStringLiteral("displays"), displays);
+        screen.insert(QStringLiteral("aliases"), QJsonArray::fromStringList(s.aliases));
+        QJsonArray modifiers, corners, fixes;
+        for (int m : s.modifiers) modifiers << m;
+        for (bool c : s.corners) corners << c;
+        for (bool f : s.fixes) fixes << f;
+        screen.insert(QStringLiteral("modifiers"), modifiers);
+        screen.insert(QStringLiteral("corners"), corners);
+        screen.insert(QStringLiteral("cornerSize"), s.cornerSize);
+        screen.insert(QStringLiteral("fixes"), fixes);
+        screens << screen;
+    }
+    json.insert(QStringLiteral("screens"), screens);
+
+    QJsonObject options;
+    options.insert(QStringLiteral("hasHeartbeat"), m_hasHeartbeat);
+    options.insert(QStringLiteral("heartbeat"), m_heartbeat);
+    options.insert(QStringLiteral("relativeMouseMoves"), m_relativeMouseMoves);
+    options.insert(QStringLiteral("screenSaverSync"), m_screenSaverSync);
+    options.insert(QStringLiteral("win32KeepForeground"), m_win32KeepForeground);
+    options.insert(QStringLiteral("hasSwitchDelay"), m_hasSwitchDelay);
+    options.insert(QStringLiteral("switchDelay"), m_switchDelay);
+    options.insert(QStringLiteral("hasSwitchDoubleTap"), m_hasSwitchDoubleTap);
+    options.insert(QStringLiteral("switchDoubleTap"), m_switchDoubleTap);
+    options.insert(QStringLiteral("switchCornerSize"), m_switchCornerSize);
+    QJsonArray switchCorners;
+    for (bool c : m_switchCorners) switchCorners << c;
+    options.insert(QStringLiteral("switchCorners"), switchCorners);
+    options.insert(QStringLiteral("ignoreAutoConfigClient"), m_ignoreAutoConfigClient);
+    options.insert(QStringLiteral("enableDragAndDrop"), m_enableDragAndDrop);
+    options.insert(QStringLiteral("clipboardSharing"), m_clipboardSharing);
+    options.insert(QStringLiteral("clipboardSharingSizeMb"), clipboardSharingSizeMb());
+    options.insert(QStringLiteral("dimmingEnabled"), m_dimmingEnabled);
+    options.insert(QStringLiteral("dimmingPercentage"), m_dimmingPercentage);
+    json.insert(QStringLiteral("options"), options);
+
+    json.insert(QStringLiteral("hotkeys"), QJsonArray::fromVariantList(hotkeyList()));
+    return json;
+}
+
+void LayoutModel::loadJson(const QJsonObject& json)
+{
+    beginResetModel();
+    m_screens.clear();
+    m_serverName = json.value(QStringLiteral("serverName")).toString();
+    const QJsonArray screens = json.value(QStringLiteral("screens")).toArray();
+    for (const QJsonValue& value : screens) {
+        const QJsonObject o = value.toObject();
+        ScreenConfig s;
+        s.name = o.value(QStringLiteral("name")).toString();
+        if (s.isNull() || hasScreen(s.name)) continue;
+        s.x = o.value(QStringLiteral("x")).toInt();
+        s.y = o.value(QStringLiteral("y")).toInt();
+        s.displays.clear();
+        const QJsonArray displays = o.value(QStringLiteral("displays")).toArray();
+        for (const QJsonValue& dv : displays) {
+            const QJsonObject d = dv.toObject();
+            DisplayConfig display;
+            display.x = d.value(QStringLiteral("x")).toInt();
+            display.y = d.value(QStringLiteral("y")).toInt();
+            display.width = d.value(QStringLiteral("width")).toInt(kDefaultWidth);
+            display.height = d.value(QStringLiteral("height")).toInt(kDefaultHeight);
+            s.displays << display;
+        }
+        s.normaliseDisplays();
+        for (const QJsonValue& a : o.value(QStringLiteral("aliases")).toArray()) s.aliases << a.toString();
+        const QJsonArray modifiers = o.value(QStringLiteral("modifiers")).toArray();
+        for (int i = 0; i < modifiers.size() && i < s.modifiers.size(); ++i) s.modifiers[i] = qBound(0, modifiers[i].toInt(), int(ScreenConfig::None));
+        const QJsonArray corners = o.value(QStringLiteral("corners")).toArray();
+        for (int i = 0; i < corners.size() && i < s.corners.size(); ++i) s.corners[i] = corners[i].toBool();
+        s.cornerSize = qMax(0, o.value(QStringLiteral("cornerSize")).toInt());
+        const QJsonArray fixes = o.value(QStringLiteral("fixes")).toArray();
+        for (int i = 0; i < fixes.size() && i < s.fixes.size(); ++i) s.fixes[i] = fixes[i].toBool();
+        m_screens << s;
+    }
+
+    const QJsonObject options = json.value(QStringLiteral("options")).toObject();
+    m_hasHeartbeat = options.value(QStringLiteral("hasHeartbeat")).toBool(false);
+    m_heartbeat = options.value(QStringLiteral("heartbeat")).toInt(5000);
+    m_relativeMouseMoves = options.value(QStringLiteral("relativeMouseMoves")).toBool(false);
+    m_screenSaverSync = options.value(QStringLiteral("screenSaverSync")).toBool(true);
+    m_win32KeepForeground = options.value(QStringLiteral("win32KeepForeground")).toBool(false);
+    m_hasSwitchDelay = options.value(QStringLiteral("hasSwitchDelay")).toBool(false);
+    m_switchDelay = options.value(QStringLiteral("switchDelay")).toInt(250);
+    m_hasSwitchDoubleTap = options.value(QStringLiteral("hasSwitchDoubleTap")).toBool(false);
+    m_switchDoubleTap = options.value(QStringLiteral("switchDoubleTap")).toInt(250);
+    m_switchCornerSize = options.value(QStringLiteral("switchCornerSize")).toInt(0);
+    const QJsonArray switchCorners = options.value(QStringLiteral("switchCorners")).toArray();
+    for (int i = 0; i < m_switchCorners.size(); ++i) m_switchCorners[i] = i < switchCorners.size() && switchCorners[i].toBool();
+    m_ignoreAutoConfigClient = options.value(QStringLiteral("ignoreAutoConfigClient")).toBool(false);
+    m_enableDragAndDrop = options.value(QStringLiteral("enableDragAndDrop")).toBool(true);
+    m_clipboardSharing = options.value(QStringLiteral("clipboardSharing")).toBool(true);
+    m_clipboardSharingSize = qulonglong(qMax(1, options.value(QStringLiteral("clipboardSharingSizeMb")).toInt(100))) * 1000 * 1000;
+    m_dimmingEnabled = options.value(QStringLiteral("dimmingEnabled")).toBool(false);
+    m_dimmingPercentage = qBound(0, options.value(QStringLiteral("dimmingPercentage")).toInt(30), 100);
+
+    m_mirrorHotkeys = json.value(QStringLiteral("hotkeys")).toArray().toVariantList();
+    endResetModel();
+    emit layoutChanged();
+    emit optionsChanged();
+    emit hotkeysChanged();
 }
 
 // ---- the .conf -----------------------------------------------------------------

@@ -6,18 +6,23 @@ import InputLeap.Ui
 Item {
     id: page
 
-    // On a client the server's configuration is mirrored from the server
-    // (phase C); until then the page says so.
+    // On a client the page shows the server's configuration as the server
+    // shares it (docs/ui-redesign.md §4.7, phase C): the same controls,
+    // bound to the mirror and disabled.
+    readonly property bool mirror: App.role === App.Client
+    readonly property var cfg: mirror ? App.mirrorLayout : App.layout
+    readonly property var srv: mirror && App.mirrorAvailable ? App.sync.serverSettings : App.settings
+
     EmptyState {
         anchors.fill: parent
-        visible: App.role === App.Client
+        visible: page.mirror && !App.mirrorAvailable
         title: qsTr("The server's configuration lives on the server")
-        description: qsTr("This computer is a client. The server's settings will show here, read-only, once it is connected and shares them; edit them on the server itself. Settings for this computer are on the Computers page.")
+        description: qsTr("This computer is a client. The server's settings show here, read-only, once the server shares them (Settings → Share settings) and this computer trusts its certificate. Settings for this computer are on the Computers page.")
     }
 
     ScrollView {
         anchors.fill: parent
-        visible: App.role === App.Server
+        visible: !page.mirror || App.mirrorAvailable
         contentWidth: availableWidth
         clip: true
 
@@ -26,6 +31,7 @@ Item {
             y: 20
             width: page.width - 48
             spacing: 14
+            enabled: !page.mirror
 
             RowLayout {
                 Layout.fillWidth: true
@@ -37,11 +43,15 @@ Item {
                     RowLayout {
                         spacing: 8
                         Label { text: qsTr("The server's configuration."); color: Theme.muted }
-                        StatusPill { text: qsTr("This computer is the server"); tone: "success"; showDot: false }
-                        Label { text: qsTr("Changes apply on the next restart."); color: Theme.muted }
+                        StatusPill {
+                            text: page.mirror ? qsTr("as held by %1 · read-only").arg(App.sync.serverName) : qsTr("This computer is the server")
+                            tone: page.mirror ? "info" : "success"
+                            showDot: false
+                        }
+                        Label { text: page.mirror ? qsTr("Edit it on the server.") : qsTr("Changes apply on the next restart."); color: Theme.muted }
                     }
                 }
-                Button { text: qsTr("Apply and restart"); highlighted: true; enabled: App.runState === App.Running; onClicked: App.restart() }
+                Button { visible: !page.mirror; text: qsTr("Apply and restart"); highlighted: true; enabled: App.runState === App.Running; onClicked: App.restart() }
             }
 
             Card {
@@ -51,32 +61,32 @@ Item {
                 SectionTitle { text: qsTr("Configuration source") }
                 RadioButton {
                     text: qsTr("Generate from the layout and the options below (recommended)")
-                    checked: !App.settings.useExternalConfig
-                    onToggled: if (checked) App.settings.useExternalConfig = false
+                    checked: !page.srv.useExternalConfig
+                    onToggled: if (checked) page.srv.useExternalConfig = false
                 }
                 RowLayout {
                     spacing: 8
                     RadioButton {
                         text: qsTr("Use a configuration file")
-                        checked: App.settings.useExternalConfig
-                        onToggled: if (checked) App.settings.useExternalConfig = true
+                        checked: page.srv.useExternalConfig
+                        onToggled: if (checked) page.srv.useExternalConfig = true
                     }
                     TextField {
                         Layout.preferredWidth: 360
-                        enabled: App.settings.useExternalConfig
-                        text: App.settings.configFile
+                        enabled: page.srv.useExternalConfig
+                        text: page.srv.configFile
                         font.family: App.monoFontFamily
-                        onEditingFinished: App.settings.configFile = text
+                        onEditingFinished: page.srv.configFile = text
                     }
                     Button {
                         text: qsTr("Browse…")
-                        enabled: App.settings.useExternalConfig
-                        onClicked: { var f = App.pickFile(qsTr("Choose the server configuration file"), App.settings.configFile, false); if (f.length > 0) App.settings.configFile = f }
+                        enabled: page.srv.useExternalConfig
+                        onClicked: { var f = App.pickFile(qsTr("Choose the server configuration file"), page.srv.configFile, false); if (f.length > 0) page.srv.configFile = f }
                     }
                 }
                 Label {
-                    visible: !App.settings.useExternalConfig
-                    text: qsTr("Written to %1 on every start.").arg(App.generatedConfigPath)
+                    visible: !page.srv.useExternalConfig
+                    text: qsTr("Written to %1 on every start.").arg(page.mirror ? page.srv.generatedConfigPath : App.generatedConfigPath)
                     color: Theme.muted
                     font.pixelSize: Theme.smallFontSize
                 }
@@ -102,23 +112,23 @@ Item {
                         TextField {
                             Layout.preferredWidth: 170
                             placeholderText: qsTr("all interfaces")
-                            text: App.settings.networkInterface
+                            text: page.srv.networkInterface
                             font.family: App.monoFontFamily
-                            onEditingFinished: App.settings.networkInterface = text
+                            onEditingFinished: page.srv.networkInterface = text
                         }
                     }
                     SettingRow {
                         label: qsTr("Port")
-                        NumberBox { from: 1; to: 65535; value: App.settings.port; onValueModified: App.settings.port = value }
+                        NumberBox { from: 1; to: 65535; value: page.srv.port; onValueModified: page.srv.port = value }
                     }
                     SettingRow {
                         label: qsTr("TLS encryption")
                         hint: qsTr("Fingerprints on the Security page.")
-                        Switch { checked: App.settings.cryptoEnabled; onToggled: App.settings.cryptoEnabled = checked }
+                        Switch { checked: page.srv.cryptoEnabled; onToggled: page.srv.cryptoEnabled = checked }
                     }
                     SettingRow {
                         label: qsTr("Require client certificates")
-                        Switch { checked: App.settings.requireClientCertificate; onToggled: App.settings.requireClientCertificate = checked }
+                        Switch { checked: page.srv.requireClientCertificate; onToggled: page.srv.requireClientCertificate = checked }
                     }
                 }
 
@@ -132,15 +142,15 @@ Item {
                     SettingRow {
                         label: qsTr("Switch after waiting at the edge")
                         divider: false
-                        NumberBox { from: 0; to: 10000; stepSize: 50; value: App.layout.switchDelay; onValueModified: App.layout.switchDelay = value }
+                        NumberBox { from: 0; to: 10000; stepSize: 50; value: page.cfg.switchDelay; onValueModified: page.cfg.switchDelay = value }
                         Label { text: qsTr("ms"); color: Theme.muted }
-                        Switch { checked: App.layout.hasSwitchDelay; onToggled: App.layout.hasSwitchDelay = checked }
+                        Switch { checked: page.cfg.hasSwitchDelay; onToggled: page.cfg.hasSwitchDelay = checked }
                     }
                     SettingRow {
                         label: qsTr("Switch on double tap within")
-                        NumberBox { from: 0; to: 10000; stepSize: 50; value: App.layout.switchDoubleTap; onValueModified: App.layout.switchDoubleTap = value }
+                        NumberBox { from: 0; to: 10000; stepSize: 50; value: page.cfg.switchDoubleTap; onValueModified: page.cfg.switchDoubleTap = value }
                         Label { text: qsTr("ms"); color: Theme.muted }
-                        Switch { checked: App.layout.hasSwitchDoubleTap; onToggled: App.layout.hasSwitchDoubleTap = checked }
+                        Switch { checked: page.cfg.hasSwitchDoubleTap; onToggled: page.cfg.hasSwitchDoubleTap = checked }
                     }
                     SettingRow {
                         label: qsTr("Dead corners")
@@ -155,15 +165,15 @@ Item {
                                     required property int index
                                     required property string modelData
                                     text: modelData
-                                    checked: App.layout.switchCorners[index]
-                                    onToggled: App.layout.setSwitchCorner(index, checked)
+                                    checked: page.cfg.switchCorners[index]
+                                    onToggled: page.cfg.setSwitchCorner(index, checked)
                                 }
                             }
                         }
                     }
                     SettingRow {
                         label: qsTr("Corner size")
-                        NumberBox { from: 0; to: 1000; value: App.layout.switchCornerSize; onValueModified: App.layout.switchCornerSize = value }
+                        NumberBox { from: 0; to: 1000; value: page.cfg.switchCornerSize; onValueModified: page.cfg.switchCornerSize = value }
                         Label { text: qsTr("px"); color: Theme.muted }
                     }
                 }
@@ -179,38 +189,38 @@ Item {
                         label: qsTr("Share the clipboard")
                         divider: false
                         Label { text: qsTr("up to"); color: Theme.muted }
-                        NumberBox { from: 1; to: 10000; value: App.layout.clipboardSharingSizeMb; onValueModified: App.layout.clipboardSharingSizeMb = value }
+                        NumberBox { from: 1; to: 10000; value: page.cfg.clipboardSharingSizeMb; onValueModified: page.cfg.clipboardSharingSizeMb = value }
                         Label { text: qsTr("MB"); color: Theme.muted }
-                        Switch { checked: App.layout.clipboardSharing; onToggled: App.layout.clipboardSharing = checked }
+                        Switch { checked: page.cfg.clipboardSharing; onToggled: page.cfg.clipboardSharing = checked }
                     }
                     SettingRow {
                         label: qsTr("Relative mouse moves")
                         hint: qsTr("For games and apps that grab the mouse.")
-                        Switch { checked: App.layout.relativeMouseMoves; onToggled: App.layout.relativeMouseMoves = checked }
+                        Switch { checked: page.cfg.relativeMouseMoves; onToggled: page.cfg.relativeMouseMoves = checked }
                     }
                     SettingRow {
                         label: qsTr("Synchronise screen savers")
-                        Switch { checked: App.layout.screenSaverSync; onToggled: App.layout.screenSaverSync = checked }
+                        Switch { checked: page.cfg.screenSaverSync; onToggled: page.cfg.screenSaverSync = checked }
                     }
                     SettingRow {
                         label: qsTr("Keep the foreground window")
                         hint: qsTr("Windows servers only.")
-                        Switch { checked: App.layout.win32KeepForeground; onToggled: App.layout.win32KeepForeground = checked }
+                        Switch { checked: page.cfg.win32KeepForeground; onToggled: page.cfg.win32KeepForeground = checked }
                     }
                     SettingRow {
                         label: qsTr("Check clients every")
-                        NumberBox { from: 1000; to: 60000; stepSize: 500; value: App.layout.heartbeat; onValueModified: App.layout.heartbeat = value }
+                        NumberBox { from: 1000; to: 60000; stepSize: 500; value: page.cfg.heartbeat; onValueModified: page.cfg.heartbeat = value }
                         Label { text: qsTr("ms"); color: Theme.muted }
-                        Switch { checked: App.layout.hasHeartbeat; onToggled: App.layout.hasHeartbeat = checked }
+                        Switch { checked: page.cfg.hasHeartbeat; onToggled: page.cfg.hasHeartbeat = checked }
                     }
                     SettingRow {
                         label: qsTr("Drag & drop file transfer")
-                        Switch { checked: App.layout.enableDragAndDrop; onToggled: App.layout.enableDragAndDrop = checked }
+                        Switch { checked: page.cfg.enableDragAndDrop; onToggled: page.cfg.enableDragAndDrop = checked }
                     }
                     SettingRow {
                         label: qsTr("Ignore computers found by discovery")
                         hint: qsTr("No join requests; add computers by hand.")
-                        Switch { checked: App.layout.ignoreAutoConfigClient; onToggled: App.layout.ignoreAutoConfigClient = checked }
+                        Switch { checked: page.cfg.ignoreAutoConfigClient; onToggled: page.cfg.ignoreAutoConfigClient = checked }
                     }
                 }
 
@@ -224,12 +234,12 @@ Item {
                     SettingRow {
                         label: qsTr("Dim the screens the cursor is not on")
                         divider: false
-                        Switch { checked: App.layout.dimmingEnabled; onToggled: App.layout.dimmingEnabled = checked }
+                        Switch { checked: page.cfg.dimmingEnabled; onToggled: page.cfg.dimmingEnabled = checked }
                     }
                     SettingRow {
                         label: qsTr("Dimmed brightness")
-                        Slider { Layout.preferredWidth: 140; from: 0; to: 100; stepSize: 5; value: App.layout.dimmingPercentage; enabled: App.layout.dimmingEnabled; onMoved: App.layout.dimmingPercentage = value }
-                        Label { text: App.layout.dimmingPercentage + " %"; font.family: App.monoFontFamily; color: Theme.text; Layout.preferredWidth: 40 }
+                        Slider { Layout.preferredWidth: 140; from: 0; to: 100; stepSize: 5; value: page.cfg.dimmingPercentage; enabled: page.cfg.dimmingEnabled; onMoved: page.cfg.dimmingPercentage = value }
+                        Label { text: page.cfg.dimmingPercentage + " %"; font.family: App.monoFontFamily; color: Theme.text; Layout.preferredWidth: 40 }
                     }
                     SettingRow {
                         label: qsTr("Clients wake on local input")
@@ -252,7 +262,7 @@ Item {
                     Layout.fillWidth: true
                     SectionTitle { text: qsTr("Hotkeys & actions") }
                     Item { Layout.fillWidth: true }
-                    Button { text: qsTr("Add hotkey"); visible: !newHotkey.visible; onClicked: newHotkey.visible = true }
+                    Button { text: qsTr("Add hotkey"); visible: !newHotkey.visible && !page.mirror; onClicked: newHotkey.visible = true }
                 }
 
                 HotkeyEditor {
@@ -264,13 +274,13 @@ Item {
                 }
 
                 Label {
-                    visible: App.layout.hotkeys.length === 0 && !newHotkey.visible
+                    visible: page.cfg.hotkeys.length === 0 && !newHotkey.visible
                     text: qsTr("No hotkeys yet. A hotkey runs one or more actions: switch to a screen, lock the cursor, or send a key combination.")
                     color: Theme.muted
                 }
 
                 Repeater {
-                    model: App.layout.hotkeys
+                    model: page.cfg.hotkeys
                     delegate: ColumnLayout {
                         id: hotkeyRow
                         required property int index
@@ -293,13 +303,13 @@ Item {
                                         required property string modelData
                                         spacing: 8
                                         Label { Layout.fillWidth: true; text: modelData; font.family: App.monoFontFamily; color: Theme.text; elide: Text.ElideRight }
-                                        Button { text: qsTr("Remove"); flat: true; onClicked: { App.layout.removeAction(hotkeyRow.index, index); App.applyLayout() } }
+                                        Button { text: qsTr("Remove"); flat: true; onClicked: { page.cfg.removeAction(hotkeyRow.index, index); App.applyLayout() } }
                                     }
                                 }
                                 Label { visible: hotkeyRow.modelData.actions.length === 0; text: qsTr("no actions yet"); color: Theme.muted }
                             }
                             Button { text: qsTr("Add action"); flat: true; onClicked: actionEditor.visible = true }
-                            Button { text: qsTr("Remove hotkey"); flat: true; onClicked: { App.layout.removeHotkey(hotkeyRow.index); App.applyLayout() } }
+                            Button { text: qsTr("Remove hotkey"); flat: true; onClicked: { page.cfg.removeHotkey(hotkeyRow.index); App.applyLayout() } }
                         }
                         HotkeyEditor {
                             id: actionEditor

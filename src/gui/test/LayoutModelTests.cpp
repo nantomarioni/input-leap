@@ -17,6 +17,8 @@
 #include "LayoutModel.h"
 #include "Utils.h"
 
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QSettings>
 #include <QVariantMap>
 
@@ -294,6 +296,43 @@ TEST(LayoutModel, roundTripsThroughTheSettings)
     EXPECT_EQ(again.switchDelay(), 300);
     EXPECT_TRUE(again.switchCorner(ScreenConfig::TopRight));
     EXPECT_EQ(again.clipboardSharingSizeMb(), 42);
+}
+
+TEST(LayoutModel, mirrorsItselfThroughJson)
+{
+    Store store;
+    LayoutModel layout(&store.settings);
+    layout.setServerName(QStringLiteral("desk-win"));
+    layout.ensureServerPlaced();
+    QVariantMap settings;
+    settings.insert(QStringLiteral("displays"), QVariantList{displayMap(0, 0, 2560, 1440), displayMap(2560, 0, 1080, 1920)});
+    settings.insert(QStringLiteral("aliases"), QStringList{QStringLiteral("dw.local")});
+    settings.insert(QStringLiteral("corners"), QVariantList{true, false, false, false});
+    EXPECT_TRUE(layout.setScreenSettings(0, settings));
+    EXPECT_TRUE(layout.placeNextTo(QStringLiteral("macbook"), QStringLiteral("desk-win"), LayoutModel::Right));
+    layout.setSwitchDelay(300);
+    layout.setHasSwitchDelay(true);
+    layout.setDimmingPercentage(40);
+    layout.setSwitchCorner(ScreenConfig::BottomLeft, true);
+
+    const QJsonObject json = layout.toJson();
+    EXPECT_EQ(json.value(QStringLiteral("screens")).toArray().size(), 2);
+
+    LayoutModel mirror(nullptr);
+    EXPECT_TRUE(mirror.isMirror());
+    mirror.loadJson(json);
+    EXPECT_EQ(mirror.serverName(), QStringLiteral("desk-win"));
+    EXPECT_EQ(mirror.screenCount(), 2);
+    EXPECT_EQ(desktopOf(mirror, QStringLiteral("desk-win")), QRect(0, 0, 3640, 1920));
+    EXPECT_EQ(desktopOf(mirror, QStringLiteral("macbook")), QRect(3640, 0, W, H));
+    EXPECT_EQ(mirror.screenSettings(0).value(QStringLiteral("aliases")).toStringList(), QStringList{QStringLiteral("dw.local")});
+    EXPECT_TRUE(mirror.screenSettings(0).value(QStringLiteral("corners")).toList().value(0).toBool());
+    EXPECT_EQ(mirror.switchDelay(), 300);
+    EXPECT_TRUE(mirror.hasSwitchDelay());
+    EXPECT_EQ(mirror.dimmingPercentage(), 40);
+    EXPECT_TRUE(mirror.switchCorner(ScreenConfig::BottomLeft));
+    EXPECT_EQ(mirror.configText(), layout.configText());
+    EXPECT_EQ(mirror.positionText(1), QStringLiteral("right of desk-win"));
 }
 
 TEST(LayoutModel, renamesAndRemoves)

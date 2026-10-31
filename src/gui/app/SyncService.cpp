@@ -1,0 +1,622 @@
+/*  InputLeap -- mouse and keyboard sharing utility
+    Copyright (C) - Nicolas Antomarioni (nantomarioni@gmail.com)
+
+    This package is free software; you can redistribute it and/or
+    modify it under the terms of the GNU General Public License
+    found in the file LICENSE that should have accompanied this file.
+
+    This package is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
+#include "SyncService.h"
+
+#include <QCryptographicHash>
+#include <QFile>
+#include <QHostAddress>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QSslCertificate>
+#include <QSslKey>
+#include <QSslSocket>
+#include <QTcpServer>
+#include <QTimer>
+
+namespace {
+
+const int kMaxLineBytes = 1024 * 1024;
+const int kHelloTimeoutMs = 8000;
+const int kFirstRetryMs = 3000;
+const int kMaxRetryMs = 60000;
+const int kBroadcastDelayMs = 150;
+
+// A QTcpServer that hands the raw descriptor over, so the socket can be a
+// QSslSocket from the start.
+class Listener : public QTcpServer
+{
+public:
+    explicit Listener(std::function<void(qintptr)> accept, QObject* parent) :
+        QTcpServer(parent),
+        m_accept(std::move(accept))
+    {
+    }
+
+protected:
+    void incomingConnection(qintptr descriptor) override { m_accept(descriptor); }
+
+private:
+    std::function<void(qintptr)> m_accept;
+};
+
+// The errors a self-signed certificate produces; everything else, including
+// a missing peer certificate, fails the handshake.
+bool tolerable(const QSslError& error)
+{
+    switch (error.error()) {
+    case QSslError::SelfSignedCertificate:
+    case QSslError::SelfSignedCertificateInChain:
+    case QSslError::CertificateUntrusted:
+    case QSslError::HostNameMismatch:
+    case QSslError::UnableToGetLocalIssuerCertificate:
+    case QSslError::UnableToVerifyFirstCertificate:
+    case QSslError::UnableToGetIssuerCertificate:
+        return true;
+    default:
+        return false;
+    }
+}
+
+QByteArray privateKeyBlock(const QByteArray& pem)
+{
+    const int begin = pem.indexOf("-----BEGIN");
+    int keyBegin = -1;
+    for (int at = begin; at >= 0; at = pem.indexOf("-----BEGIN", at + 1)) {
+        const int lineEnd = pem.indexOf('\n', at);
+        const QByteArray header = pem.mid(at, lineEnd - at);
+        if (header.contains("PRIVATE KEY")) {
+            keyBegin = at;
+            break;
+        }
+    }
+    if (keyBegin < 0) {
+        return QByteArray();
+    }
+    const int end = pem.indexOf("-----END", keyBegin);
+    const int endLine = end >= 0 ? pem.indexOf('\n', end) : -1;
+    return endLine >= 0 ? pem.mid(keyBegin, endLine - keyBegin + 1) : pem.mid(keyBegin);
+}
+
+} // namespace
+
+SyncService::SyncService(QObject* parent) :
+    QObject(parent)
+{
+    // OpenSSL is the backend that takes a certificate and key straight from
+    // the core's PEM file; Secure Transport and Schannel want a keychain.
+    if (QSslSocket::availableBackends().contains(QStringLiteral("openssl")) &&
+        QSslSocket::activeBackend() != QLatin1String("openssl")) {
+        QSslSocket::setActiveBackend(QStringLiteral("openssl"));
+    }
+    m_broadcastTimer = new QTimer(this);
+    m_broadcastTimer->setSingleShot(true);
+    m_broadcastTimer->setInterval(kBroadcastDelayMs);
+    connect(m_broadcastTimer, &QTimer::timeout, this, &SyncService::broadcast);
+}
+
+SyncService::~SyncService()
+{
+    stop();
+}
+
+QString SyncService::fingerprintOf(const QSslCertificate& certificate)
+{
+    if (certificate.isNull()) {
+        return QString();
+    }
+    const QByteArray hex = QCryptographicHash::hash(certificate.toDer(), QCryptographicHash::Sha256).toHex().toUpper();
+    QString out;
+    for (int i = 0; i < hex.size(); i += 2) {
+        if (!out.isEmpty()) out += QLatin1Char(':');
+        out += QString::fromLatin1(hex.mid(i, 2));
+    }
+    return out;
+}
+
+bool SyncService::setIdentity(const QString& pemPath, QString* error)
+{
+    m_identityReady = false;
+    auto fail = [&](const QString& why) {
+        if (error != nullptr) *error = why;
+        m_error = why;
+        return false;
+    };
+    if (!QSslSocket::supportsSsl()) {
+        return fail(tr("TLS is not available in this build of Qt"));
+    }
+    QFile file(pemPath);
+    if (!file.open(QIODevice::ReadOnly)) {
+        return fail(tr("cannot read the certificate file %1").arg(pemPath));
+    }
+    const QByteArray pem = file.readAll();
+    const QList<QSslCertificate> certificates = QSslCertificate::fromData(pem, QSsl::Pem);
+    if (certificates.isEmpty()) {
+        return fail(tr("no certificate in %1").arg(pemPath));
+    }
+    const QByteArray keyPem = privateKeyBlock(pem);
+    QSslKey key(keyPem, QSsl::Rsa, QSsl::Pem, QSsl::PrivateKey);
+    if (key.isNull()) {
+        key = QSslKey(keyPem, QSsl::Ec, QSsl::Pem, QSsl::PrivateKey);
+    }
+    if (key.isNull()) {
+        return fail(tr("no usable private key in %1").arg(pemPath));
+    }
+    m_tls = QSslConfiguration::defaultConfiguration();
+    m_tls.setLocalCertificate(certificates.first());
+    m_tls.setPrivateKey(key);
+    m_tls.setPeerVerifyMode(QSslSocket::VerifyPeer);
+    m_tls.setProtocol(QSsl::TlsV1_2OrLater);
+    m_identityReady = true;
+    m_error.clear();
+    return true;
+}
+
+void SyncService::setTrustCheck(TrustCheck check)
+{
+    m_trust = std::move(check);
+}
+
+void SyncService::setLocalInfo(const QString& name, const QString& role, const QString& version)
+{
+    m_name = name;
+    m_role = role;
+    m_version = version;
+}
+
+bool SyncService::start()
+{
+    stop();
+    if (!m_identityReady) {
+        if (m_error.isEmpty()) {
+            m_error = tr("no TLS identity yet");
+        }
+        emit changed();
+        return false;
+    }
+    m_listener = new Listener([this](qintptr descriptor) { acceptIncoming(descriptor); }, this);
+    if (!m_listener->listen(QHostAddress::Any, 0)) {
+        m_error = tr("cannot listen: %1").arg(m_listener->errorString());
+        delete m_listener;
+        m_listener = nullptr;
+        emit changed();
+        return false;
+    }
+    m_error.clear();
+    emit changed();
+    return true;
+}
+
+void SyncService::stop()
+{
+    for (auto it = m_targets.begin(); it != m_targets.end(); ++it) {
+        delete it->timer;
+    }
+    m_targets.clear();
+    while (!m_peers.isEmpty()) {
+        Peer* peer = m_peers.takeLast();
+        peer->socket->abort();
+        peer->socket->deleteLater();
+        delete peer->helloTimer;
+        delete peer;
+    }
+    if (m_listener != nullptr) {
+        m_listener->close();
+        delete m_listener;
+        m_listener = nullptr;
+    }
+    emit changed();
+    emit serverConfigChanged();
+}
+
+bool SyncService::listening() const
+{
+    return m_listener != nullptr && m_listener->isListening();
+}
+
+int SyncService::port() const
+{
+    return listening() ? m_listener->serverPort() : 0;
+}
+
+QString SyncService::backend() const
+{
+    return QSslSocket::supportsSsl() ? QSslSocket::activeBackend() : QString();
+}
+
+// ---- documents -------------------------------------------------------------
+
+void SyncService::setDocument(const QString& kind, const QJsonObject& document)
+{
+    if (m_documents.value(kind) == document) {
+        return;
+    }
+    m_documents.insert(kind, document);
+    if (!m_dirty.contains(kind)) {
+        m_dirty << kind;
+    }
+    m_broadcastTimer->start();
+}
+
+void SyncService::broadcast()
+{
+    const QStringList kinds = m_dirty;
+    m_dirty.clear();
+    for (Peer* peer : std::as_const(m_peers)) {
+        if (!peer->verified) continue;
+        for (const QString& kind : kinds) {
+            sendDocument(peer, kind, m_documents.value(kind));
+        }
+    }
+}
+
+void SyncService::sendDocument(Peer* peer, const QString& kind, const QJsonObject& document)
+{
+    QJsonObject out = document;
+    out.insert(QStringLiteral("type"), kind);
+    peer->socket->write(QJsonDocument(out).toJson(QJsonDocument::Compact) + '\n');
+}
+
+void SyncService::sendAll(Peer* peer)
+{
+    for (auto it = m_documents.constBegin(); it != m_documents.constEnd(); ++it) {
+        sendDocument(peer, it.key(), it.value());
+    }
+}
+
+QJsonObject SyncService::hello() const
+{
+    QJsonObject doc;
+    doc.insert(QStringLiteral("name"), m_name);
+    doc.insert(QStringLiteral("role"), m_role);
+    doc.insert(QStringLiteral("version"), m_version);
+    doc.insert(QStringLiteral("protocol"), 1);
+    return doc;
+}
+
+// ---- connections -----------------------------------------------------------
+
+void SyncService::acceptIncoming(qintptr descriptor)
+{
+    auto* socket = new QSslSocket(this);
+    socket->setSslConfiguration(m_tls);
+    if (!socket->setSocketDescriptor(descriptor)) {
+        socket->deleteLater();
+        return;
+    }
+    attach(socket, true, QString());
+    socket->startServerEncryption();
+}
+
+void SyncService::connectTo(const QString& name, const QString& host, quint16 port)
+{
+    if (name.isEmpty() || host.isEmpty() || port == 0) {
+        return;
+    }
+    Target& target = m_targets[name];
+    const bool known = !target.name.isEmpty();
+    if (known && target.host == host && target.port == port && peerNamed(name) != nullptr) {
+        return;   // already connected there
+    }
+    target.name = name;
+    target.host = host;
+    target.port = port;
+    target.retryMs = 0;
+    if (target.timer == nullptr) {
+        target.timer = new QTimer(this);
+        target.timer->setSingleShot(true);
+        connect(target.timer, &QTimer::timeout, this, [this, name]() {
+            auto it = m_targets.find(name);
+            if (it != m_targets.end()) {
+                attempt(*it);
+            }
+        });
+    }
+    // a stale connection to the old address goes
+    for (Peer* peer : std::as_const(m_peers)) {
+        if (!peer->incoming && peer->targetName == name) {
+            dropPeer(peer, tr("reconnecting to %1").arg(name));
+            break;
+        }
+    }
+    attempt(target);
+}
+
+void SyncService::forget(const QString& name)
+{
+    auto it = m_targets.find(name);
+    if (it != m_targets.end()) {
+        delete it->timer;
+        m_targets.erase(it);
+    }
+    for (Peer* peer : std::as_const(m_peers)) {
+        if (!peer->incoming && peer->targetName == name) {
+            dropPeer(peer, tr("%1 forgotten").arg(name));
+            break;
+        }
+    }
+}
+
+void SyncService::retryNow()
+{
+    for (auto it = m_targets.begin(); it != m_targets.end(); ++it) {
+        if (peerNamed(it->name) == nullptr) {
+            it->retryMs = 0;
+            attempt(*it);
+        }
+    }
+}
+
+void SyncService::attempt(Target& target)
+{
+    if (!m_identityReady || !listening()) {
+        return;
+    }
+    for (Peer* peer : std::as_const(m_peers)) {
+        if (!peer->incoming && peer->targetName == target.name) {
+            return;   // an attempt is already under way
+        }
+    }
+    target.timer->stop();
+    auto* socket = new QSslSocket(this);
+    socket->setSslConfiguration(m_tls);
+    attach(socket, false, target.name);
+    socket->connectToHostEncrypted(target.host, target.port);
+}
+
+void SyncService::scheduleRetry(const QString& targetName, bool reset)
+{
+    auto it = m_targets.find(targetName);
+    if (it == m_targets.end()) {
+        return;
+    }
+    it->retryMs = reset ? kFirstRetryMs : qMin(kMaxRetryMs, it->retryMs == 0 ? kFirstRetryMs : it->retryMs * 2);
+    it->timer->start(it->retryMs);
+}
+
+SyncService::Peer* SyncService::attach(QSslSocket* socket, bool incoming, const QString& targetName)
+{
+    auto* peer = new Peer;
+    peer->socket = socket;
+    peer->incoming = incoming;
+    peer->targetName = targetName;
+    peer->since = QDateTime::currentDateTime();
+    peer->helloTimer = new QTimer(this);
+    peer->helloTimer->setSingleShot(true);
+    connect(peer->helloTimer, &QTimer::timeout, this, [this, peer]() {
+        if (m_peers.contains(peer) && !peer->verified) {
+            dropPeer(peer, tr("no hello from %1").arg(peer->socket->peerAddress().toString()));
+        }
+    });
+    peer->helloTimer->start(kHelloTimeoutMs);
+    m_peers << peer;
+
+    connect(socket, &QSslSocket::sslErrors, this, [this, peer](const QList<QSslError>& errors) {
+        for (const QSslError& error : errors) {
+            if (!tolerable(error)) {
+                emit message(tr("settings channel: %1 refused, %2").arg(peer->socket->peerAddress().toString(), error.errorString()), true);
+                return;   // the handshake fails and the socket disconnects
+            }
+        }
+        peer->socket->ignoreSslErrors();
+    });
+    connect(socket, &QSslSocket::encrypted, this, [this, peer]() { onEncrypted(peer); });
+    connect(socket, &QSslSocket::readyRead, this, [this, peer]() { onReadyRead(peer); });
+    connect(socket, &QSslSocket::disconnected, this, [this, peer]() {
+        if (m_peers.contains(peer)) {
+            dropPeer(peer, peer->verified ? tr("%1 went away").arg(peer->name) : QString());
+        }
+    });
+    connect(socket, &QSslSocket::errorOccurred, this, [this, peer](QAbstractSocket::SocketError) {
+        if (m_peers.contains(peer)) {
+            dropPeer(peer, peer->verified ? tr("%1: %2").arg(peer->name, peer->socket->errorString()) : QString());
+        }
+    });
+    return peer;
+}
+
+void SyncService::onEncrypted(Peer* peer)
+{
+    peer->fingerprint = fingerprintOf(peer->socket->peerCertificate());
+    if (peer->fingerprint.isEmpty()) {
+        dropPeer(peer, tr("%1 presented no certificate").arg(peer->socket->peerAddress().toString()));
+        return;
+    }
+    sendDocument(peer, QStringLiteral("hello"), hello());
+}
+
+void SyncService::onReadyRead(Peer* peer)
+{
+    peer->buffer += peer->socket->readAll();
+    if (peer->buffer.size() > kMaxLineBytes) {
+        dropPeer(peer, tr("%1 sent an oversized message").arg(peer->name));
+        return;
+    }
+    int newline;
+    while (m_peers.contains(peer) && (newline = peer->buffer.indexOf('\n')) >= 0) {
+        const QByteArray line = peer->buffer.left(newline);
+        peer->buffer.remove(0, newline + 1);
+        handleLine(peer, line);
+    }
+}
+
+void SyncService::handleLine(Peer* peer, const QByteArray& line)
+{
+    const QJsonDocument doc = QJsonDocument::fromJson(line);
+    if (!doc.isObject()) {
+        return;
+    }
+    QJsonObject object = doc.object();
+    const QString kind = object.take(QStringLiteral("type")).toString();
+    if (kind == QLatin1String("hello")) {
+        peer->name = object.value(QStringLiteral("name")).toString();
+        peer->role = object.value(QStringLiteral("role")).toString();
+        peer->version = object.value(QStringLiteral("version")).toString();
+        if (peer->name.isEmpty() || (m_trust && !m_trust(peer->fingerprint, peer->name, peer->incoming))) {
+            dropPeer(peer, tr("%1 (%2) is not trusted: nothing shared with it")
+                               .arg(peer->name.isEmpty() ? peer->socket->peerAddress().toString() : peer->name,
+                                    peer->fingerprint.left(11)));
+            return;
+        }
+        if (!peer->incoming && !peer->targetName.isEmpty() && peer->name != peer->targetName) {
+            dropPeer(peer, tr("%1 answered as %2").arg(peer->targetName, peer->name));
+            return;
+        }
+        // one connection per peer: a newer one replaces the old
+        for (Peer* other : std::as_const(m_peers)) {
+            if (other != peer && other->verified && other->name == peer->name) {
+                dropPeer(other, QString());
+                break;
+            }
+        }
+        peer->verified = true;
+        peer->helloTimer->stop();
+        emit message(tr("settings channel: %1 (%2) connected").arg(peer->name, peer->role), false);
+        sendAll(peer);
+        emit changed();
+        if (peer->role == QLatin1String("server")) {
+            emit serverConfigChanged();
+        }
+        return;
+    }
+    if (!peer->verified || kind.isEmpty()) {
+        return;
+    }
+    peer->documents.insert(kind, object);
+    emit peerDocumentChanged(peer->name, kind);
+    emit changed();
+    if (peer->role == QLatin1String("server")) {
+        emit serverConfigChanged();
+    }
+}
+
+void SyncService::dropPeer(Peer* peer, const QString& why)
+{
+    if (!m_peers.removeOne(peer)) {
+        return;
+    }
+    const bool wasServer = peer->verified && peer->role == QLatin1String("server");
+    const QString targetName = peer->targetName;
+    const bool incoming = peer->incoming;
+    if (!why.isEmpty()) {
+        emit message(tr("settings channel: %1").arg(why), false);
+    }
+    peer->socket->abort();
+    peer->socket->deleteLater();
+    delete peer->helloTimer;
+    delete peer;
+    if (!incoming) {
+        scheduleRetry(targetName, false);
+    }
+    emit changed();
+    if (wasServer) {
+        emit serverConfigChanged();
+    }
+}
+
+// ---- what the window sees --------------------------------------------------
+
+const SyncService::Peer* SyncService::serverPeer() const
+{
+    for (const Peer* peer : m_peers) {
+        if (peer->verified && peer->role == QLatin1String("server")) {
+            return peer;
+        }
+    }
+    return nullptr;
+}
+
+const SyncService::Peer* SyncService::peerNamed(const QString& name) const
+{
+    for (const Peer* peer : m_peers) {
+        if (peer->verified && peer->name == name) {
+            return peer;
+        }
+    }
+    return nullptr;
+}
+
+int SyncService::connectedCount() const
+{
+    int count = 0;
+    for (const Peer* peer : m_peers) {
+        if (peer->verified) ++count;
+    }
+    return count;
+}
+
+QString SyncService::serverName() const
+{
+    const Peer* server = serverPeer();
+    return server != nullptr ? server->name : QString();
+}
+
+QVariantMap SyncService::serverSettings() const
+{
+    return serverDocument(QStringLiteral("server-config")).value(QStringLiteral("settings")).toObject().toVariantMap();
+}
+
+QVariantMap SyncService::serverState() const
+{
+    return serverDocument(QStringLiteral("state")).toVariantMap();
+}
+
+QJsonObject SyncService::serverDocument(const QString& kind) const
+{
+    const Peer* server = serverPeer();
+    return server != nullptr ? server->documents.value(kind) : QJsonObject();
+}
+
+QJsonObject SyncService::peerDocument(const QString& name, const QString& kind) const
+{
+    const Peer* peer = peerNamed(name);
+    return peer != nullptr ? peer->documents.value(kind) : QJsonObject();
+}
+
+QVariantMap SyncService::describe(const Peer* peer) const
+{
+    QVariantMap map;
+    map.insert(QStringLiteral("name"), peer->name);
+    map.insert(QStringLiteral("role"), peer->role);
+    map.insert(QStringLiteral("version"), peer->version);
+    map.insert(QStringLiteral("fingerprint"), peer->fingerprint);
+    map.insert(QStringLiteral("host"), peer->socket->peerAddress().toString());
+    map.insert(QStringLiteral("incoming"), peer->incoming);
+    map.insert(QStringLiteral("connected"), peer->verified);
+    map.insert(QStringLiteral("since"), peer->since.toString(QStringLiteral("HH:mm")));
+    map.insert(QStringLiteral("settings"), peer->documents.value(QStringLiteral("settings")).toVariantMap());
+    const QJsonObject state = peer->documents.value(QStringLiteral("state"));
+    map.insert(QStringLiteral("state"), state.toVariantMap());
+    map.insert(QStringLiteral("processes"), state.value(QStringLiteral("processes")).toArray().toVariantList());
+    return map;
+}
+
+QVariantList SyncService::peers() const
+{
+    QVariantList list;
+    for (const Peer* peer : m_peers) {
+        if (peer->verified) {
+            list << describe(peer);
+        }
+    }
+    return list;
+}
+
+QVariantMap SyncService::peer(const QString& name) const
+{
+    const Peer* found = peerNamed(name);
+    return found != nullptr ? describe(found) : QVariantMap();
+}

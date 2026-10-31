@@ -59,6 +59,11 @@ ScrollView {
                     hint: qsTr("English only in this version.")
                     Label { text: qsTr("English"); color: Theme.muted }
                 }
+                SettingRow {
+                    label: qsTr("Share settings with trusted computers")
+                    hint: qsTr("Over TLS with this computer's certificate, read-only: the server's configuration shows on its clients, each computer's own settings on the others.")
+                    Switch { checked: App.settings.syncEnabled; onToggled: App.settings.syncEnabled = checked }
+                }
             }
 
             Card {

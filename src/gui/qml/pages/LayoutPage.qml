@@ -13,9 +13,52 @@ Item {
 
     EmptyState {
         anchors.fill: parent
-        visible: App.role === App.Client
+        visible: App.role === App.Client && !App.mirrorAvailable
         title: qsTr("The layout lives on the server")
-        description: qsTr("This computer is a client: the server decides where every screen sits. Switch to the server role here to edit a layout of this computer's own.")
+        description: qsTr("This computer is a client: the server decides where every screen sits. It shows here, read-only, once the server shares its settings (Settings → Share settings) and this computer trusts it. Switch to the server role to edit a layout of this computer's own.")
+    }
+
+    // ---- the mirror: the server's layout as it shares it ---------------------
+    ColumnLayout {
+        anchors.fill: parent
+        anchors.margins: 24
+        anchors.topMargin: 20
+        visible: App.role === App.Client && App.mirrorAvailable
+        spacing: 12
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 12
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 2
+                Label { text: qsTr("Screen layout"); font.pixelSize: Theme.titleFontSize; font.weight: Font.DemiBold; color: Theme.text }
+                Label {
+                    Layout.fillWidth: true
+                    text: qsTr("As the server %1 holds it. Edit it there; it refreshes here as it changes.").arg(App.sync.serverName)
+                    color: Theme.muted
+                    wrapMode: Text.WordWrap
+                }
+            }
+            StatusPill { text: qsTr("mirrored from %1 · read-only").arg(App.sync.serverName); tone: "info"; showDot: false }
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            radius: Theme.radius
+            color: Theme.surface
+            border.color: Theme.border
+            border.width: 1
+            clip: true
+            LayoutCanvas {
+                anchors.fill: parent
+                anchors.margins: 8
+                model: App.mirrorLayout
+                interactive: false
+                selectedIndex: App.mirrorLayout.indexOf(App.screenName)
+            }
+        }
     }
 
     RowLayout {

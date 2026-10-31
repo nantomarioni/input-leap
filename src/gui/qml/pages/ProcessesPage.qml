@@ -45,6 +45,8 @@ ScrollView {
                 }
                 Item { Layout.fillWidth: true }
                 StatusPill { text: qsTr("Discovery · Bonjour"); tone: App.discovery.active ? "success" : "neutral"; showDot: false }
+                Label { text: "  ·  "; color: Theme.muted }
+                StatusPill { text: qsTr("Settings channel · tls %1").arg(App.sync.port); tone: App.sync.listening ? "success" : "neutral"; showDot: false }
             }
         }
 
@@ -185,6 +187,47 @@ ScrollView {
                         text: App.settings.discovery ? qsTr("Turn off") : qsTr("Turn on")
                         enabled: App.discovery.available
                         onClicked: { App.settings.discovery = !App.settings.discovery; if (!App.settings.discovery) App.discovery.stop(); else App.discovery.restart() }
+                    }
+                }
+            }
+
+            // ---- the settings channel ----------------------------------------
+            Card {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                Layout.preferredWidth: 1
+                padding: 14
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+                    Rectangle { width: 8; height: 8; radius: 4; color: App.sync.listening ? Theme.success : Theme.offline }
+                    Label { text: qsTr("Settings channel"); font.weight: Font.DemiBold; font.pixelSize: 14; color: Theme.text }
+                    Label { Layout.fillWidth: true; text: qsTr("shares settings with the trusted computers, read-only"); color: Theme.muted; elide: Text.ElideRight }
+                }
+                InfoRow {
+                    label: qsTr("State")
+                    labelWidth: 110
+                    value: !App.settings.syncEnabled ? qsTr("Turned off in the settings")
+                         : App.sync.listening ? qsTr("Listening on port %1 over TLS (%2)").arg(App.sync.port).arg(App.sync.backend)
+                         : (App.sync.error.length > 0 ? App.sync.error : qsTr("Not started"))
+                }
+                InfoRow {
+                    visible: App.sync.listening
+                    label: App.role === App.Server ? qsTr("Clients sharing") : qsTr("Server")
+                    labelWidth: 110
+                    mono: true
+                    value: App.role === App.Server
+                           ? (App.sync.peers.map(function(p) { return p.name }).join(", ") || qsTr("none yet"))
+                           : (App.sync.serverConnected ? App.sync.serverName : qsTr("not reached yet"))
+                }
+                InfoRow { label: qsTr("Trust"); labelWidth: 110; value: qsTr("the certificates the core already trusts; names from the layout when client certificates are not required") }
+                Flow {
+                    Layout.fillWidth: true
+                    spacing: 8
+                    Button { text: qsTr("Restart channel"); enabled: App.settings.syncEnabled; onClicked: App.restartSync() }
+                    Button {
+                        text: App.settings.syncEnabled ? qsTr("Turn off") : qsTr("Turn on")
+                        onClicked: App.settings.syncEnabled = !App.settings.syncEnabled
                     }
                 }
             }

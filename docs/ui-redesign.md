@@ -280,7 +280,7 @@ core plumbing on both ends.
 | M3 | Server, Computers (local data only: this computer's settings, the server-held options of every computer, live state) and Security pages; inline join/trust requests; first-run state; wizard and dialogs no longer reachable from the new window | every setting of the old dialogs has a home; settings round-trip old ⇄ new |
 | M4 | Layout page (phase A); `INPUTLEAP_NEW_GUI` defaults ON; old `src/gui/src/*` removed; AGENTS.md updated | `latest-build` ships the new UI; the fleet updates without reconfiguring |
 | M5 | Polish: keyboard navigation, accessibility names, platform details (dock hiding, TCC prompts, launch at login), layout phase B | done 2026-10-31 |
-| M6 | Phase C, the sync channel read-only: the Server page on clients mirrors the connected server; remote tabs on Computers show each machine's own settings and process | a client shows desk-win's configuration live; the server shows each client's local settings |
+| M6 | Phase C, the sync channel read-only: the Server page on clients mirrors the connected server; remote tabs on Computers show each machine's own settings and process | built 2026-10-31 (`SyncService`, loopback-tested); not yet exercised on the fleet |
 | M7 | Phase D, remote writes with per-machine apply feedback | — |
 
 The fleet runs `latest-build`, so the old GUI keeps shipping until M4 flips
@@ -379,7 +379,13 @@ UI-free classes moved into `src/gui/app/`), all seven pages exist, the layout
 places desktops freely with per-display sizes (phase B), join and trust
 requests are inline, the window is keyboard-navigable with accessible
 names, and the unit tests cover the parser, the settings store and the
-layout model. Not yet verified: a Windows build (the next push to `fork`
-makes one) and a full client/server session on the real fleet. Next: the
-sync channel (M6 read-only, M7 writes).
+layout model. M6 is built: `SyncService` (TLS with the core's certificate,
+one JSON document per line, trust from the fingerprint databases, clients
+dial the server's GUI at the port in the zeroconf record, resolved with
+`ZeroconfResolver`) feeds the client's Server and Layout pages with the
+server's configuration and the Computers tabs with each peer's own
+settings and pieces; two loopback tests cover the exchange and the
+rejection of an untrusted peer. Not yet verified: a Windows build (the
+next push to `fork` makes one), the channel between two real machines,
+and the deployed bundle with the new TLS plugin. Next: M7, remote writes.
 

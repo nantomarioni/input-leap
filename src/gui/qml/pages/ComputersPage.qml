@@ -13,6 +13,15 @@ ScrollView {
     readonly property var computer: App.computers.length > selected ? App.computers[selected] : null
     readonly property int screenIndex: computer ? App.layout.indexOf(computer.name) : -1
 
+    // what that computer shares over the settings channel (phase C)
+    property int syncRevision: 0
+    readonly property var peer: (syncRevision, computer && !computer.isSelf ? App.sync.peer(computer.name) : ({}))
+    readonly property bool peerConnected: peer !== undefined && peer.connected === true
+    Connections {
+        target: App.sync
+        function onChanged() { page.syncRevision++ }
+    }
+
     ColumnLayout {
         x: 24
         y: 20
@@ -135,8 +144,9 @@ ScrollView {
                         SectionTitle { text: page.computer ? qsTr("On %1").arg(page.computer.name) : "" }
                         Item { Layout.fillWidth: true }
                         StatusPill {
-                            text: page.computer && page.computer.isSelf ? qsTr("this computer") : qsTr("read-only")
-                            tone: page.computer && page.computer.isSelf ? "info" : "neutral"
+                            text: page.computer && page.computer.isSelf ? qsTr("this computer")
+                                : page.peerConnected ? qsTr("shared · read-only") : qsTr("not shared yet")
+                            tone: page.computer && page.computer.isSelf ? "info" : page.peerConnected ? "success" : "neutral"
                             showDot: false
                         }
                     }
@@ -190,11 +200,43 @@ ScrollView {
                         }
                     }
 
-                    // another computer: nothing until phase C
-                    Label {
-                        visible: page.computer && !page.computer.isSelf
+                    // another computer, sharing: its settings and the state of its pieces
+                    ColumnLayout {
                         Layout.fillWidth: true
-                        text: qsTr("Its own settings (name, server address, discovery, overlay hints, log level, its core process) are edited on that computer. They will appear here once computers share their settings with each other.")
+                        visible: page.computer && !page.computer.isSelf && page.peerConnected
+                        spacing: 4
+                        readonly property var s: page.peer.settings || ({})
+                        readonly property var st: page.peer.state || ({})
+                        InfoRow { label: qsTr("Status"); value: parent.st.statusText || ""; labelWidth: 130 }
+                        InfoRow { label: qsTr("Version"); value: (page.peer.version || "") + " · " + (parent.s.platform || ""); mono: true; labelWidth: 130 }
+                        InfoRow { label: qsTr("Addresses"); value: (parent.s.addresses || []).join(", "); mono: true; labelWidth: 130 }
+                        InfoRow { visible: parent.s.role === "client"; label: qsTr("Server to connect to"); value: parent.s.serverHostname || qsTr("found by discovery"); mono: true; labelWidth: 130 }
+                        InfoRow { visible: parent.s.role === "server"; label: qsTr("Listening on"); value: (parent.s.networkInterface || qsTr("all interfaces")) + " · " + qsTr("port %1").arg(parent.s.port); mono: true; labelWidth: 130 }
+                        InfoRow { label: qsTr("Discovery"); value: parent.s.discovery ? qsTr("on") : qsTr("off"); labelWidth: 130 }
+                        InfoRow { visible: parent.s.role === "client"; label: qsTr("Scroll step"); value: String(parent.s.scrollStep || ""); labelWidth: 130 }
+                        InfoRow { label: qsTr("Overlay hints"); value: parent.s.overlayHints ? qsTr("on") : qsTr("off"); labelWidth: 130 }
+                        InfoRow { label: qsTr("Log level"); value: parent.s.logLevelName || ""; labelWidth: 130 }
+                        InfoRow { label: qsTr("Launch at login"); value: parent.s.launchAtLogin ? qsTr("yes") : qsTr("no"); labelWidth: 130 }
+                        InfoRow { label: qsTr("TLS"); value: parent.s.cryptoEnabled ? (parent.s.fingerprint || qsTr("on")) : qsTr("off"); mono: true; labelWidth: 130 }
+                        Label { Layout.topMargin: 6; text: qsTr("Its pieces"); font.pixelSize: Theme.smallFontSize; font.weight: Font.DemiBold; color: Theme.muted }
+                        Repeater {
+                            model: page.peer.processes || []
+                            delegate: RowLayout {
+                                required property var modelData
+                                Layout.fillWidth: true
+                                spacing: 8
+                                Rectangle { width: 8; height: 8; radius: 4; color: !modelData.relevant ? Theme.borderSoft : modelData.ok ? Theme.success : Theme.offline }
+                                Label { text: modelData.name; color: Theme.text; Layout.preferredWidth: 150; elide: Text.ElideRight }
+                                Label { Layout.fillWidth: true; text: modelData.detail; color: Theme.muted; elide: Text.ElideRight }
+                            }
+                        }
+                    }
+
+                    // another computer, not sharing yet
+                    Label {
+                        visible: page.computer && !page.computer.isSelf && !page.peerConnected
+                        Layout.fillWidth: true
+                        text: qsTr("Its own settings (name, server address, discovery, overlay hints, log level, its pieces) are edited on that computer. They show here once it shares them: both computers with Share settings on, each trusting the other's certificate.")
                         color: Theme.muted
                         wrapMode: Text.WordWrap
                     }

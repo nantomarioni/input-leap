@@ -39,6 +39,8 @@
 #include <QGuiApplication>
 #include <QHostInfo>
 #include <QJSEngine>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QNetworkInterface>
 #include <QQmlEngine>
 #include <QStandardPaths>
@@ -76,6 +78,8 @@ AppController::AppController(QObject* parent) :
     m_identity = new TlsIdentity(m_settings, this);
     m_discovery = new Discovery(this);
     m_core = new CoreProcess(this);
+    m_sync = new SyncService(this);
+    m_mirror = new LayoutModel(nullptr, this);
     m_logModel = new LogModel(this);
     m_log = new LogFilterModel(m_logModel, this);
     m_updates = new inputleap::fork_gui::UpdateChecker(nullptr);
@@ -101,9 +105,35 @@ AppController::AppController(QObject* parent) :
 
     connect(m_settings, &AppSettings::changed, this, [this]() {
         m_layout->setServerName(m_settings->screenName());
+        // the channel follows its switch and this computer's name
+        if (!m_dryRun && (m_settings->syncEnabled() != m_sync->listening() ||
+                          (m_sync->listening() && m_syncName != screenName()))) {
+            startSync();
+            startDiscovery();
+        }
         emit stateChanged();
     });
     connect(m_layout, &LayoutModel::layoutChanged, this, &AppController::stateChanged);
+    connect(m_layout, &LayoutModel::optionsChanged, this, &AppController::publishSync);
+    connect(m_layout, &LayoutModel::hotkeysChanged, this, &AppController::publishSync);
+    connect(this, &AppController::stateChanged, this, &AppController::publishSync);
+    connect(m_discovery, &Discovery::peerResolved, this, &AppController::onPeerResolved);
+    connect(m_discovery, &Discovery::peerLost, this, [this](const QString& name) { m_sync->forget(name); });
+    connect(m_sync, &SyncService::message, this, [this](const QString& text, bool isError) {
+        log(text, isError ? QStringLiteral("WARNING") : QStringLiteral("INFO"));
+    });
+    connect(m_sync, &SyncService::changed, this, &AppController::stateChanged);
+    connect(m_sync, &SyncService::serverConfigChanged, this, [this]() {
+        const QJsonObject config = m_sync->serverDocument(QStringLiteral("server-config"));
+        const bool available = !config.isEmpty();
+        if (available) {
+            m_mirror->loadJson(config.value(QStringLiteral("layout")).toObject());
+        } else if (m_mirrorAvailable) {
+            m_mirror->loadJson(QJsonObject());
+        }
+        m_mirrorAvailable = available;
+        emit stateChanged();
+    });
     connect(m_core, &CoreProcess::lineReceived, this, &AppController::handleCoreLine);
     connect(m_core, &CoreProcess::stateChanged, this, &AppController::onCoreStateChanged);
     connect(m_core, &CoreProcess::exited, this, &AppController::onCoreExited);
@@ -117,6 +147,7 @@ AppController::AppController(QObject* parent) :
         log(text, isError ? QStringLiteral("ERROR") : QStringLiteral("INFO"));
     });
     connect(m_identity, &TlsIdentity::changed, this, &AppController::stateChanged);
+    connect(m_identity, &TlsIdentity::changed, this, [this]() { m_sync->retryNow(); });
     connect(m_restartTimer, &QTimer::timeout, this, [this]() {
         if (m_wantRunning && m_core->state() == CoreProcess::Stopped) {
             start();
@@ -186,7 +217,25 @@ QString AppController::serverAddress() const
     if (!manual.isEmpty()) {
         return manual;
     }
-    return m_discovery->servers().value(0);
+    const QString name = m_discovery->servers().value(0);
+    Discovery::Peer peer;
+    if (m_discovery->resolvedPeer(name, peer) && !peer.host.isEmpty()) {
+        return peer.host;
+    }
+    return name;
+}
+
+// The core port to connect to: the one the server advertises when
+// discovery found it, this computer's own setting otherwise.
+int AppController::serverPort() const
+{
+    if (m_settings->serverHostname().isEmpty()) {
+        Discovery::Peer peer;
+        if (m_discovery->resolvedPeer(m_discovery->servers().value(0), peer) && peer.corePort() > 0) {
+            return peer.corePort();
+        }
+    }
+    return m_settings->port();
 }
 
 QString AppController::screenName() const
@@ -329,6 +378,21 @@ QVariantList AppController::processes() const
     }
     list << item(QStringLiteral("discovery"), tr("Discovery · Bonjour"), discoveryDetail,
                  m_discovery->active() && m_discovery->error().isEmpty(), true);
+
+    QString syncDetail;
+    if (!m_settings->syncEnabled()) {
+        syncDetail = tr("Turned off in the settings");
+    } else if (!m_sync->listening()) {
+        syncDetail = m_sync->error().isEmpty() ? tr("Not started") : m_sync->error();
+    } else if (role() == Server) {
+        syncDetail = m_sync->connectedCount() == 0 ? tr("Port %1 · no client sharing yet").arg(m_sync->port())
+                                                   : tr("Port %1 · %2 sharing").arg(m_sync->port()).arg(m_sync->connectedCount());
+    } else {
+        syncDetail = m_sync->serverConnected() ? tr("Port %1 · mirroring %2").arg(m_sync->port()).arg(m_sync->serverName())
+                                               : tr("Port %1 · server not reached yet").arg(m_sync->port());
+    }
+    list << item(QStringLiteral("sync"), tr("Settings channel"), syncDetail,
+                 m_sync->listening() && (role() == Server || m_sync->serverConnected()), m_settings->syncEnabled());
     return list;
 }
 
@@ -346,17 +410,16 @@ void AppController::startup()
         fields.insert(QStringLiteral("text"), tr("Input Leap runs from a disk image. Drag it to the Applications folder and open it from there, or macOS will keep asking for the Accessibility permission."));
         addRequest(QStringLiteral("not-installed"), QStringLiteral("error"), fields);
     }
-    if (m_settings->cryptoEnabled()) {
-        m_identity->ensureCertificate();
-    }
+    // the certificate serves the core's TLS and the settings channel alike
+    m_identity->ensureCertificate();
+    m_dryRun = dryRun;
     if (dryRun) {
         log(tr("dry run: the core, discovery and update checks stay off"), QStringLiteral("WARNING"));
         emit stateChanged();
         return;
     }
-    if (m_settings->discovery() && m_discovery->available()) {
-        m_discovery->start(role() == Server, screenName());
-    }
+    startSync();
+    startDiscovery();
     if (m_settings->autoCheckUpdates()) {
         m_updates->maybeCheckOnStartup();
     }
@@ -389,8 +452,9 @@ void AppController::setRole(int role)
     m_pausedForTrust = false;
     resetLiveState();
     log(tr("role is now %1").arg(wanted == Server ? tr("server") : tr("client")));
-    if (m_settings->discovery() && m_discovery->available()) {
-        m_discovery->start(wanted == Server, screenName());
+    if (!m_dryRun) {
+        startSync();
+        startDiscovery();
     }
     emit roleChanged();
     emit stateChanged();
@@ -472,7 +536,7 @@ bool AppController::buildLaunch(QString& program, QStringList& arguments, QStrin
         if (m_settings->scrollStep() != 120) {
             arguments << QStringLiteral("--yscroll") << QString::number(m_settings->scrollStep());
         }
-        arguments << QStringLiteral("[%1]:%2").arg(host).arg(m_settings->port());
+        arguments << QStringLiteral("[%1]:%2").arg(host).arg(serverPort());
     }
     return true;
 }
@@ -521,8 +585,8 @@ void AppController::start()
     if (!m_settings->startedBefore()) {
         m_settings->setStartedBefore(true);
     }
-    if (m_settings->discovery() && m_discovery->available() && !m_discovery->active()) {
-        m_discovery->start(role() == Server, screenName());
+    if (!m_discovery->active() && !m_dryRun) {
+        startDiscovery();
     }
 }
 
@@ -753,6 +817,153 @@ void AppController::onServerFound(const QString& name)
         restart();
     }
     emit stateChanged();
+}
+
+void AppController::onPeerResolved(const QString& name, const QString& host, quint16 port, const QMap<QString, QString>& txt)
+{
+    log(tr("%1 is %2 · channel port %3%4").arg(name, host).arg(port)
+            .arg(txt.value(QStringLiteral("sync")) == QLatin1String("1") ? QString() : tr(" · no settings channel")));
+    if (role() == Client && txt.value(QStringLiteral("sync")) == QLatin1String("1") && m_sync->listening()) {
+        m_sync->connectTo(name, host, port);
+    }
+    emit stateChanged();
+}
+
+void AppController::startDiscovery()
+{
+    if (!m_settings->discovery() || !m_discovery->available()) {
+        return;
+    }
+    QMap<QString, QString> txt;
+    txt.insert(QStringLiteral("sync"), m_sync->listening() ? QStringLiteral("1") : QStringLiteral("0"));
+    txt.insert(QStringLiteral("port"), QString::number(m_settings->port()));
+    txt.insert(QStringLiteral("v"), m_version);
+    m_discovery->start(role() == Server, screenName(), quint16(m_sync->port()), txt);
+}
+
+// ---- the settings channel (docs/ui-redesign.md §4.7) --------------------------
+
+void AppController::startSync()
+{
+    m_sync->stop();
+    m_syncName = screenName();
+    if (!m_settings->syncEnabled()) {
+        return;
+    }
+    QString error;
+    if (!m_sync->setIdentity(m_identity->certificatePath(), &error)) {
+        log(tr("settings channel off: %1").arg(error), QStringLiteral("WARNING"));
+        return;
+    }
+    m_sync->setLocalInfo(screenName(), role() == Server ? QStringLiteral("server") : QStringLiteral("client"), m_version);
+    m_sync->setTrustCheck([this](const QString& sha256, const QString& name, bool incoming) {
+        return syncTrusted(sha256, name, incoming);
+    });
+    if (!m_sync->start()) {
+        log(tr("settings channel off: %1").arg(m_sync->error()), QStringLiteral("WARNING"));
+        return;
+    }
+    log(tr("settings channel listening on port %1 (%2)").arg(m_sync->port()).arg(m_sync->backend()));
+    publishSync();
+    if (role() == Client) {
+        const QStringList servers = m_discovery->servers();
+        for (const QString& name : servers) {
+            Discovery::Peer peer;
+            if (m_discovery->resolvedPeer(name, peer) && peer.sync()) {
+                m_sync->connectTo(name, peer.host, peer.port);
+            }
+        }
+    }
+}
+
+void AppController::restartSync()
+{
+    if (m_dryRun) {
+        return;
+    }
+    startSync();
+    startDiscovery();
+}
+
+// Who may read this computer's settings: the same posture as the core. A
+// server takes the clients whose certificate it trusts, or any computer of
+// its layout when it does not check client certificates; a client takes
+// the server whose certificate it trusts, or the one it found when TLS is
+// off altogether.
+bool AppController::syncTrusted(const QString& sha256, const QString& name, bool incoming) const
+{
+    if (role() == Server) {
+        if (!incoming) {
+            return false;
+        }
+        if (m_identity->isTrusted(true, sha256)) {
+            return true;
+        }
+        return !m_settings->requireClientCertificate() && m_layout->hasScreen(name);
+    }
+    if (incoming) {
+        return false;
+    }
+    if (m_identity->isTrusted(false, sha256)) {
+        return true;
+    }
+    return !m_settings->cryptoEnabled() && (m_discovery->servers().contains(name) || serverAddress() == name);
+}
+
+void AppController::publishSync()
+{
+    if (!m_sync->listening()) {
+        return;
+    }
+    QJsonObject settings;
+    settings.insert(QStringLiteral("screenName"), screenName());
+    settings.insert(QStringLiteral("role"), role() == Server ? QStringLiteral("server") : QStringLiteral("client"));
+    settings.insert(QStringLiteral("serverHostname"), m_settings->serverHostname());
+    settings.insert(QStringLiteral("discovery"), m_settings->discovery());
+    settings.insert(QStringLiteral("scrollStep"), m_settings->scrollStep());
+    settings.insert(QStringLiteral("overlayHints"), m_settings->overlayHints());
+    settings.insert(QStringLiteral("logLevel"), m_settings->logLevel());
+    settings.insert(QStringLiteral("logLevelName"), m_settings->logLevelName());
+    settings.insert(QStringLiteral("launchAtLogin"), m_settings->launchAtLogin());
+    settings.insert(QStringLiteral("startCoreOnLaunch"), m_settings->startCoreOnLaunch());
+    settings.insert(QStringLiteral("port"), m_settings->port());
+    settings.insert(QStringLiteral("networkInterface"), m_settings->networkInterface());
+    settings.insert(QStringLiteral("cryptoEnabled"), m_settings->cryptoEnabled());
+    settings.insert(QStringLiteral("requireClientCertificate"), m_settings->requireClientCertificate());
+    settings.insert(QStringLiteral("version"), m_version);
+    settings.insert(QStringLiteral("platform"), Platform::name());
+    settings.insert(QStringLiteral("addresses"), QJsonArray::fromStringList(m_addresses));
+    settings.insert(QStringLiteral("fingerprint"), m_identity->sha256());
+    m_sync->setDocument(QStringLiteral("settings"), settings);
+
+    QJsonObject state;
+    state.insert(QStringLiteral("runState"), int(m_runState));
+    state.insert(QStringLiteral("statusText"), statusText());
+    state.insert(QStringLiteral("connected"), connected());
+    state.insert(QStringLiteral("activeScreen"), m_activeScreen);
+    state.insert(QStringLiteral("cursorLocked"), m_cursorLocked);
+    state.insert(QStringLiteral("dimmed"), m_dimmed);
+    state.insert(QStringLiteral("connectedClients"), QJsonArray::fromStringList(connectedClients()));
+    state.insert(QStringLiteral("since"), m_since.isValid() ? m_since.toString(Qt::ISODate) : QString());
+    state.insert(QStringLiteral("lastEvent"), m_lastEvent);
+    state.insert(QStringLiteral("processes"), QJsonArray::fromVariantList(processes()));
+    m_sync->setDocument(QStringLiteral("state"), state);
+
+    if (role() == Server) {
+        QJsonObject config;
+        QJsonObject server;
+        server.insert(QStringLiteral("port"), m_settings->port());
+        server.insert(QStringLiteral("networkInterface"), m_settings->networkInterface());
+        server.insert(QStringLiteral("cryptoEnabled"), m_settings->cryptoEnabled());
+        server.insert(QStringLiteral("requireClientCertificate"), m_settings->requireClientCertificate());
+        server.insert(QStringLiteral("useExternalConfig"), m_settings->useExternalConfig());
+        server.insert(QStringLiteral("configFile"), m_settings->configFile());
+        server.insert(QStringLiteral("generatedConfigPath"), generatedConfigPath());
+        config.insert(QStringLiteral("settings"), server);
+        config.insert(QStringLiteral("layout"), m_layout->toJson());
+        config.insert(QStringLiteral("conf"), m_layout->configText());
+        m_sync->setDocument(QStringLiteral("server-config"), config);
+    }
 }
 
 void AppController::requestJoin(const QString& name)

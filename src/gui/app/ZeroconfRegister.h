@@ -17,7 +17,9 @@
 
 #pragma once
 
+#include <QtCore/QMap>
 #include <QtCore/QObject>
+#include <QtCore/QString>
 
 #include "ZeroconfRecord.h"
 
@@ -40,7 +42,10 @@ public:
     ZeroconfRegister(QObject* parent = nullptr);
     ~ZeroconfRegister();
 
-    void registerService(const ZeroconfRecord& record, quint16 servicePort);
+    // txt: key/value pairs published in the record's TXT data (how the GUI
+    // advertises its settings channel, docs/ui-redesign.md §4.7).
+    void registerService(const ZeroconfRecord& record, quint16 servicePort,
+                         const QMap<QString, QString>& txt = QMap<QString, QString>());
     inline ZeroconfRecord registeredRecord() const { return finalRecord; }
 
 Q_SIGNALS:

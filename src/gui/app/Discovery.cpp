@@ -17,7 +17,7 @@
 #include "Discovery.h"
 #include "ZeroconfBrowser.h"
 #include "ZeroconfRegister.h"
-#include "ZeroconfServer.h"
+#include "ZeroconfResolver.h"
 
 #include <cstdlib>
 
@@ -82,7 +82,44 @@ Discovery::~Discovery()
     stop();
 }
 
-void Discovery::start(bool asServer, const QString& screenName)
+QVariantList Discovery::peers() const
+{
+    QVariantList list;
+    const QStringList names = m_asServer ? m_clients : m_servers;
+    for (const QString& name : names) {
+        list << peer(name);
+    }
+    return list;
+}
+
+QVariantMap Discovery::peer(const QString& name) const
+{
+    QVariantMap map;
+    map.insert(QStringLiteral("name"), name);
+    const auto it = m_peers.constFind(name);
+    if (it == m_peers.constEnd()) {
+        map.insert(QStringLiteral("resolved"), false);
+        return map;
+    }
+    map.insert(QStringLiteral("resolved"), true);
+    map.insert(QStringLiteral("host"), it->host);
+    map.insert(QStringLiteral("port"), it->port);
+    map.insert(QStringLiteral("sync"), it->sync());
+    map.insert(QStringLiteral("corePort"), it->corePort());
+    return map;
+}
+
+bool Discovery::resolvedPeer(const QString& name, Peer& out) const
+{
+    const auto it = m_peers.constFind(name);
+    if (it == m_peers.constEnd()) {
+        return false;
+    }
+    out = *it;
+    return true;
+}
+
+void Discovery::start(bool asServer, const QString& screenName, quint16 advertisedPort, const QMap<QString, QString>& txt)
 {
     stop();
     if (!m_available) {
@@ -90,22 +127,17 @@ void Discovery::start(bool asServer, const QString& screenName)
     }
     m_asServer = asServer;
     m_screenName = screenName;
+    m_advertisedPort = advertisedPort;
+    m_txt = txt;
     m_error.clear();
 
-    m_server = std::make_unique<ZeroconfServer>();
-    if (!m_server->listen()) {
-        m_error = tr("cannot open the discovery port: %1").arg(m_server->errorString());
-        m_server.reset();
-        emit changed();
-        return;
-    }
     m_register = std::make_unique<ZeroconfRegister>();
     connect(m_register.get(), &ZeroconfRegister::error, this, [this](DNSServiceErrorType code) {
         m_error = tr("registration failed (code %1)").arg(code);
         emit changed();
     });
     const QString type = QLatin1String(asServer ? kServerType : kClientType);
-    m_register->registerService(ZeroconfRecord(screenName, type, QString()), m_server->serverPort());
+    m_register->registerService(ZeroconfRecord(screenName, type, QString()), advertisedPort, txt);
     m_advertising = screenName + QStringLiteral(" as ") + type;
 
     browse(QLatin1String(asServer ? kClientType : kServerType));
@@ -118,20 +150,33 @@ void Discovery::browse(const QString& type)
     m_browser = std::make_unique<ZeroconfBrowser>();
     connect(m_browser.get(), &ZeroconfBrowser::currentRecordsChanged, this,
             [this](const QList<ZeroconfRecord>& records) {
+                QStringList& list = m_asServer ? m_clients : m_servers;
+                QStringList seen;
                 for (const ZeroconfRecord& record : records) {
                     const QString name = record.serviceName;
                     if (name.isEmpty() || name == m_screenName) {
                         continue;
                     }
-                    QStringList& list = m_asServer ? m_clients : m_servers;
+                    seen << name;
                     if (!list.contains(name)) {
                         list << name;
+                        resolveRecord(record);
                         emit changed();
                         if (m_asServer) {
                             emit clientFound(name);
                         } else {
                             emit serverFound(name);
                         }
+                    }
+                }
+                // records that went away
+                for (int i = list.size() - 1; i >= 0; --i) {
+                    if (!seen.contains(list[i])) {
+                        const QString gone = list.takeAt(i);
+                        m_peers.remove(gone);
+                        m_resolvers.remove(gone);
+                        emit peerLost(gone);
+                        emit changed();
                     }
                 }
             });
@@ -142,12 +187,31 @@ void Discovery::browse(const QString& type)
     m_browser->browseForType(type);
 }
 
+void Discovery::resolveRecord(const ZeroconfRecord& record)
+{
+    auto resolver = std::make_shared<ZeroconfResolver>();
+    connect(resolver.get(), &ZeroconfResolver::resolved, this,
+            [this](const ZeroconfRecord& rec, const QString& host, quint16 port, const QMap<QString, QString>& txt) {
+                Peer peer;
+                peer.name = rec.serviceName;
+                peer.host = host;
+                peer.port = port;
+                peer.txt = txt;
+                m_peers.insert(peer.name, peer);
+                emit peerResolved(peer.name, host, port, txt);
+                emit changed();
+            });
+    m_resolvers.insert(record.serviceName, resolver);
+    resolver->resolve(record);
+}
+
 void Discovery::stop()
 {
     const bool wasActive = m_active;
     m_browser.reset();
     m_register.reset();
-    m_server.reset();
+    m_resolvers.clear();
+    m_peers.clear();
     m_active = false;
     m_advertising.clear();
     m_servers.clear();
@@ -160,6 +224,6 @@ void Discovery::stop()
 void Discovery::restart()
 {
     if (m_active || !m_screenName.isEmpty()) {
-        start(m_asServer, m_screenName);
+        start(m_asServer, m_screenName, m_advertisedPort, m_txt);
     }
 }

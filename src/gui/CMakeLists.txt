@@ -76,6 +76,8 @@ qt_add_executable(input-leap WIN32
     app/KeyCaptureItem.cpp
     app/KeyCaptureItem.h
     app/Platform.h
+    app/SyncService.cpp
+    app/SyncService.h
     app/TlsIdentity.cpp
     app/TlsIdentity.h
     app/TrayController.cpp
@@ -85,8 +87,8 @@ qt_add_executable(input-leap WIN32
     app/ZeroconfRecord.h
     app/ZeroconfRegister.cpp
     app/ZeroconfRegister.h
-    app/ZeroconfServer.cpp
-    app/ZeroconfServer.h
+    app/ZeroconfResolver.cpp
+    app/ZeroconfResolver.h
     app/ZeroconfThread.cpp
     app/ZeroconfThread.h
     ${GUI_PLATFORM_SOURCES}
@@ -214,10 +216,14 @@ if (INPUTLEAP_BUILD_TESTS)
         test/CoreEventParserTests.cpp
         test/LayoutModelTests.cpp
         test/AppSettingsTests.cpp
+        test/SyncServiceTests.cpp
+        app/SyncService.cpp
         ${GUI_MODEL_SOURCES}
     )
     target_include_directories(guiunittests PRIVATE app ../../ext)
+    # the sync test generates certificates the way the core does
     target_link_libraries(guiunittests gtest gmock
-        Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Qml Qt6::Test ${libs})
+        Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Qml Qt6::Test
+        net arch base io common ${libs} OpenSSL::SSL OpenSSL::Crypto)
     add_test(NAME guiunittests COMMAND guiunittests WORKING_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
 endif()

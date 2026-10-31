@@ -133,6 +133,7 @@ bool AppSettings::clipboardHint() const { return value("ui/clipboardHint", false
 QString AppSettings::updateChannel() const { return value("ui/updateChannel", QStringLiteral("latest")).toString(); }
 bool AppSettings::autoCheckUpdates() const { return value("ui/autoCheckUpdates", true).toBool(); }
 bool AppSettings::logDrawerOpen() const { return value("ui/logDrawerOpen", false).toBool(); }
+bool AppSettings::syncEnabled() const { return value("ui/syncEnabled", true).toBool(); }
 
 QString AppSettings::peerName(const QString& sha256) const
 {
@@ -221,6 +222,7 @@ void AppSettings::setClipboardHint(bool on) { setValue("ui/clipboardHint", on); 
 void AppSettings::setUpdateChannel(const QString& channel) { setValue("ui/updateChannel", channel); }
 void AppSettings::setAutoCheckUpdates(bool on) { setValue("ui/autoCheckUpdates", on); }
 void AppSettings::setLogDrawerOpen(bool on) { setValue("ui/logDrawerOpen", on); }
+void AppSettings::setSyncEnabled(bool on) { setValue("ui/syncEnabled", on); }
 
 void AppSettings::sync()
 {

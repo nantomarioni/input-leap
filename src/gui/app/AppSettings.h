@@ -63,6 +63,7 @@ class AppSettings : public QObject
     Q_PROPERTY(QString updateChannel READ updateChannel WRITE setUpdateChannel NOTIFY changed)
     Q_PROPERTY(bool autoCheckUpdates READ autoCheckUpdates WRITE setAutoCheckUpdates NOTIFY changed)
     Q_PROPERTY(bool logDrawerOpen READ logDrawerOpen WRITE setLogDrawerOpen NOTIFY changed)
+    Q_PROPERTY(bool syncEnabled READ syncEnabled WRITE setSyncEnabled NOTIFY changed)
 
 public:
     enum Role { Server = 0, Client = 1 };
@@ -104,6 +105,7 @@ public:
     QString updateChannel() const;
     bool autoCheckUpdates() const;
     bool logDrawerOpen() const;
+    bool syncEnabled() const;       // share settings with the trusted computers (the GUI channel)
 
     // A trusted peer's display name, kept beside the fingerprint database.
     QString peerName(const QString& sha256) const;
@@ -140,6 +142,7 @@ public slots:
     void setUpdateChannel(const QString& channel);
     void setAutoCheckUpdates(bool on);
     void setLogDrawerOpen(bool on);
+    void setSyncEnabled(bool on);
     void sync();
 
 signals:

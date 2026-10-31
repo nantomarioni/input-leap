@@ -17,6 +17,7 @@
 #pragma once
 
 #include <QDateTime>
+#include <QMap>
 #include <QObject>
 #include <QSet>
 #include <QString>
@@ -29,6 +30,7 @@
 #include "Discovery.h"
 #include "LayoutModel.h"
 #include "LogModel.h"
+#include "SyncService.h"
 #include "TlsIdentity.h"
 
 class QQmlEngine;
@@ -55,6 +57,9 @@ class AppController : public QObject
     Q_PROPERTY(CoreProcess* core READ core CONSTANT)
     Q_PROPERTY(LogModel* logModel READ logModel CONSTANT)
     Q_PROPERTY(LogFilterModel* log READ log CONSTANT)
+    Q_PROPERTY(SyncService* sync READ sync CONSTANT)
+    Q_PROPERTY(LayoutModel* mirrorLayout READ mirrorLayout CONSTANT)
+    Q_PROPERTY(bool mirrorAvailable READ mirrorAvailable NOTIFY stateChanged)
 
     Q_PROPERTY(Role role READ role WRITE setRole NOTIFY roleChanged)
     Q_PROPERTY(RunState runState READ runState NOTIFY stateChanged)
@@ -107,6 +112,10 @@ public:
     CoreProcess* core() const { return m_core; }
     LogModel* logModel() const { return m_logModel; }
     LogFilterModel* log() const { return m_log; }
+    SyncService* sync() const { return m_sync; }
+    // The server's configuration as it shares it with this client (phase C).
+    LayoutModel* mirrorLayout() const { return m_mirror; }
+    bool mirrorAvailable() const { return m_mirrorAvailable; }
 
     Role role() const;
     RunState runState() const { return m_runState; }
@@ -162,6 +171,7 @@ public slots:
 
     void checkForUpdates();
     void installUpdate();
+    void restartSync();
     void refreshAccessibility();
     void requestAccessibility();
     void openLogsFolder();
@@ -190,6 +200,12 @@ private:
     void onCoreExited(int exitCode, bool unexpected);
     void onClientFound(const QString& name);
     void onServerFound(const QString& name);
+    void onPeerResolved(const QString& name, const QString& host, quint16 port, const QMap<QString, QString>& txt);
+    void startDiscovery();
+    void startSync();
+    void publishSync();
+    bool syncTrusted(const QString& sha256, const QString& name, bool incoming) const;
+    int serverPort() const;
     bool buildLaunch(QString& program, QStringList& arguments, QString& error);
     void resetLiveState();
     void addRequest(const QString& id, const QString& kind, const QVariantMap& fields);
@@ -203,6 +219,11 @@ private:
     TlsIdentity* m_identity = nullptr;
     Discovery* m_discovery = nullptr;
     CoreProcess* m_core = nullptr;
+    SyncService* m_sync = nullptr;
+    LayoutModel* m_mirror = nullptr;
+    bool m_mirrorAvailable = false;
+    bool m_dryRun = false;
+    QString m_syncName;
     LogModel* m_logModel = nullptr;
     LogFilterModel* m_log = nullptr;
     inputleap::fork_gui::UpdateChecker* m_updates = nullptr;

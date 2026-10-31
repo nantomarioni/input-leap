@@ -34,11 +34,19 @@ ZeroconfRegister::~ZeroconfRegister()
 }
 
 void ZeroconfRegister::registerService(const ZeroconfRecord& record,
-    quint16 servicePort)
+    quint16 servicePort, const QMap<QString, QString>& txt)
 {
     if (m_DnsServiceRef) {
         qWarning("Warning: Already registered a service for this object");
         return;
+    }
+
+    TXTRecordRef txtRecord;
+    TXTRecordCreate(&txtRecord, 0, nullptr);
+    for (auto it = txt.constBegin(); it != txt.constEnd(); ++it) {
+        const QByteArray value = it.value().toUtf8();
+        TXTRecordSetValue(&txtRecord, it.key().toUtf8().constData(),
+                          static_cast<uint8_t>(qMin(value.size(), qsizetype(255))), value.constData());
     }
 
     quint16 bigEndianPort = servicePort;
@@ -53,7 +61,9 @@ void ZeroconfRegister::registerService(const ZeroconfRecord& record,
         record.serviceName.toUtf8().constData(),
         record.registeredType.toUtf8().constData(),
         record.replyDomain.isEmpty() ? nullptr : record.replyDomain.toUtf8().constData(),
-        nullptr, bigEndianPort, 0, nullptr, registerService, this);
+        nullptr, bigEndianPort, TXTRecordGetLength(&txtRecord), TXTRecordGetBytesPtr(&txtRecord),
+        registerService, this);
+    TXTRecordDeallocate(&txtRecord);
 
     if (err != kDNSServiceErr_NoError) {
         Q_EMIT error(err);

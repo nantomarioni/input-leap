@@ -14,10 +14,14 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include <QCoreApplication>
+
 #include <gtest/gtest.h>
 
 int main(int argc, char **argv)
 {
     testing::InitGoogleTest(&argc, argv);
+    // the sync tests run sockets through the event loop
+    QCoreApplication app(argc, argv);
     return (RUN_ALL_TESTS() == 1) ? 1 : 0;
 }
