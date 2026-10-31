@@ -22,6 +22,21 @@ ApplicationWindow {
         root.hide()
     }
 
+    // Keyboard: Ctrl (Cmd on macOS) + 1..7 switch pages, Ctrl+L the log,
+    // Ctrl+W hides the window, Quit quits for real.
+    Instantiator {
+        model: 7
+        delegate: Shortcut {
+            required property int index
+            sequence: "Ctrl+" + (index + 1)
+            onActivated: root.currentPage = index
+        }
+    }
+    Shortcut { sequence: "Ctrl+L"; onActivated: App.settings.logDrawerOpen = !App.settings.logDrawerOpen }
+    Shortcut { sequences: [StandardKey.Preferences]; onActivated: root.currentPage = 6 }
+    Shortcut { sequences: [StandardKey.Close]; onActivated: root.hide() }
+    Shortcut { sequences: [StandardKey.Quit]; onActivated: App.quit() }
+
     header: AppHeader {}
 
     footer: AppStatusBar {

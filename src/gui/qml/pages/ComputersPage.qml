@@ -46,7 +46,10 @@ ScrollView {
                         required property var modelData
                         flat: page.selected !== index
                         highlighted: page.selected === index
+                        Accessible.name: modelData.name + ", " + modelData.state
                         onClicked: page.selected = index
+                        Keys.onLeftPressed: page.selected = Math.max(0, page.selected - 1)
+                        Keys.onRightPressed: page.selected = Math.min(App.computers.length - 1, page.selected + 1)
                         contentItem: RowLayout {
                             spacing: 8
                             Rectangle { width: 8; height: 8; radius: 4; color: modelData.stateTone === "success" ? Theme.success : modelData.stateTone === "warning" ? Theme.warning : Theme.offline }
@@ -146,7 +149,13 @@ ScrollView {
                         SettingRow {
                             label: qsTr("Screen name")
                             divider: false
-                            TextField { Layout.preferredWidth: 160; text: App.settings.screenName; font.family: App.monoFontFamily; onEditingFinished: App.settings.screenName = text }
+                            TextField {
+                                Layout.preferredWidth: 160
+                                text: App.settings.screenName
+                                font.family: App.monoFontFamily
+                                validator: RegularExpressionValidator { regularExpression: /[A-Za-z0-9._-]{0,255}/ }
+                                onEditingFinished: App.settings.screenName = text
+                            }
                         }
                         SettingRow {
                             visible: App.role === App.Client

@@ -66,12 +66,14 @@ Rectangle {
                 id: levelBox
                 Layout.preferredWidth: 150
                 model: [qsTr("Errors only"), qsTr("Warnings"), qsTr("Notes"), qsTr("Info"), qsTr("Debug"), qsTr("Debug 1"), qsTr("Debug 2")]
+                Accessible.name: qsTr("Lowest log level shown")
                 currentIndex: App.log.minLevel
                 onActivated: (index) => App.log.minLevel = index
             }
             TextField {
                 Layout.preferredWidth: 180
                 placeholderText: qsTr("Search…")
+                Accessible.name: qsTr("Search the log")
                 text: App.log.search
                 onTextEdited: App.log.search = text
             }

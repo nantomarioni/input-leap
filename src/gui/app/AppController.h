@@ -150,6 +150,7 @@ public slots:
     void start();
     void stop();
     void restart();
+    void quit();          // stops the core, then the app
     void setRole(int role);
     void applyLayout();
 

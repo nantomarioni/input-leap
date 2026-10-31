@@ -26,6 +26,9 @@ Rectangle {
     radius: 12
     color: bgColor
 
+    Accessible.role: Accessible.StaticText
+    Accessible.name: text
+
     Row {
         id: content
         anchors.centerIn: parent

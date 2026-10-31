@@ -526,6 +526,14 @@ void AppController::start()
     }
 }
 
+void AppController::quit()
+{
+    if (m_runState != Stopped && m_runState != Failed) {
+        stop();
+    }
+    QCoreApplication::quit();
+}
+
 void AppController::stop()
 {
     m_wantRunning = false;

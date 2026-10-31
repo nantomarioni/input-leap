@@ -16,6 +16,20 @@ ColumnLayout {
     Layout.fillWidth: true
     spacing: 0
 
+    // A control without a name of its own (a Switch, a ComboBox, a field) is
+    // announced with the row's label; buttons and labels keep their text.
+    Component.onCompleted: {
+        for (let i = 0; i < slot.children.length; ++i) {
+            const c = slot.children[i]
+            if (c instanceof Label || c instanceof Text || c.Accessible === undefined)
+                continue
+            if (c.checkable === false && c.text)
+                continue
+            if (!c.Accessible.name)
+                c.Accessible.name = row.label
+        }
+    }
+
     Rectangle {
         Layout.fillWidth: true
         visible: row.divider

@@ -22,6 +22,20 @@ Rectangle {
     implicitWidth: 196
     color: Theme.rail
 
+    Accessible.role: Accessible.PageTabList
+    Accessible.name: qsTr("Pages")
+
+    // Up/Down on a focused page switches to the neighbour and keeps the focus there.
+    function step(delta) {
+        const next = Math.max(0, Math.min(pages.length - 1, currentIndex + delta))
+        if (next === currentIndex)
+            return
+        activated(next)
+        const target = items.itemAt(next)
+        if (target)
+            target.forceActiveFocus(Qt.TabFocusReason)
+    }
+
     Rectangle {
         anchors.right: parent.right
         width: 1
@@ -36,6 +50,7 @@ Rectangle {
         spacing: 2
 
         Repeater {
+            id: items
             model: rail.pages
 
             delegate: RailItem {
@@ -47,6 +62,8 @@ Rectangle {
                 iconName: modelData.icon
                 active: index === rail.currentIndex
                 onClicked: rail.activated(index)
+                Keys.onUpPressed: rail.step(-1)
+                Keys.onDownPressed: rail.step(1)
             }
         }
 

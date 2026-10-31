@@ -75,7 +75,7 @@ TrayController::TrayController(QQuickWindow* window, QObject* parent) :
     m_menu->addSeparator();
     m_menu->addAction(tr("Check for Updates…"), app, &AppController::checkForUpdates);
     m_menu->addSeparator();
-    m_menu->addAction(tr("Quit Input Leap"), qApp, &QCoreApplication::quit);
+    m_menu->addAction(tr("Quit Input Leap"), app, &AppController::quit);
 
     m_tray = new QSystemTrayIcon(this);
     m_tray->setContextMenu(m_menu);

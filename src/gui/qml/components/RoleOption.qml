@@ -12,17 +12,25 @@ AbstractButton {
     implicitHeight: 28
     enabled: App.canSwitchRole || active
     hoverEnabled: true
+    focusPolicy: Qt.StrongFocus
 
     Accessible.role: Accessible.RadioButton
+    Accessible.name: text
     Accessible.checked: active
 
     onClicked: App.role = roleValue
+    Keys.onReturnPressed: option.clicked()
+    Keys.onEnterPressed: option.clicked()
+    Keys.onLeftPressed: if (App.canSwitchRole) App.role = App.Server
+    Keys.onRightPressed: if (App.canSwitchRole) App.role = App.Client
 
     background: Rectangle {
         radius: height / 2
         color: option.active ? Theme.accent
              : option.hovered && option.enabled ? Theme.hover
              : "transparent"
+        border.color: option.visualFocus ? Theme.accent : "transparent"
+        border.width: option.visualFocus ? 2 : 0
     }
 
     contentItem: Label {

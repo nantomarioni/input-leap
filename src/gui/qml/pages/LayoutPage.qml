@@ -16,6 +16,23 @@ Item {
     readonly property int cellWidth: Math.max(80, Math.min(150, Math.floor((gridBox.width - 32 - (App.layout.columns - 1) * 8) / App.layout.columns)))
     readonly property int cellHeight: Math.round(cellWidth * (cellWidth < 120 ? 0.8 : 0.64))
 
+    // Arrow keys move the focused tile one cell; false when the cell is taken.
+    function moveBy(index, dc, dr) {
+        const cols = App.layout.columns
+        const col = index % cols + dc
+        const row = Math.floor(index / cols) + dr
+        if (col < 0 || col >= cols || row < 0 || row >= App.layout.rows)
+            return false
+        const target = row * cols + col
+        if (!App.layout.moveScreen(index, target))
+            return false
+        selectedCell = target
+        const item = cells.itemAt(target)
+        if (item)
+            item.focusTile()
+        return true
+    }
+
     EmptyState {
         anchors.fill: parent
         visible: App.role === App.Client
@@ -63,7 +80,9 @@ Item {
                     placeholderText: qsTr("Computer's screen name")
                     font.family: App.monoFontFamily
                     validator: RegularExpressionValidator { regularExpression: /[A-Za-z0-9._-]{0,255}/ }
+                    Accessible.name: qsTr("New computer's screen name")
                     onAccepted: addButton.clicked()
+                    Keys.onEscapePressed: { addRow.visible = false; addField.text = "" }
                 }
                 Button {
                     id: addButton
@@ -100,6 +119,7 @@ Item {
                     spacing: 8
 
                     Repeater {
+                        id: cells
                         model: App.layout
 
                         delegate: Item {
@@ -114,6 +134,8 @@ Item {
                             width: page.cellWidth
                             height: page.cellHeight
                             z: mouse.drag.active ? 10 : 0
+
+                            function focusTile() { tile.forceActiveFocus(Qt.TabFocusReason) }
 
                             DropArea {
                                 id: drop
@@ -146,9 +168,29 @@ Item {
                                 height: cellItem.height - 8
                                 radius: Theme.radiusSmall
                                 color: cellItem.isServer ? Theme.accentSoft : Theme.surface
-                                border.color: page.selectedCell === cellItem.index ? Theme.accent : cellItem.isServer ? Theme.accent : Theme.border
-                                border.width: page.selectedCell === cellItem.index ? 2 : 1
+                                border.color: page.selectedCell === cellItem.index || tile.activeFocus ? Theme.accent : cellItem.isServer ? Theme.accent : Theme.border
+                                border.width: page.selectedCell === cellItem.index || tile.activeFocus ? 2 : 1
                                 opacity: mouse.drag.active ? 0.85 : 1
+
+                                // Keyboard: Tab reaches each tile, arrows move it, Delete removes it.
+                                activeFocusOnTab: cellItem.occupied
+                                Accessible.role: Accessible.Button
+                                Accessible.name: cellItem.isServer ? qsTr("%1, this computer").arg(cellItem.name)
+                                               : cellItem.position.length > 0 ? cellItem.name + ", " + cellItem.position : cellItem.name
+                                Accessible.focusable: true
+                                onActiveFocusChanged: if (activeFocus) page.selectedCell = cellItem.index
+                                Keys.onLeftPressed: page.moveBy(cellItem.index, -1, 0)
+                                Keys.onRightPressed: page.moveBy(cellItem.index, 1, 0)
+                                Keys.onUpPressed: page.moveBy(cellItem.index, 0, -1)
+                                Keys.onDownPressed: page.moveBy(cellItem.index, 0, 1)
+                                Keys.onDeletePressed: if (!cellItem.isServer) { App.layout.removeScreen(cellItem.index); page.selectedCell = -1 }
+                                Keys.onPressed: (event) => {
+                                    if (event.key === Qt.Key_Backspace && !cellItem.isServer) {
+                                        App.layout.removeScreen(cellItem.index)
+                                        page.selectedCell = -1
+                                        event.accepted = true
+                                    }
+                                }
 
                                 Drag.active: mouse.drag.active
                                 Drag.keys: ["screen"]
@@ -189,7 +231,7 @@ Item {
                                     anchors.fill: parent
                                     drag.target: tile
                                     drag.threshold: 6
-                                    onPressed: page.selectedCell = cellItem.index
+                                    onPressed: { page.selectedCell = cellItem.index; tile.forceActiveFocus(Qt.MouseFocusReason) }
                                     onReleased: {
                                         tile.Drag.drop()
                                         tile.x = 4

@@ -36,6 +36,7 @@ ColumnLayout {
             TextField {
                 id: nameField
                 width: 200
+                Accessible.name: qsTr("Screen name")
                 text: panel.valid ? panel.s.name : ""
                 font.family: App.monoFontFamily
                 validator: RegularExpressionValidator { regularExpression: /[A-Za-z0-9._-]{0,255}/ }
@@ -68,6 +69,7 @@ ColumnLayout {
         TextField {
             Layout.preferredWidth: 220
             placeholderText: qsTr("Add an alias and press Enter")
+            Accessible.name: qsTr("New alias")
             validator: RegularExpressionValidator { regularExpression: /[A-Za-z0-9._-]{0,255}/ }
             onAccepted: {
                 if (text.length === 0) return
@@ -106,6 +108,7 @@ ColumnLayout {
             Label { text: qsTr("Corner size"); color: Theme.text }
             NumberBox {
                 from: 0; to: 1000
+                Accessible.name: qsTr("Corner size in pixels")
                 value: panel.valid ? panel.s.cornerSize : 0
                 onValueModified: panel.update({ cornerSize: value })
             }
@@ -129,6 +132,7 @@ ColumnLayout {
                     Label { text: modelData; color: Theme.text; Layout.preferredWidth: 44 }
                     ComboBox {
                         Layout.preferredWidth: 110
+                        Accessible.name: qsTr("%1 acts as").arg(modelData)
                         model: [qsTr("Shift"), qsTr("Ctrl"), qsTr("Alt"), qsTr("Meta"), qsTr("Super"), qsTr("None")]
                         currentIndex: panel.valid ? panel.s.modifiers[index] : index
                         onActivated: (i) => {

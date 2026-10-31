@@ -16,6 +16,12 @@ Card {
     color: kind === "error" ? Theme.dangerSoft : kind === "permission" ? Theme.accentSoft : Theme.warningSoft
     border.color: kind === "error" ? Theme.danger : kind === "permission" ? Theme.accent : Theme.warning
 
+    Accessible.role: Accessible.AlertMessage
+    Accessible.name: kind === "join" ? qsTr("%1 wants to join").arg(request.name || "")
+                   : kind === "trust" ? qsTr("Unknown fingerprint from %1").arg(request.name || qsTr("a client"))
+                   : kind === "permission" ? qsTr("Accessibility permission needed")
+                   : (request.text || qsTr("Something needs attention"))
+
     // ---- join ---------------------------------------------------------------
     RowLayout {
         visible: banner.kind === "join"
