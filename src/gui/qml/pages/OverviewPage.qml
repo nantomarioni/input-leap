@@ -151,52 +151,24 @@ ScrollView {
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    Layout.minimumHeight: grid.implicitHeight + 20
+                    Layout.minimumHeight: 150
                     radius: Theme.radiusSmall
                     color: Theme.bg
 
-                    Grid {
-                        id: grid
+                    LayoutCanvas {
+                        anchors.fill: parent
+                        anchors.margins: 6
+                        padding: 6
+                        maxScale: 0.06
+                        showDetails: false
+                        selectedIndex: -1
+                    }
+                    Label {
                         anchors.centerIn: parent
-                        columns: App.layout.columns
-                        spacing: 4
-
-                        Repeater {
-                            model: App.layout
-                            delegate: Rectangle {
-                                required property string name
-                                required property bool occupied
-                                required property bool isServer
-                                required property string state
-                                width: 72
-                                height: 40
-                                radius: 6
-                                color: !occupied ? "transparent" : isServer ? Theme.accentSoft : Theme.surface
-                                border.color: !occupied ? "transparent" : isServer ? Theme.accent : Theme.border
-                                border.width: isServer ? 2 : 1
-                                Column {
-                                    anchors.centerIn: parent
-                                    width: parent.width - 6
-                                    Label {
-                                        width: parent.width
-                                        text: name
-                                        font.pixelSize: 10
-                                        font.weight: Font.DemiBold
-                                        color: isServer ? Theme.accent : Theme.text
-                                        elide: Text.ElideMiddle
-                                        horizontalAlignment: Text.AlignHCenter
-                                    }
-                                    Label {
-                                        width: parent.width
-                                        visible: occupied && !isServer
-                                        text: state === "connected" ? qsTr("on") : state === "offline" ? qsTr("off") : "·"
-                                        font.pixelSize: 9
-                                        color: state === "connected" ? Theme.success : Theme.muted
-                                        horizontalAlignment: Text.AlignHCenter
-                                    }
-                                }
-                            }
-                        }
+                        visible: App.layout.screenCount === 0
+                        text: App.role === App.Server ? qsTr("no computers placed yet") : qsTr("the server holds the layout")
+                        color: Theme.muted
+                        font.pixelSize: Theme.smallFontSize
                     }
                 }
             }

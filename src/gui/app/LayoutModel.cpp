@@ -19,15 +19,21 @@
 #include <QFile>
 #include <QTextStream>
 
+#include <algorithm>
+#include <cmath>
+
 namespace {
 
 const char* kModifierNames[] = {"shift", "ctrl", "alt", "meta", "super", "none"};
 const char* kFixNames[] = {"halfDuplexCapsLock", "halfDuplexNumLock", "halfDuplexScrollLock",
                            "xtestIsXineramaUnaware", "preserveFocus"};
 const char* kCornerNames[] = {"top-left", "top-right", "bottom-left", "bottom-right"};
+const char* kSideNames[] = {"left", "right", "up", "down"};
 
-struct Neighbour { int dc; int dr; const char* name; };
-const Neighbour kNeighbours[] = {{1, 0, "right"}, {-1, 0, "left"}, {0, -1, "up"}, {0, 1, "down"}};
+// The settings layout: 1 = the 5x3 grid of cells (phase A and the Widgets
+// GUI), 2 = free placement with displays.
+const int kLayoutVersion = 2;
+const int kMaxDimension = 100000;
 
 template <class T>
 QVector<T> readArray(QSettings& s, const QString& name, int count, const T& fallback)
@@ -53,11 +59,81 @@ void writeArray(QSettings& s, const QString& name, const QVector<T>& values)
     s.endArray();
 }
 
+int percent(int value, int whole)
+{
+    return whole <= 0 ? 0 : qBound(0, qRound(100.0 * value / whole), 100);
+}
+
+// The exclusive right/bottom edge, unlike QRect::right()/bottom().
+int rightOf(const QRect& r) { return r.x() + r.width(); }
+int bottomOf(const QRect& r) { return r.y() + r.height(); }
+
+QVariantMap displayMap(const DisplayConfig& d)
+{
+    QVariantMap map;
+    map.insert(QStringLiteral("x"), d.x);
+    map.insert(QStringLiteral("y"), d.y);
+    map.insert(QStringLiteral("width"), d.width);
+    map.insert(QStringLiteral("height"), d.height);
+    return map;
+}
+
+QVariantList displayList(const QVector<DisplayConfig>& displays)
+{
+    QVariantList list;
+    for (const DisplayConfig& d : displays) {
+        list << displayMap(d);
+    }
+    return list;
+}
+
 } // namespace
+
+// ---- ScreenConfig --------------------------------------------------------------
 
 const char* ScreenConfig::modifierName(int modifier) { return kModifierNames[qBound(0, modifier, int(None))]; }
 const char* ScreenConfig::cornerName(int corner) { return kCornerNames[qBound(0, corner, int(CornerCount) - 1)]; }
 const char* ScreenConfig::fixName(int fix) { return kFixNames[qBound(0, fix, int(FixCount) - 1)]; }
+
+QRect ScreenConfig::desktop() const
+{
+    QRect box;
+    for (const DisplayConfig& d : displays) {
+        box = box.isNull() ? d.rect() : box.united(d.rect());
+    }
+    if (box.isNull()) {
+        box = QRect(0, 0, LayoutModel::kDefaultWidth, LayoutModel::kDefaultHeight);
+    }
+    return box.translated(x, y);
+}
+
+void ScreenConfig::normaliseDisplays()
+{
+    for (DisplayConfig& d : displays) {
+        d.width = qBound(1, d.width, kMaxDimension);
+        d.height = qBound(1, d.height, kMaxDimension);
+        d.x = qBound(-kMaxDimension, d.x, kMaxDimension);
+        d.y = qBound(-kMaxDimension, d.y, kMaxDimension);
+    }
+    if (displays.isEmpty()) {
+        displays << DisplayConfig();
+    }
+    int minX = displays[0].x, minY = displays[0].y;
+    for (const DisplayConfig& d : displays) {
+        minX = qMin(minX, d.x);
+        minY = qMin(minY, d.y);
+    }
+    // the displays that were there stay where they were on the desk: the
+    // desktop's origin moves instead
+    x += minX;
+    y += minY;
+    for (DisplayConfig& d : displays) {
+        d.x -= minX;
+        d.y -= minY;
+    }
+}
+
+// ---- model ---------------------------------------------------------------------
 
 LayoutModel::LayoutModel(QSettings* store, QObject* parent) :
     QAbstractListModel(parent),
@@ -66,26 +142,28 @@ LayoutModel::LayoutModel(QSettings* store, QObject* parent) :
     load();
 }
 
-// ---- model -----------------------------------------------------------------
-
 int LayoutModel::rowCount(const QModelIndex& parent) const
 {
-    return parent.isValid() ? 0 : m_cells.size();
+    return parent.isValid() ? 0 : m_screens.size();
 }
 
 QVariant LayoutModel::data(const QModelIndex& index, int role) const
 {
-    if (!index.isValid() || index.row() >= m_cells.size()) {
+    if (!index.isValid() || index.row() >= m_screens.size()) {
         return QVariant();
     }
-    const ScreenConfig& cell = m_cells[index.row()];
+    const ScreenConfig& s = m_screens[index.row()];
+    const QRect desktop = s.desktop();
     switch (role) {
-    case NameRole: return cell.name;
-    case ColumnRole: return index.row() % m_columns;
-    case RowRole: return index.row() / m_columns;
-    case OccupiedRole: return !cell.isNull();
-    case IsServerRole: return !cell.isNull() && cell.name == m_serverName;
-    case StateRole: return m_liveStates.value(cell.name);
+    case NameRole: return s.name;
+    case XRole: return desktop.x();
+    case YRole: return desktop.y();
+    case WidthRole: return desktop.width();
+    case HeightRole: return desktop.height();
+    case DisplaysRole: return displayList(s.displays);
+    case IsServerRole: return s.name == m_serverName;
+    case LinkedRole: return s.name == m_serverName || !linksOf(index.row()).isEmpty();
+    case StateRole: return m_liveStates.value(s.name);
     case PositionRole: return positionText(index.row());
     default: return QVariant();
     }
@@ -93,8 +171,21 @@ QVariant LayoutModel::data(const QModelIndex& index, int role) const
 
 QHash<int, QByteArray> LayoutModel::roleNames() const
 {
-    return {{NameRole, "name"}, {ColumnRole, "column"}, {RowRole, "row"}, {OccupiedRole, "occupied"},
-            {IsServerRole, "isServer"}, {StateRole, "state"}, {PositionRole, "position"}};
+    // not x/y/width/height: those would clash with the delegate Item's own
+    return {{NameRole, "name"}, {XRole, "desktopX"}, {YRole, "desktopY"}, {WidthRole, "desktopWidth"},
+            {HeightRole, "desktopHeight"}, {DisplaysRole, "displays"}, {IsServerRole, "isServer"},
+            {LinkedRole, "linked"}, {StateRole, "state"}, {PositionRole, "position"}};
+}
+
+void LayoutModel::changed(int first, int last)
+{
+    if (!m_screens.isEmpty()) {
+        // links and positions depend on every other desktop: refresh all rows
+        emit dataChanged(index(0), index(m_screens.size() - 1));
+    }
+    Q_UNUSED(first);
+    Q_UNUSED(last);
+    emit layoutChanged();
 }
 
 void LayoutModel::setServerName(const QString& name)
@@ -102,140 +193,243 @@ void LayoutModel::setServerName(const QString& name)
     if (m_serverName == name) {
         return;
     }
-    const int old = cellOf(m_serverName);
+    const int old = indexOf(m_serverName);
     m_serverName = name;
-    if (old >= 0 && !name.isEmpty() && cellOf(name) < 0) {
-        m_cells[old].name = name;   // the server was renamed: keep its cell and options
+    if (old >= 0 && !name.isEmpty() && indexOf(name) < 0) {
+        m_screens[old].name = name;   // the server was renamed: keep its desktop and options
         save();
     }
-    emit dataChanged(index(0), index(m_cells.size() - 1));
-    emit layoutChanged();
+    changed(0, m_screens.size() - 1);
 }
 
 QStringList LayoutModel::screenNames() const
 {
     QStringList names;
-    for (const ScreenConfig& cell : m_cells) {
-        if (!cell.isNull()) {
-            names << cell.name;
-        }
+    for (const ScreenConfig& s : m_screens) {
+        names << s.name;
     }
     return names;
 }
 
-int LayoutModel::screenCount() const
+QRect LayoutModel::bounds() const
 {
-    return screenNames().size();
+    QRect box;
+    for (const ScreenConfig& s : m_screens) {
+        box = box.isNull() ? s.desktop() : box.united(s.desktop());
+    }
+    return box;
 }
 
-// ---- cells -----------------------------------------------------------------
+// ---- computers -----------------------------------------------------------------
 
-int LayoutModel::cellOf(const QString& name) const
+int LayoutModel::indexOf(const QString& name) const
 {
     if (name.isEmpty()) {
         return -1;
     }
-    for (int i = 0; i < m_cells.size(); ++i) {
-        if (m_cells[i].name == name) {
+    for (int i = 0; i < m_screens.size(); ++i) {
+        if (m_screens[i].name == name) {
             return i;
         }
     }
     return -1;
 }
 
-bool LayoutModel::addScreen(const QString& name, int cell)
+bool LayoutModel::overlapsAnother(int index, const QRect& rect) const
 {
-    if (name.trimmed().isEmpty() || cell < 0 || cell >= m_cells.size() || !m_cells[cell].isNull() || hasScreen(name)) {
+    for (int i = 0; i < m_screens.size(); ++i) {
+        if (i != index && m_screens[i].desktop().intersects(rect)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool LayoutModel::addScreen(const QString& name, int x, int y)
+{
+    const QString trimmed = name.trimmed();
+    if (trimmed.isEmpty() || hasScreen(trimmed)) {
         return false;
     }
-    m_cells[cell].clear();
-    m_cells[cell].name = name.trimmed();
+    ScreenConfig screen;
+    screen.name = trimmed;
+    screen.x = x;
+    screen.y = y;
+    if (overlapsAnother(-1, screen.desktop())) {
+        return false;
+    }
+    beginInsertRows(QModelIndex(), m_screens.size(), m_screens.size());
+    m_screens << screen;
+    endInsertRows();
     save();
-    emit dataChanged(index(cell), index(cell));
-    emit layoutChanged();
+    changed(0, m_screens.size() - 1);
     return true;
 }
 
 bool LayoutModel::addScreenAnywhere(const QString& name)
 {
-    for (int i = 0; i < m_cells.size(); ++i) {
-        if (m_cells[i].isNull()) {
-            return addScreen(name, i);
-        }
+    if (m_screens.isEmpty()) {
+        return addScreen(name, 0, 0);
     }
-    return false;
+    // to the right of everything, level with the server (or the top)
+    const QRect box = bounds();
+    const int server = indexOf(m_serverName);
+    const int y = server >= 0 ? m_screens[server].desktop().y() : box.y();
+    return addScreen(name, rightOf(box), y);
 }
 
 bool LayoutModel::placeNextTo(const QString& name, const QString& anchor, int direction)
 {
-    int start = cellOf(anchor);
-    if (start < 0 || hasScreen(name)) {
+    const int start = indexOf(anchor);
+    if (start < 0 || hasScreen(name.trimmed()) || name.trimmed().isEmpty()) {
         return false;
     }
-    const int dc = direction == Left ? -1 : direction == Right ? 1 : 0;
-    const int dr = direction == Up ? -1 : direction == Down ? 1 : 0;
-    int cell = adjacentCell(start, dc, dr);
-    while (cell >= 0) {
-        if (m_cells[cell].isNull()) {
-            return addScreen(name, cell);
+    ScreenConfig probe;
+    probe.name = name.trimmed();
+    const QSize size = probe.desktop().size();
+    QRect beside = m_screens[start].desktop();
+    // Walk along the direction past whatever is in the way.
+    for (int attempt = 0; attempt < 64; ++attempt) {
+        QRect candidate;
+        switch (direction) {
+        case Left: candidate = QRect(beside.x() - size.width(), beside.y(), size.width(), size.height()); break;
+        case Right: candidate = QRect(rightOf(beside), beside.y(), size.width(), size.height()); break;
+        case Up: candidate = QRect(beside.x(), beside.y() - size.height(), size.width(), size.height()); break;
+        case Down: candidate = QRect(beside.x(), bottomOf(beside), size.width(), size.height()); break;
+        default: return false;
         }
-        cell = adjacentCell(cell, dc, dr);
+        int blocker = -1;
+        for (int i = 0; i < m_screens.size(); ++i) {
+            if (m_screens[i].desktop().intersects(candidate)) {
+                blocker = i;
+                break;
+            }
+        }
+        if (blocker < 0) {
+            return addScreen(probe.name, candidate.x(), candidate.y());
+        }
+        beside = m_screens[blocker].desktop();
+        // keep the row/column of the anchor so the chain stays straight
+        if (direction == Left || direction == Right) {
+            beside.moveTop(m_screens[start].desktop().y());
+        } else {
+            beside.moveLeft(m_screens[start].desktop().x());
+        }
     }
     return false;
 }
 
-bool LayoutModel::moveScreen(int fromCell, int toCell)
+bool LayoutModel::moveTo(int index, int x, int y)
 {
-    if (fromCell < 0 || toCell < 0 || fromCell >= m_cells.size() || toCell >= m_cells.size() ||
-        fromCell == toCell || m_cells[fromCell].isNull()) {
+    if (index < 0 || index >= m_screens.size()) {
         return false;
     }
-    std::swap(m_cells[fromCell], m_cells[toCell]);
+    ScreenConfig& s = m_screens[index];
+    x = qBound(-kMaxDimension, x, kMaxDimension);
+    y = qBound(-kMaxDimension, y, kMaxDimension);
+    if (s.x == x && s.y == y) {
+        return true;
+    }
+    QRect target = s.desktop();
+    target.moveTo(x, y);
+    if (overlapsAnother(index, target)) {
+        return false;
+    }
+    s.x = x;
+    s.y = y;
     save();
-    emit dataChanged(index(qMin(fromCell, toCell)), index(qMax(fromCell, toCell)));
-    emit layoutChanged();
+    changed(0, m_screens.size() - 1);
     return true;
 }
 
-void LayoutModel::removeScreen(int cell)
+QVariantMap LayoutModel::snapPosition(int index, int x, int y, int threshold) const
 {
-    if (cell < 0 || cell >= m_cells.size() || m_cells[cell].isNull()) {
+    QVariantMap out;
+    out.insert(QStringLiteral("x"), x);
+    out.insert(QStringLiteral("y"), y);
+    out.insert(QStringLiteral("snapped"), false);
+    if (index < 0 || index >= m_screens.size()) {
+        return out;
+    }
+    const QRect me = m_screens[index].desktop();
+    const int w = me.width(), h = me.height();
+    threshold = qMax(0, threshold);
+
+    // Nearest edge-to-edge contact or alignment on each axis, considering
+    // only the desktops the moving one would be level with.
+    int bestX = x, bestY = y;
+    int bestDx = threshold + 1, bestDy = threshold + 1;
+    for (int i = 0; i < m_screens.size(); ++i) {
+        if (i == index) continue;
+        const QRect other = m_screens[i].desktop();
+        const bool levelY = y < bottomOf(other) + threshold && y + h > other.y() - threshold;
+        const bool levelX = x < rightOf(other) + threshold && x + w > other.x() - threshold;
+        if (levelY) {
+            const int candidates[] = {rightOf(other), other.x() - w, other.x(), rightOf(other) - w};
+            for (int c : candidates) {
+                const int d = std::abs(c - x);
+                if (d < bestDx) { bestDx = d; bestX = c; }
+            }
+        }
+        if (levelX) {
+            const int candidates[] = {bottomOf(other), other.y() - h, other.y(), bottomOf(other) - h};
+            for (int c : candidates) {
+                const int d = std::abs(c - y);
+                if (d < bestDy) { bestDy = d; bestY = c; }
+            }
+        }
+    }
+    out.insert(QStringLiteral("x"), bestX);
+    out.insert(QStringLiteral("y"), bestY);
+    out.insert(QStringLiteral("snapped"), bestX != x || bestY != y);
+    return out;
+}
+
+void LayoutModel::removeScreen(int index)
+{
+    if (index < 0 || index >= m_screens.size()) {
         return;
     }
-    m_cells[cell].clear();
+    beginRemoveRows(QModelIndex(), index, index);
+    m_screens.removeAt(index);
+    endRemoveRows();
     save();
-    emit dataChanged(index(cell), index(cell));
-    emit layoutChanged();
+    changed(0, m_screens.size() - 1);
 }
 
-bool LayoutModel::renameScreen(int cell, const QString& name)
+bool LayoutModel::renameScreen(int index, const QString& name)
 {
     const QString trimmed = name.trimmed();
-    if (cell < 0 || cell >= m_cells.size() || trimmed.isEmpty() || m_cells[cell].isNull()) {
+    if (index < 0 || index >= m_screens.size() || trimmed.isEmpty()) {
         return false;
     }
-    const int other = cellOf(trimmed);
-    if (other >= 0 && other != cell) {
+    const int other = indexOf(trimmed);
+    if (other >= 0 && other != index) {
         return false;
     }
-    if (m_cells[cell].name == m_serverName) {
+    if (m_screens[index].name == m_serverName) {
         m_serverName = trimmed;
     }
-    m_cells[cell].name = trimmed;
+    m_screens[index].name = trimmed;
     save();
-    emit dataChanged(index(cell), index(cell));
-    emit layoutChanged();
+    changed(0, m_screens.size() - 1);
     return true;
 }
 
-QVariantMap LayoutModel::screenSettings(int cell) const
+QVariantMap LayoutModel::screenSettings(int index) const
 {
     QVariantMap map;
-    if (cell < 0 || cell >= m_cells.size()) {
+    if (index < 0 || index >= m_screens.size()) {
         return map;
     }
-    const ScreenConfig& s = m_cells[cell];
+    const ScreenConfig& s = m_screens[index];
+    const QRect desktop = s.desktop();
     map.insert(QStringLiteral("name"), s.name);
+    map.insert(QStringLiteral("x"), desktop.x());
+    map.insert(QStringLiteral("y"), desktop.y());
+    map.insert(QStringLiteral("width"), desktop.width());
+    map.insert(QStringLiteral("height"), desktop.height());
+    map.insert(QStringLiteral("displays"), displayList(s.displays));
     map.insert(QStringLiteral("aliases"), s.aliases);
     QVariantList modifiers, corners, fixes;
     for (int m : s.modifiers) modifiers << m;
@@ -246,16 +440,38 @@ QVariantMap LayoutModel::screenSettings(int cell) const
     map.insert(QStringLiteral("cornerSize"), s.cornerSize);
     map.insert(QStringLiteral("fixes"), fixes);
     map.insert(QStringLiteral("isServer"), s.name == m_serverName);
-    map.insert(QStringLiteral("position"), positionText(cell));
+    map.insert(QStringLiteral("position"), positionText(index));
+    map.insert(QStringLiteral("linked"), s.name == m_serverName || !linksOf(index).isEmpty());
     return map;
 }
 
-bool LayoutModel::setScreenSettings(int cell, const QVariantMap& settings)
+bool LayoutModel::setScreenSettings(int index, const QVariantMap& settings)
 {
-    if (cell < 0 || cell >= m_cells.size() || m_cells[cell].isNull()) {
+    if (index < 0 || index >= m_screens.size()) {
         return false;
     }
-    ScreenConfig& s = m_cells[cell];
+    ScreenConfig& s = m_screens[index];
+    if (settings.contains(QStringLiteral("displays"))) {
+        QVector<DisplayConfig> displays;
+        for (const QVariant& v : settings.value(QStringLiteral("displays")).toList()) {
+            const QVariantMap m = v.toMap();
+            DisplayConfig d;
+            d.x = m.value(QStringLiteral("x"), 0).toInt();
+            d.y = m.value(QStringLiteral("y"), 0).toInt();
+            d.width = m.value(QStringLiteral("width"), kDefaultWidth).toInt();
+            d.height = m.value(QStringLiteral("height"), kDefaultHeight).toInt();
+            displays << d;
+        }
+        ScreenConfig probe = s;
+        probe.displays = displays;
+        probe.normaliseDisplays();
+        if (overlapsAnother(index, probe.desktop())) {
+            return false;   // a bigger desktop would run into a neighbour
+        }
+        s.displays = probe.displays;
+        s.x = probe.x;      // normalising may have moved the origin
+        s.y = probe.y;
+    }
     if (settings.contains(QStringLiteral("aliases"))) {
         QStringList aliases;
         for (const QVariant& a : settings.value(QStringLiteral("aliases")).toList()) {
@@ -288,37 +504,122 @@ bool LayoutModel::setScreenSettings(int cell, const QVariantMap& settings)
         }
     }
     save();
-    emit dataChanged(index(cell), index(cell));
-    emit layoutChanged();
+    changed(0, m_screens.size() - 1);
     return true;
 }
 
-QString LayoutModel::positionText(int cell) const
+bool LayoutModel::addDisplay(int index)
 {
-    if (cell < 0 || cell >= m_cells.size() || m_cells[cell].isNull()) {
-        return QString();
+    if (index < 0 || index >= m_screens.size()) {
+        return false;
     }
-    if (m_cells[cell].name == m_serverName) {
-        return tr("centre");
-    }
-    const int server = cellOf(m_serverName);
-    if (server >= 0) {
-        const int sc = server % m_columns, sr = server / m_columns;
-        const int c = cell % m_columns, r = cell / m_columns;
-        if (r == sr && c > sc) return tr("right of %1").arg(m_serverName);
-        if (r == sr && c < sc) return tr("left of %1").arg(m_serverName);
-        if (c == sc && r < sr) return tr("above %1").arg(m_serverName);
-        if (c == sc && r > sr) return tr("below %1").arg(m_serverName);
-    }
-    return tr("column %1, row %2").arg(cell % m_columns + 1).arg(cell / m_columns + 1);
+    QVariantMap settings;
+    QVector<DisplayConfig> displays = m_screens[index].displays;
+    DisplayConfig next = displays.isEmpty() ? DisplayConfig() : displays.last();
+    next.x = displays.isEmpty() ? 0 : next.x + next.width;
+    displays << next;
+    settings.insert(QStringLiteral("displays"), displayList(displays));
+    return setScreenSettings(index, settings);
 }
 
-QString LayoutModel::neighbour(int cell, int direction) const
+bool LayoutModel::removeDisplay(int index, int display)
 {
-    const int dc = direction == Left ? -1 : direction == Right ? 1 : 0;
-    const int dr = direction == Up ? -1 : direction == Down ? 1 : 0;
-    const int n = adjacentCell(cell, dc, dr);
-    return n >= 0 ? m_cells[n].name : QString();
+    if (index < 0 || index >= m_screens.size() || display < 0 || display >= m_screens[index].displays.size() ||
+        m_screens[index].displays.size() == 1) {
+        return false;
+    }
+    QVector<DisplayConfig> displays = m_screens[index].displays;
+    displays.removeAt(display);
+    QVariantMap settings;
+    settings.insert(QStringLiteral("displays"), displayList(displays));
+    return setScreenSettings(index, settings);
+}
+
+QVector<ScreenLink> LayoutModel::links() const
+{
+    QVector<ScreenLink> links;
+    for (int i = 0; i < m_screens.size(); ++i) {
+        const QRect a = m_screens[i].desktop();
+        for (int j = 0; j < m_screens.size(); ++j) {
+            if (i == j) continue;
+            const QRect b = m_screens[j].desktop();
+            ScreenLink link;
+            link.from = i;
+            link.to = j;
+            if (rightOf(a) == b.x() || a.x() == rightOf(b)) {
+                const int top = qMax(a.y(), b.y());
+                const int bottom = qMin(bottomOf(a), bottomOf(b));
+                if (bottom <= top) continue;
+                link.side = rightOf(a) == b.x() ? Right : Left;
+                link.fromStart = percent(top - a.y(), a.height());
+                link.fromEnd = percent(bottom - a.y(), a.height());
+                link.toStart = percent(top - b.y(), b.height());
+                link.toEnd = percent(bottom - b.y(), b.height());
+            } else if (bottomOf(a) == b.y() || a.y() == bottomOf(b)) {
+                const int left = qMax(a.x(), b.x());
+                const int right = qMin(rightOf(a), rightOf(b));
+                if (right <= left) continue;
+                link.side = bottomOf(a) == b.y() ? Down : Up;
+                link.fromStart = percent(left - a.x(), a.width());
+                link.fromEnd = percent(right - a.x(), a.width());
+                link.toStart = percent(left - b.x(), b.width());
+                link.toEnd = percent(right - b.x(), b.width());
+            } else {
+                continue;
+            }
+            if (link.fromStart >= link.fromEnd || link.toStart >= link.toEnd) {
+                continue;   // too thin to mean anything once rounded
+            }
+            links << link;
+        }
+    }
+    return links;
+}
+
+QVariantList LayoutModel::linksOf(int index) const
+{
+    QVariantList list;
+    for (const ScreenLink& link : links()) {
+        if (link.from != index) continue;
+        QVariantMap map;
+        map.insert(QStringLiteral("name"), m_screens[link.to].name);
+        map.insert(QStringLiteral("side"), link.side);
+        map.insert(QStringLiteral("fromStart"), link.fromStart);
+        map.insert(QStringLiteral("fromEnd"), link.fromEnd);
+        map.insert(QStringLiteral("toStart"), link.toStart);
+        map.insert(QStringLiteral("toEnd"), link.toEnd);
+        list << map;
+    }
+    return list;
+}
+
+QString LayoutModel::positionText(int index) const
+{
+    if (index < 0 || index >= m_screens.size()) {
+        return QString();
+    }
+    if (m_screens[index].name == m_serverName) {
+        return tr("centre");
+    }
+    const QVector<ScreenLink> all = links();
+    const ScreenLink* chosen = nullptr;
+    for (const ScreenLink& link : all) {
+        if (link.from != index) continue;
+        if (chosen == nullptr || m_screens[link.to].name == m_serverName) {
+            chosen = &link;   // the server wins when it is a neighbour
+        }
+    }
+    if (chosen == nullptr) {
+        return tr("not linked");
+    }
+    const QString name = m_screens[chosen->to].name;
+    switch (chosen->side) {
+    case Right: return tr("left of %1").arg(name);
+    case Left: return tr("right of %1").arg(name);
+    case Down: return tr("above %1").arg(name);
+    case Up: return tr("below %1").arg(name);
+    default: return QString();
+    }
 }
 
 void LayoutModel::setLiveState(const QString& name, const QString& state)
@@ -327,16 +628,18 @@ void LayoutModel::setLiveState(const QString& name, const QString& state)
         return;
     }
     m_liveStates.insert(name, state);
-    const int cell = cellOf(name);
-    if (cell >= 0) {
-        emit dataChanged(index(cell), index(cell), {StateRole});
+    const int i = indexOf(name);
+    if (i >= 0) {
+        emit dataChanged(index(i), index(i), {StateRole});
     }
 }
 
 void LayoutModel::clearLiveStates()
 {
     m_liveStates.clear();
-    emit dataChanged(index(0), index(m_cells.size() - 1), {StateRole});
+    if (!m_screens.isEmpty()) {
+        emit dataChanged(index(0), index(m_screens.size() - 1), {StateRole});
+    }
 }
 
 void LayoutModel::ensureServerPlaced()
@@ -344,27 +647,10 @@ void LayoutModel::ensureServerPlaced()
     if (m_serverName.isEmpty() || hasScreen(m_serverName)) {
         return;
     }
-    if (m_cells[centreCell()].isNull()) {
-        addScreen(m_serverName, centreCell());
-    } else {
-        addScreenAnywhere(m_serverName);
-    }
+    addScreenAnywhere(m_serverName);
 }
 
-int LayoutModel::adjacentCell(int cell, int dColumn, int dRow) const
-{
-    if (cell < 0 || cell >= m_cells.size()) {
-        return -1;
-    }
-    const int c = cell % m_columns + dColumn;
-    const int r = cell / m_columns + dRow;
-    if (c < 0 || c >= m_columns || r < 0 || r >= m_rows) {
-        return -1;
-    }
-    return r * m_columns + c;
-}
-
-// ---- options ---------------------------------------------------------------
+// ---- options -------------------------------------------------------------------
 
 template <class T>
 void LayoutModel::setOption(T& member, const T& value)
@@ -411,7 +697,7 @@ void LayoutModel::setClipboardSharingSizeMb(int mb) { setOption(m_clipboardShari
 void LayoutModel::setDimmingEnabled(bool on) { setOption(m_dimmingEnabled, on); }
 void LayoutModel::setDimmingPercentage(int percent) { setOption(m_dimmingPercentage, qBound(0, percent, 100)); }
 
-// ---- hotkeys ---------------------------------------------------------------
+// ---- hotkeys -------------------------------------------------------------------
 
 QVariantList LayoutModel::hotkeyList() const
 {
@@ -485,17 +771,15 @@ void LayoutModel::hotkeysEdited()
     emit hotkeysChanged();
 }
 
-// ---- persistence -----------------------------------------------------------
+// ---- persistence ---------------------------------------------------------------
 
 void LayoutModel::load()
 {
     QSettings& s = *m_store;
     s.beginGroup(QStringLiteral("internalConfig"));
 
-    m_columns = qMax(1, s.value(QStringLiteral("numColumns"), 5).toInt());
-    m_rows = qMax(1, s.value(QStringLiteral("numRows"), 3).toInt());
     beginResetModel();
-    m_cells = QVector<ScreenConfig>(m_columns * m_rows);
+    m_screens.clear();
 
     m_hasHeartbeat = s.value(QStringLiteral("hasHeartbeat"), false).toBool();
     m_heartbeat = s.value(QStringLiteral("heartbeat"), 5000).toInt();
@@ -515,12 +799,20 @@ void LayoutModel::load()
     m_dimmingPercentage = qBound(0, s.value(QStringLiteral("screenDimmingPercentage"), 30).toInt(), 100);
     m_switchCorners = readArray<bool>(s, QStringLiteral("switchCorner"), ScreenConfig::CornerCount, false);
 
-    const int screens = s.beginReadArray(QStringLiteral("screens"));
-    for (int i = 0; i < screens && i < m_cells.size(); ++i) {
-        s.setArrayIndex(i);
-        loadScreen(m_cells[i]);
+    if (s.value(QStringLiteral("layoutVersion"), 1).toInt() < kLayoutVersion) {
+        loadLegacyGrid(s);
+    } else {
+        const int screens = s.beginReadArray(QStringLiteral("screens"));
+        for (int i = 0; i < screens; ++i) {
+            s.setArrayIndex(i);
+            ScreenConfig screen;
+            loadScreen(screen);
+            if (!screen.isNull() && !hasScreen(screen.name)) {
+                m_screens << screen;
+            }
+        }
+        s.endArray();
     }
-    s.endArray();
 
     m_hotkeys.clear();
     const int hotkeys = s.beginReadArray(QStringLiteral("hotkeys"));
@@ -539,6 +831,28 @@ void LayoutModel::load()
     emit hotkeysChanged();
 }
 
+// The grid era: `numColumns` x `numRows` cells, the screens array indexed by
+// cell. Each occupied cell becomes a default-sized desktop at the cell's
+// place, so neighbours still touch exactly as they did.
+void LayoutModel::loadLegacyGrid(QSettings& s)
+{
+    const int columns = qMax(1, s.value(QStringLiteral("numColumns"), 5).toInt());
+    const int screens = s.beginReadArray(QStringLiteral("screens"));
+    for (int i = 0; i < screens; ++i) {
+        s.setArrayIndex(i);
+        ScreenConfig screen;
+        loadScreen(screen);
+        if (screen.isNull() || hasScreen(screen.name)) {
+            continue;
+        }
+        screen.displays = {DisplayConfig()};
+        screen.x = (i % columns) * kDefaultWidth;
+        screen.y = (i / columns) * kDefaultHeight;
+        m_screens << screen;
+    }
+    s.endArray();
+}
+
 void LayoutModel::loadScreen(ScreenConfig& screen)
 {
     QSettings& s = *m_store;
@@ -547,6 +861,21 @@ void LayoutModel::loadScreen(ScreenConfig& screen)
     if (screen.isNull()) {
         return;
     }
+    screen.x = s.value(QStringLiteral("x"), 0).toInt();
+    screen.y = s.value(QStringLiteral("y"), 0).toInt();
+    screen.displays.clear();
+    const int displays = s.beginReadArray(QStringLiteral("displayArray"));
+    for (int i = 0; i < displays; ++i) {
+        s.setArrayIndex(i);
+        DisplayConfig d;
+        d.x = s.value(QStringLiteral("x"), 0).toInt();
+        d.y = s.value(QStringLiteral("y"), 0).toInt();
+        d.width = s.value(QStringLiteral("width"), kDefaultWidth).toInt();
+        d.height = s.value(QStringLiteral("height"), kDefaultHeight).toInt();
+        screen.displays << d;
+    }
+    s.endArray();
+    screen.normaliseDisplays();
     screen.cornerSize = s.value(QStringLiteral("switchCornerSize"), 0).toInt();
     screen.aliases.clear();
     const int aliases = s.beginReadArray(QStringLiteral("aliasArray"));
@@ -570,9 +899,17 @@ void LayoutModel::saveScreen(const ScreenConfig& screen)
 {
     QSettings& s = *m_store;
     s.setValue(QStringLiteral("name"), screen.name);
-    if (screen.isNull()) {
-        return;
+    s.setValue(QStringLiteral("x"), screen.x);
+    s.setValue(QStringLiteral("y"), screen.y);
+    s.beginWriteArray(QStringLiteral("displayArray"));
+    for (int i = 0; i < screen.displays.size(); ++i) {
+        s.setArrayIndex(i);
+        s.setValue(QStringLiteral("x"), screen.displays[i].x);
+        s.setValue(QStringLiteral("y"), screen.displays[i].y);
+        s.setValue(QStringLiteral("width"), screen.displays[i].width);
+        s.setValue(QStringLiteral("height"), screen.displays[i].height);
     }
+    s.endArray();
     s.setValue(QStringLiteral("switchCornerSize"), screen.cornerSize);
     writeArray<QString>(s, QStringLiteral("alias"), QVector<QString>(screen.aliases.begin(), screen.aliases.end()));
     // the legacy store keeps "default" (-1) for an unmapped modifier
@@ -591,8 +928,7 @@ void LayoutModel::save()
     s.beginGroup(QStringLiteral("internalConfig"));
     s.remove(QString());
 
-    s.setValue(QStringLiteral("numColumns"), m_columns);
-    s.setValue(QStringLiteral("numRows"), m_rows);
+    s.setValue(QStringLiteral("layoutVersion"), kLayoutVersion);
     s.setValue(QStringLiteral("hasHeartbeat"), m_hasHeartbeat);
     s.setValue(QStringLiteral("heartbeat"), m_heartbeat);
     s.setValue(QStringLiteral("relativeMouseMoves"), m_relativeMouseMoves);
@@ -612,9 +948,9 @@ void LayoutModel::save()
     writeArray<bool>(s, QStringLiteral("switchCorner"), m_switchCorners);
 
     s.beginWriteArray(QStringLiteral("screens"));
-    for (int i = 0; i < m_cells.size(); ++i) {
+    for (int i = 0; i < m_screens.size(); ++i) {
         s.setArrayIndex(i);
-        saveScreen(m_cells[i]);
+        saveScreen(m_screens[i]);
     }
     s.endArray();
 
@@ -628,7 +964,7 @@ void LayoutModel::save()
     s.endGroup();
 }
 
-// ---- the .conf -------------------------------------------------------------
+// ---- the .conf -----------------------------------------------------------------
 
 QString LayoutModel::configText() const
 {
@@ -636,8 +972,7 @@ QString LayoutModel::configText() const
     QTextStream out(&text);
 
     out << "section: screens\n";
-    for (const ScreenConfig& s : m_cells) {
-        if (s.isNull()) continue;
+    for (const ScreenConfig& s : m_screens) {
         out << "\t" << s.name << ":\n";
         for (int i = 0; i < s.modifiers.size(); ++i) {
             if (s.modifiers[i] != i) {
@@ -657,8 +992,8 @@ QString LayoutModel::configText() const
     out << "end\n\n";
 
     out << "section: aliases\n";
-    for (const ScreenConfig& s : m_cells) {
-        if (s.isNull() || s.aliases.isEmpty()) continue;
+    for (const ScreenConfig& s : m_screens) {
+        if (s.aliases.isEmpty()) continue;
         out << "\t" << s.name << ":\n";
         for (const QString& alias : s.aliases) {
             out << "\t\t" << alias << "\n";
@@ -666,15 +1001,23 @@ QString LayoutModel::configText() const
     }
     out << "end\n\n";
 
+    // Touching edges become links; a part of an edge becomes a range, the
+    // percentages the core's `left(a,b) = name(c,d)` syntax expects.
+    const QVector<ScreenLink> all = links();
     out << "section: links\n";
-    for (int i = 0; i < m_cells.size(); ++i) {
-        if (m_cells[i].isNull()) continue;
-        out << "\t" << m_cells[i].name << ":\n";
-        for (const Neighbour& n : kNeighbours) {
-            const int cell = adjacentCell(i, n.dc, n.dr);
-            if (cell >= 0 && !m_cells[cell].isNull()) {
-                out << "\t\t" << n.name << " = " << m_cells[cell].name << "\n";
+    for (int i = 0; i < m_screens.size(); ++i) {
+        out << "\t" << m_screens[i].name << ":\n";
+        for (const ScreenLink& link : all) {
+            if (link.from != i) continue;
+            out << "\t\t" << kSideNames[link.side];
+            if (link.fromStart != 0 || link.fromEnd != 100) {
+                out << "(" << link.fromStart << "," << link.fromEnd << ")";
             }
+            out << " = " << m_screens[link.to].name;
+            if (link.toStart != 0 || link.toEnd != 100) {
+                out << "(" << link.toStart << "," << link.toEnd << ")";
+            }
+            out << "\n";
         }
     }
     out << "end\n\n";

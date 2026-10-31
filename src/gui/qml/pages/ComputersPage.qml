@@ -11,7 +11,7 @@ ScrollView {
 
     property int selected: 0
     readonly property var computer: App.computers.length > selected ? App.computers[selected] : null
-    readonly property int cell: computer ? App.layout.cellOf(computer.name) : -1
+    readonly property int screenIndex: computer ? App.layout.indexOf(computer.name) : -1
 
     ColumnLayout {
         x: 24
@@ -107,12 +107,12 @@ ScrollView {
                     }
                     ScreenSettingsPanel {
                         Layout.fillWidth: true
-                        visible: page.cell >= 0
-                        cell: page.cell
+                        visible: page.screenIndex >= 0
+                        screenIndex: page.screenIndex
                         compact: true
                     }
                     Label {
-                        visible: page.cell < 0
+                        visible: page.screenIndex < 0
                         Layout.fillWidth: true
                         text: qsTr("%1 is not in the layout yet. Place it on the Layout page to configure it.").arg(page.computer ? page.computer.name : "")
                         color: Theme.muted

@@ -254,7 +254,7 @@ QVariantList AppController::computers() const
             list << entry(self, tr("not placed"), tr("this computer · server"), QStringLiteral("warning"), m_addresses.value(0), QDateTime());
         }
         for (const QString& name : names) {
-            const int cell = m_layout->cellOf(name);
+            const int cell = m_layout->indexOf(name);
             if (name == self) {
                 const bool active = m_activeScreen.isEmpty() || m_activeScreen == self;
                 list << entry(name, m_layout->positionText(cell),
@@ -779,10 +779,10 @@ void AppController::placeJoin(const QString& name, int direction)
     }
     removeRequest(QStringLiteral("join:") + name);
     if (!placed) {
-        log(tr("no free cell for %1 in the layout").arg(name), QStringLiteral("WARNING"));
+        log(tr("no room for %1 in the layout").arg(name), QStringLiteral("WARNING"));
         return;
     }
-    log(tr("placed %1 %2").arg(name, m_layout->positionText(m_layout->cellOf(name))));
+    log(tr("placed %1 %2").arg(name, m_layout->positionText(m_layout->indexOf(name))));
     applyLayout();
 }
 

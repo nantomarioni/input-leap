@@ -20,6 +20,7 @@
 
 #include <QAbstractListModel>
 #include <QHash>
+#include <QRect>
 #include <QSettings>
 #include <QString>
 #include <QStringList>
@@ -28,9 +29,28 @@
 #include <QVector>
 #include <QtQml/qqmlregistration.h>
 
-/* One screen (computer) in the server's layout, with the options the server
- * holds for it. Same settings keys and the same `.conf` text as the legacy
- * ServerConfig/Screen, so the store round-trips between the two GUIs.
+/* One display of a computer: its size and where it sits inside the
+ * computer's desktop, in pixels. Typed by hand until the core reports it
+ * (docs/ui-redesign.md §4.4).
+ */
+struct DisplayConfig
+{
+    int x = 0;
+    int y = 0;
+    int width = 1920;
+    int height = 1080;
+
+    QRect rect() const { return QRect(x, y, width, height); }
+    bool operator==(const DisplayConfig& other) const
+    {
+        return x == other.x && y == other.y && width == other.width && height == other.height;
+    }
+};
+
+/* One screen (computer) in the server's layout: where its desktop sits in
+ * the shared pixel space, its displays, and the options the server holds
+ * for it. The options keep the legacy settings keys and the legacy `.conf`
+ * text, so a store written by the Widgets GUI still loads.
  */
 struct ScreenConfig
 {
@@ -39,6 +59,9 @@ struct ScreenConfig
     enum Fix { CapsLock, NumLock, ScrollLock, XTest, PreserveFocus, FixCount };
 
     QString name;
+    int x = 0;                               // desktop origin in the shared space
+    int y = 0;
+    QVector<DisplayConfig> displays = {DisplayConfig()};
     QStringList aliases;
     QVector<int> modifiers = {Shift, Ctrl, Alt, Meta, Super};   // index = modifier, value = mapped to
     QVector<bool> corners = QVector<bool>(CornerCount, false);
@@ -48,19 +71,41 @@ struct ScreenConfig
     bool isNull() const { return name.isEmpty(); }
     void clear() { *this = ScreenConfig(); }
 
+    // The desktop: the bounding box of the displays, placed at (x, y).
+    QRect desktop() const;
+    // Shifts the displays so their bounding box starts at (0, 0), moving the
+    // origin the opposite way so nothing moves on the desk; clamps the sizes.
+    void normaliseDisplays();
+
     static const char* modifierName(int modifier);
     static const char* cornerName(int corner);
     static const char* fixName(int fix);
 };
 
-/* The server's layout and options: a grid of cells (5×3 like the legacy
- * GUI, phase A of docs/ui-redesign.md §4.4), the per-screen options, the
- * switching/behaviour options and the hotkeys. Writes itself to QSettings
- * (`internalConfig` group, legacy keys) and renders the `.conf` the core
- * reads.
+/* A link between two desktops that touch: `side` of `from` leads to `to`.
+ * The ranges are percentages of each edge, (0, 100) when the whole edge.
+ */
+struct ScreenLink
+{
+    int from = -1;
+    int to = -1;
+    int side = 0;          // LayoutModel::Direction
+    int fromStart = 0;
+    int fromEnd = 100;
+    int toStart = 0;
+    int toEnd = 100;
+};
+
+/* The server's layout and options (docs/ui-redesign.md §4.4, phase B): the
+ * computers placed freely in a shared pixel space, each one the bounding
+ * box of its displays; two desktops whose edges touch are linked, with
+ * ranges when the touching part is not the whole edge. Plus the per-screen
+ * options, the switching/behaviour options and the hotkeys. Writes itself
+ * to QSettings (`internalConfig` group) and renders the `.conf` the core
+ * reads. A store from the grid era (phase A, the Widgets GUI) migrates on
+ * load: every cell becomes one desktop of the default size.
  *
- * As a list model it exposes the cells to the Layout page: one row per cell,
- * empty cells included (name is empty).
+ * As a list model it exposes one row per computer to the Layout page.
  */
 class LayoutModel : public QAbstractListModel
 {
@@ -68,11 +113,10 @@ class LayoutModel : public QAbstractListModel
     QML_ELEMENT
     QML_UNCREATABLE("Reach it through App.layout")
 
-    Q_PROPERTY(int columns READ columns CONSTANT)
-    Q_PROPERTY(int rows READ rows CONSTANT)
     Q_PROPERTY(QString serverName READ serverName WRITE setServerName NOTIFY layoutChanged)
     Q_PROPERTY(QStringList screenNames READ screenNames NOTIFY layoutChanged)
     Q_PROPERTY(int screenCount READ screenCount NOTIFY layoutChanged)
+    Q_PROPERTY(QRect bounds READ bounds NOTIFY layoutChanged)
     Q_PROPERTY(QVariantList hotkeys READ hotkeyList NOTIFY hotkeysChanged)
 
     // options (section: options)
@@ -97,10 +141,13 @@ class LayoutModel : public QAbstractListModel
 public:
     enum Roles {
         NameRole = Qt::UserRole + 1,
-        ColumnRole,
-        RowRole,
-        OccupiedRole,
+        XRole,
+        YRole,
+        WidthRole,
+        HeightRole,
+        DisplaysRole,
         IsServerRole,
+        LinkedRole,
         StateRole,
         PositionRole
     };
@@ -109,6 +156,10 @@ public:
     enum Direction { Left, Right, Up, Down };
     Q_ENUM(Direction)
 
+    // The desktop a computer gets until its displays are typed in.
+    static constexpr int kDefaultWidth = 1920;
+    static constexpr int kDefaultHeight = 1080;
+
     explicit LayoutModel(QSettings* store, QObject* parent = nullptr);
 
     // QAbstractListModel
@@ -116,35 +167,38 @@ public:
     QVariant data(const QModelIndex& index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
 
-    int columns() const { return m_columns; }
-    int rows() const { return m_rows; }
     QString serverName() const { return m_serverName; }
     void setServerName(const QString& name);
 
     QStringList screenNames() const;
-    int screenCount() const;
-    const QVector<ScreenConfig>& cells() const { return m_cells; }
+    int screenCount() const { return m_screens.size(); }
+    const QVector<ScreenConfig>& screens() const { return m_screens; }
+    QRect bounds() const;   // the union of the desktops; empty when none
 
-    // ---- cells -----------------------------------------------------------
-    Q_INVOKABLE int cellOf(const QString& name) const;
-    Q_INVOKABLE bool hasScreen(const QString& name) const { return cellOf(name) >= 0; }
-    Q_INVOKABLE bool addScreen(const QString& name, int cell);
+    // ---- computers ---------------------------------------------------------
+    Q_INVOKABLE int indexOf(const QString& name) const;
+    Q_INVOKABLE bool hasScreen(const QString& name) const { return indexOf(name) >= 0; }
+    Q_INVOKABLE bool addScreen(const QString& name, int x, int y);
     Q_INVOKABLE bool addScreenAnywhere(const QString& name);
     Q_INVOKABLE bool placeNextTo(const QString& name, const QString& anchor, int direction);
-    Q_INVOKABLE bool moveScreen(int fromCell, int toCell);
-    Q_INVOKABLE void removeScreen(int cell);
-    Q_INVOKABLE bool renameScreen(int cell, const QString& name);
-    Q_INVOKABLE QVariantMap screenSettings(int cell) const;
-    Q_INVOKABLE bool setScreenSettings(int cell, const QVariantMap& settings);
-    Q_INVOKABLE QString positionText(int cell) const;   // "left of desk-win", "centre"
-    Q_INVOKABLE QString neighbour(int cell, int direction) const;
+    Q_INVOKABLE bool moveTo(int index, int x, int y);          // false when it would overlap
+    Q_INVOKABLE QVariantMap snapPosition(int index, int x, int y, int threshold) const;
+    Q_INVOKABLE void removeScreen(int index);
+    Q_INVOKABLE bool renameScreen(int index, const QString& name);
+    Q_INVOKABLE QVariantMap screenSettings(int index) const;
+    Q_INVOKABLE bool setScreenSettings(int index, const QVariantMap& settings);
+    Q_INVOKABLE bool addDisplay(int index);                     // to the right of the last one
+    Q_INVOKABLE bool removeDisplay(int index, int display);
+    Q_INVOKABLE QString positionText(int index) const;         // "left of desk-win", "centre", "not linked"
+    Q_INVOKABLE QVariantList linksOf(int index) const;         // [{name, side, fromStart, fromEnd, toStart, toEnd}]
+    QVector<ScreenLink> links() const;
 
     // Live state shown on the tiles, set by the controller (never persisted).
     Q_INVOKABLE void setLiveState(const QString& name, const QString& state);
     Q_INVOKABLE void clearLiveStates();
     Q_INVOKABLE QString liveState(const QString& name) const { return m_liveStates.value(name); }
 
-    // Makes sure the server has a cell (centre) so links can be computed.
+    // Makes sure the server has a desktop so links can be computed.
     void ensureServerPlaced();
 
     // ---- options -----------------------------------------------------------
@@ -207,17 +261,17 @@ signals:
     void hotkeysChanged();
 
 private:
-    int adjacentCell(int cell, int dColumn, int dRow) const;
+    bool overlapsAnother(int index, const QRect& rect) const;
+    bool fitsAt(const QRect& rect, int except) const { return !overlapsAnother(except, rect); }
+    void changed(int first, int last);
     void loadScreen(ScreenConfig& screen);
+    void loadLegacyGrid(QSettings& s);
     void saveScreen(const ScreenConfig& screen);
     template <class T> void setOption(T& member, const T& value);
-    int centreCell() const { return (m_rows / 2) * m_columns + m_columns / 2; }
 
     QSettings* m_store;
-    int m_columns = 5;
-    int m_rows = 3;
     QString m_serverName;
-    QVector<ScreenConfig> m_cells;
+    QVector<ScreenConfig> m_screens;
     QHash<QString, QString> m_liveStates;
 
     bool m_hasHeartbeat = false;

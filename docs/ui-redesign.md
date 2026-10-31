@@ -216,13 +216,16 @@ mock shows `desk-win · 1` / `desk-win · 2` and a portrait `mac-studio · 2`).
   computer. The canvas draws cells as tiles, dragging snaps to cells, links
   are computed from neighbours exactly as `ServerConfig::operator<<` does
   today. Same `.conf` output.
-- **Phase B (later)**: per-display free placement. Each display is a rectangle
-  with a size and a position inside its computer (typed by hand until the
-  core can report it). The config compiler collapses each computer's displays
-  into its desktop bounding box and turns touching edges into links with
-  ranges, `left = name (a, b)`, which the config format already supports; the
-  core switches on whole-desktop edges, so arrangement needs no protocol
-  change. Grid cells migrate to one rectangle per computer trivially.
+- **Phase B (M5, done)**: per-display free placement. Each display is a
+  rectangle with a size and a position inside its computer (typed by hand
+  until the core can report it; `LayoutModel::DisplayConfig`). The config
+  compiler collapses each computer's displays into its desktop bounding box
+  and turns touching edges into links with ranges, `left(a,b) = name(c,d)`,
+  which the config format already supports; the core switches on
+  whole-desktop edges, so arrangement needs no protocol change. A grid-era
+  store migrates on load: every cell becomes a 1920×1080 desktop at the
+  cell's place (`internalConfig/layoutVersion` = 2 once saved). Dragging
+  snaps to nearby edges; a drop that would overlap is refused.
 - **Later core extension**: clients report their display geometry to the
   server (a new wire message, both ends on this build, like the dimming
   messages) so sizes and positions fill in by themselves, and the overlay
@@ -276,7 +279,7 @@ core plumbing on both ends.
 | M2 | New window behind CMake option `INPUTLEAP_NEW_GUI` (default OFF): Overview, Processes, Settings, log drawer, start/stop/restart, tray, update checker | a day's use as server (Windows) and client (macOS) with the new window |
 | M3 | Server, Computers (local data only: this computer's settings, the server-held options of every computer, live state) and Security pages; inline join/trust requests; first-run state; wizard and dialogs no longer reachable from the new window | every setting of the old dialogs has a home; settings round-trip old ⇄ new |
 | M4 | Layout page (phase A); `INPUTLEAP_NEW_GUI` defaults ON; old `src/gui/src/*` removed; AGENTS.md updated | `latest-build` ships the new UI; the fleet updates without reconfiguring |
-| M5 | Polish: keyboard navigation, accessibility names, platform details (dock hiding, TCC prompts, launch at login), layout phase B | — |
+| M5 | Polish: keyboard navigation, accessibility names, platform details (dock hiding, TCC prompts, launch at login), layout phase B | done 2026-10-31 |
 | M6 | Phase C, the sync channel read-only: the Server page on clients mirrors the connected server; remote tabs on Computers show each machine's own settings and process | a client shows desk-win's configuration live; the server shows each client's local settings |
 | M7 | Phase D, remote writes with per-machine apply feedback | — |
 
@@ -370,12 +373,13 @@ Local quirks handled in the build:
   script also returns its own exit status instead of `tput`'s.
 - QtSvg is linked only so the deploy tools ship the SVG image/icon plugins.
 
-Status, 2026-10-31: M0 to M4 are done on this Mac. The Qt Quick GUI is the
+Status, 2026-10-31: M0 to M5 are done on this Mac. The Qt Quick GUI is the
 only GUI (the Widgets sources and the translations are gone; the reused
 UI-free classes moved into `src/gui/app/`), all seven pages exist, the layout
-is editable by drag and drop, join and trust requests are inline, and the
-unit tests cover the parser, the settings store and the layout model. Not
-yet verified: a Windows build (the next push to `fork` makes one) and a
-full client/server session on the real fleet. Next: M5 polish, then the
-sync channel (M6, M7).
+places desktops freely with per-display sizes (phase B), join and trust
+requests are inline, the window is keyboard-navigable with accessible
+names, and the unit tests cover the parser, the settings store and the
+layout model. Not yet verified: a Windows build (the next push to `fork`
+makes one) and a full client/server session on the real fleet. Next: the
+sync channel (M6 read-only, M7 writes).
 

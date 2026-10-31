@@ -116,6 +116,7 @@ qt_add_qml_module(input-leap
         qml/components/HotkeyEditor.qml
         qml/components/InfoRow.qml
         qml/components/KeyCaptureField.qml
+        qml/components/LayoutCanvas.qml
         qml/components/LogDrawer.qml
         qml/components/NavRail.qml
         qml/components/NumberBox.qml

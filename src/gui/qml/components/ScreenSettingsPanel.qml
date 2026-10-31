@@ -4,17 +4,17 @@ import QtQuick.Layouts
 import InputLeap.Ui
 
 // The options the server holds for one computer in the layout: name,
-// aliases, modifier remaps, dead corners and the keyboard fixes.
+// displays, aliases, modifier remaps, dead corners and the keyboard fixes.
 ColumnLayout {
     id: panel
 
-    property int cell: -1
+    property int screenIndex: -1
     property bool compact: false
 
     // bump to re-read after the model changed
     property int revision: 0
-    readonly property var s: (revision, App.layout.screenSettings(cell))
-    readonly property bool valid: cell >= 0 && s.name !== undefined && s.name.length > 0
+    readonly property var s: (revision, App.layout.screenSettings(screenIndex))
+    readonly property bool valid: screenIndex >= 0 && s.name !== undefined && s.name.length > 0
 
     Connections {
         target: App.layout
@@ -22,7 +22,16 @@ ColumnLayout {
     }
 
     function update(patch) {
-        App.layout.setScreenSettings(panel.cell, patch)
+        return App.layout.setScreenSettings(panel.screenIndex, patch)
+    }
+
+    // one field of one display; the model keeps the desktop's origin at (0, 0)
+    function setDisplay(index, patch) {
+        var list = panel.s.displays.slice()
+        var d = Object.assign({}, list[index], patch)
+        list[index] = d
+        if (!panel.update({ displays: list }))
+            panel.revision++   // refused (it would run into a neighbour): show the old values again
     }
 
     spacing: 10
@@ -40,9 +49,124 @@ ColumnLayout {
                 text: panel.valid ? panel.s.name : ""
                 font.family: App.monoFontFamily
                 validator: RegularExpressionValidator { regularExpression: /[A-Za-z0-9._-]{0,255}/ }
-                onEditingFinished: if (panel.valid && text !== panel.s.name) App.layout.renameScreen(panel.cell, text)
+                onEditingFinished: if (panel.valid && text !== panel.s.name) App.layout.renameScreen(panel.screenIndex, text)
             }
             StatusPill { visible: panel.valid && panel.s.isServer; text: qsTr("this computer"); tone: "info"; showDot: false }
+        }
+    }
+
+    // ---- displays: size and place of each, in the computer's own pixels ----
+    ColumnLayout {
+        Layout.fillWidth: true
+        spacing: 6
+        RowLayout {
+            Layout.fillWidth: true
+            Label { text: qsTr("Displays"); font.pixelSize: Theme.smallFontSize; font.weight: Font.DemiBold; color: Theme.muted }
+            Item { Layout.fillWidth: true }
+            Label {
+                text: panel.valid ? qsTr("desktop %1 × %2").arg(panel.s.width).arg(panel.s.height) : ""
+                font.family: App.monoFontFamily
+                font.pixelSize: Theme.smallFontSize
+                color: Theme.muted
+            }
+        }
+        Repeater {
+            model: panel.valid ? panel.s.displays : []
+            delegate: ColumnLayout {
+                id: displayRow
+                required property int index
+                required property var modelData
+                spacing: 2
+                RowLayout {
+                    spacing: 6
+                    Label { text: displayRow.index + 1; color: Theme.text; font.weight: Font.DemiBold; Layout.preferredWidth: 14 }
+                    TextField {
+                        Layout.preferredWidth: 70
+                        text: displayRow.modelData.width
+                        validator: IntValidator { bottom: 1; top: 100000 }
+                        horizontalAlignment: TextInput.AlignRight
+                        font.family: App.monoFontFamily
+                        Accessible.name: qsTr("Display %1 width").arg(displayRow.index + 1)
+                        onEditingFinished: {
+                            const n = parseInt(text)
+                            if (!isNaN(n) && n !== displayRow.modelData.width)
+                                panel.setDisplay(displayRow.index, { width: n })
+                            else
+                                text = displayRow.modelData.width
+                        }
+                    }
+                    Label { text: "×"; color: Theme.muted }
+                    TextField {
+                        Layout.preferredWidth: 70
+                        text: displayRow.modelData.height
+                        validator: IntValidator { bottom: 1; top: 100000 }
+                        horizontalAlignment: TextInput.AlignRight
+                        font.family: App.monoFontFamily
+                        Accessible.name: qsTr("Display %1 height").arg(displayRow.index + 1)
+                        onEditingFinished: {
+                            const n = parseInt(text)
+                            if (!isNaN(n) && n !== displayRow.modelData.height)
+                                panel.setDisplay(displayRow.index, { height: n })
+                            else
+                                text = displayRow.modelData.height
+                        }
+                    }
+                    ToolButton {
+                        text: "×"
+                        visible: panel.valid && panel.s.displays.length > 1
+                        Accessible.name: qsTr("Remove display %1").arg(displayRow.index + 1)
+                        onClicked: App.layout.removeDisplay(panel.screenIndex, displayRow.index)
+                    }
+                }
+                RowLayout {
+                    spacing: 6
+                    Label { text: qsTr("at"); color: Theme.muted; Layout.leftMargin: 20 }
+                    TextField {
+                        Layout.preferredWidth: 70
+                        text: displayRow.modelData.x
+                        validator: IntValidator { bottom: -100000; top: 100000 }
+                        horizontalAlignment: TextInput.AlignRight
+                        font.family: App.monoFontFamily
+                        Accessible.name: qsTr("Display %1 horizontal offset").arg(displayRow.index + 1)
+                        onEditingFinished: {
+                            const n = parseInt(text)
+                            if (!isNaN(n) && n !== displayRow.modelData.x)
+                                panel.setDisplay(displayRow.index, { x: n })
+                            else
+                                text = displayRow.modelData.x
+                        }
+                    }
+                    Label { text: ","; color: Theme.muted }
+                    TextField {
+                        Layout.preferredWidth: 70
+                        text: displayRow.modelData.y
+                        validator: IntValidator { bottom: -100000; top: 100000 }
+                        horizontalAlignment: TextInput.AlignRight
+                        font.family: App.monoFontFamily
+                        Accessible.name: qsTr("Display %1 vertical offset").arg(displayRow.index + 1)
+                        onEditingFinished: {
+                            const n = parseInt(text)
+                            if (!isNaN(n) && n !== displayRow.modelData.y)
+                                panel.setDisplay(displayRow.index, { y: n })
+                            else
+                                text = displayRow.modelData.y
+                        }
+                    }
+                }
+            }
+        }
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 8
+            Button { text: qsTr("Add display"); flat: true; onClicked: App.layout.addDisplay(panel.screenIndex) }
+            Label {
+                Layout.fillWidth: true
+                Layout.preferredWidth: 1
+                text: qsTr("Pixels, as that computer reports them; offsets place a display beside the first.")
+                color: Theme.muted
+                font.pixelSize: Theme.smallFontSize
+                wrapMode: Text.WordWrap
+            }
         }
     }
 

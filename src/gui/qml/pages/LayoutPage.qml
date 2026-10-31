@@ -3,35 +3,13 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import InputLeap.Ui
 
-// The server's layout: a grid of cells, one tile per computer, dragged
-// into place. Phase A of docs/ui-redesign.md §4.4 (per-display placement
-// comes later).
+// The server's layout: the computers' desktops to scale, dragged into
+// place; touching edges become links (docs/ui-redesign.md §4.4, phase B).
 Item {
     id: page
 
-    property int selectedCell: App.layout.cellOf(App.screenName)
+    property int selectedIndex: App.layout.indexOf(App.screenName)
     readonly property int panelWidth: 300
-    // as wide as the box allows, as tall as the names need: narrow tiles
-    // get a taller shape so a wrapped name still fits
-    readonly property int cellWidth: Math.max(80, Math.min(150, Math.floor((gridBox.width - 32 - (App.layout.columns - 1) * 8) / App.layout.columns)))
-    readonly property int cellHeight: Math.round(cellWidth * (cellWidth < 120 ? 0.8 : 0.64))
-
-    // Arrow keys move the focused tile one cell; false when the cell is taken.
-    function moveBy(index, dc, dr) {
-        const cols = App.layout.columns
-        const col = index % cols + dc
-        const row = Math.floor(index / cols) + dr
-        if (col < 0 || col >= cols || row < 0 || row >= App.layout.rows)
-            return false
-        const target = row * cols + col
-        if (!App.layout.moveScreen(index, target))
-            return false
-        selectedCell = target
-        const item = cells.itemAt(target)
-        if (item)
-            item.focusTile()
-        return true
-    }
 
     EmptyState {
         anchors.fill: parent
@@ -61,7 +39,7 @@ Item {
                     Label { text: qsTr("Screen layout"); font.pixelSize: Theme.titleFontSize; font.weight: Font.DemiBold; color: Theme.text }
                     Label {
                         Layout.fillWidth: true
-                        text: qsTr("Drag the computers to where they sit on your desk. Edges that touch become links. Changes apply when the server restarts.")
+                        text: qsTr("Drag the computers to where they sit on your desk; edges that touch become links. Each computer is drawn to the size of its displays. Changes apply when the server restarts.")
                         color: Theme.muted
                         wrapMode: Text.WordWrap
                     }
@@ -91,156 +69,61 @@ Item {
                     enabled: addField.text.length > 0
                     onClicked: {
                         if (App.layout.addScreenAnywhere(addField.text)) {
-                            page.selectedCell = App.layout.cellOf(addField.text)
+                            page.selectedIndex = App.layout.indexOf(addField.text)
                             addField.text = ""
                             addRow.visible = false
                         }
                     }
                 }
                 Button { text: qsTr("Cancel"); flat: true; onClicked: { addRow.visible = false; addField.text = "" } }
-                Label { text: qsTr("It lands on a free cell; drag it where it belongs."); color: Theme.muted }
+                Label { text: qsTr("It lands at the right end; drag it where it belongs."); color: Theme.muted }
             }
 
-            // ---- the grid -------------------------------------------------------
+            // ---- the desktops ----------------------------------------------------
             Rectangle {
-                id: gridBox
+                id: canvasBox
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                Layout.minimumHeight: grid.implicitHeight + 32
+                Layout.minimumHeight: 220
                 radius: Theme.radius
                 color: Theme.surface
-                border.color: Theme.border
+                border.color: rejectFlash.running ? Theme.danger : Theme.border
                 border.width: 1
+                clip: true
 
-                Grid {
-                    id: grid
+                LayoutCanvas {
+                    id: canvas
+                    anchors.fill: parent
+                    anchors.margins: 8
+                    anchors.bottomMargin: 28
+                    interactive: true
+                    selectedIndex: page.selectedIndex
+                    onSelected: (index) => page.selectedIndex = index
+                    onRejected: rejectFlash.restart()
+                }
+
+                Timer { id: rejectFlash; interval: 350 }
+
+                Label {
                     anchors.centerIn: parent
-                    columns: App.layout.columns
-                    spacing: 8
+                    visible: App.layout.screenCount === 0
+                    text: qsTr("No computers yet. Start the server and place the ones that ask to join, or add one.")
+                    color: Theme.muted
+                    width: parent.width - 48
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.WordWrap
+                }
 
-                    Repeater {
-                        id: cells
-                        model: App.layout
-
-                        delegate: Item {
-                            id: cellItem
-                            required property int index
-                            required property string name
-                            required property bool occupied
-                            required property bool isServer
-                            required property string state
-                            required property string position
-
-                            width: page.cellWidth
-                            height: page.cellHeight
-                            z: mouse.drag.active ? 10 : 0
-
-                            function focusTile() { tile.forceActiveFocus(Qt.TabFocusReason) }
-
-                            DropArea {
-                                id: drop
-                                anchors.fill: parent
-                                keys: ["screen"]
-                                onDropped: (event) => {
-                                    const from = event.source.cellIndex
-                                    if (from !== cellItem.index && App.layout.moveScreen(from, cellItem.index)) {
-                                        page.selectedCell = cellItem.index
-                                    }
-                                    event.accept(Qt.MoveAction)
-                                }
-                            }
-
-                            Rectangle {
-                                anchors.fill: parent
-                                radius: Theme.radiusSmall
-                                color: drop.containsDrag ? Theme.accentSoft : "transparent"
-                                border.color: drop.containsDrag ? Theme.accent : Theme.borderSoft
-                                border.width: 1
-                            }
-
-                            Rectangle {
-                                id: tile
-                                visible: cellItem.occupied
-                                property int cellIndex: cellItem.index
-                                x: 4
-                                y: 4
-                                width: cellItem.width - 8
-                                height: cellItem.height - 8
-                                radius: Theme.radiusSmall
-                                color: cellItem.isServer ? Theme.accentSoft : Theme.surface
-                                border.color: page.selectedCell === cellItem.index || tile.activeFocus ? Theme.accent : cellItem.isServer ? Theme.accent : Theme.border
-                                border.width: page.selectedCell === cellItem.index || tile.activeFocus ? 2 : 1
-                                opacity: mouse.drag.active ? 0.85 : 1
-
-                                // Keyboard: Tab reaches each tile, arrows move it, Delete removes it.
-                                activeFocusOnTab: cellItem.occupied
-                                Accessible.role: Accessible.Button
-                                Accessible.name: cellItem.isServer ? qsTr("%1, this computer").arg(cellItem.name)
-                                               : cellItem.position.length > 0 ? cellItem.name + ", " + cellItem.position : cellItem.name
-                                Accessible.focusable: true
-                                onActiveFocusChanged: if (activeFocus) page.selectedCell = cellItem.index
-                                Keys.onLeftPressed: page.moveBy(cellItem.index, -1, 0)
-                                Keys.onRightPressed: page.moveBy(cellItem.index, 1, 0)
-                                Keys.onUpPressed: page.moveBy(cellItem.index, 0, -1)
-                                Keys.onDownPressed: page.moveBy(cellItem.index, 0, 1)
-                                Keys.onDeletePressed: if (!cellItem.isServer) { App.layout.removeScreen(cellItem.index); page.selectedCell = -1 }
-                                Keys.onPressed: (event) => {
-                                    if (event.key === Qt.Key_Backspace && !cellItem.isServer) {
-                                        App.layout.removeScreen(cellItem.index)
-                                        page.selectedCell = -1
-                                        event.accepted = true
-                                    }
-                                }
-
-                                Drag.active: mouse.drag.active
-                                Drag.keys: ["screen"]
-                                Drag.hotSpot.x: width / 2
-                                Drag.hotSpot.y: height / 2
-
-                                Column {
-                                    anchors.centerIn: parent
-                                    width: parent.width - 12
-                                    spacing: 2
-                                    Label {
-                                        width: parent.width
-                                        text: cellItem.name
-                                        font.weight: Font.DemiBold
-                                        font.pixelSize: page.cellWidth < 120 ? Theme.smallFontSize : 14
-                                        color: cellItem.isServer ? Theme.accent : Theme.text
-                                        wrapMode: Text.Wrap
-                                        maximumLineCount: 2
-                                        elide: Text.ElideRight
-                                        horizontalAlignment: Text.AlignHCenter
-                                    }
-                                    Label {
-                                        width: parent.width
-                                        text: cellItem.isServer ? qsTr("this computer · server")
-                                            : cellItem.state === "connected" ? qsTr("connected")
-                                            : cellItem.state === "offline" ? qsTr("offline")
-                                            : cellItem.position
-                                        font.pixelSize: 11
-                                        visible: page.cellWidth >= 100 || cellItem.state === "connected"
-                                        color: cellItem.state === "connected" ? Theme.success : Theme.muted
-                                        elide: Text.ElideRight
-                                        horizontalAlignment: Text.AlignHCenter
-                                    }
-                                }
-
-                                MouseArea {
-                                    id: mouse
-                                    anchors.fill: parent
-                                    drag.target: tile
-                                    drag.threshold: 6
-                                    onPressed: { page.selectedCell = cellItem.index; tile.forceActiveFocus(Qt.MouseFocusReason) }
-                                    onReleased: {
-                                        tile.Drag.drop()
-                                        tile.x = 4
-                                        tile.y = 4
-                                    }
-                                }
-                            }
-                        }
-                    }
+                Label {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    anchors.margins: 10
+                    visible: App.layout.screenCount > 0
+                    text: qsTr("1 px here = %1 px on the desks · Tab reaches a computer, arrows nudge it, Delete removes it").arg(Math.round(1 / canvas.pxScale))
+                    font.pixelSize: 11
+                    color: Theme.muted
+                    elide: Text.ElideRight
                 }
             }
 
@@ -285,7 +168,7 @@ Item {
                     spacing: 12
 
                     Label {
-                        visible: page.selectedCell < 0
+                        visible: page.selectedIndex < 0
                         Layout.fillWidth: true
                         text: qsTr("Select a computer to see its settings.")
                         color: Theme.muted
@@ -295,8 +178,8 @@ Item {
                     ScreenSettingsPanel {
                         id: panel
                         Layout.fillWidth: true
-                        visible: page.selectedCell >= 0 && valid
-                        cell: page.selectedCell
+                        visible: page.selectedIndex >= 0 && valid
+                        screenIndex: page.selectedIndex
                         compact: true
                     }
 
@@ -304,7 +187,7 @@ Item {
                         visible: panel.visible
                         text: qsTr("Remove from layout")
                         enabled: panel.valid && !panel.s.isServer
-                        onClicked: { App.layout.removeScreen(page.selectedCell); page.selectedCell = -1 }
+                        onClicked: { App.layout.removeScreen(page.selectedIndex); page.selectedIndex = -1 }
                     }
                 }
             }
