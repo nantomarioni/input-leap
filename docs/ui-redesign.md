@@ -369,6 +369,12 @@ Development hooks in `src/gui/app/main.cpp`:
   that client shares its settings (the remote tab); `=<name>:server`
   pretends a server does (a client's mirrored Server and Layout pages).
   `INPUTLEAP_UI_TLS_CHECK=1` prints the TLS backend the channel would use.
+  `INPUTLEAP_UI_NO_CORE=1` runs a second window beside the installed one with
+  the real settings, discovery and the settings channel on but no core: the
+  way to look at a branch's pages with live fleet data without replacing the
+  installed, signed app (an unsigned local bundle would lose the Accessibility
+  grant). The window remembers the core it launched (`ui/corePid`) and, at
+  the next start, terminates one a killed window left behind.
   `INPUTLEAP_UI_DEMO_OVERLAY=1` fires one HUD overlay.
 - The app runs one window per user (`SingleInstance`, a local socket): a
   second launch tells the first to show itself and exits. The autostart

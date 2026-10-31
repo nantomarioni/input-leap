@@ -498,7 +498,19 @@ void AppController::startup()
     // core, no discovery, no update check; development runs must not touch
     // the fleet.
     const bool dryRun = qEnvironmentVariableIsSet("INPUTLEAP_UI_DRY_RUN") || qEnvironmentVariableIsSet("INPUTLEAP_UI_GRAB");
+    // INPUTLEAP_UI_NO_CORE=1: everything but the core (a second window next
+    // to the installed one, to look at the pages with live data)
+    const bool noCore = qEnvironmentVariableIsSet("INPUTLEAP_UI_NO_CORE");
     refreshAccessibility();
+    // a window that was killed leaves its core behind; a second client with
+    // the same name confuses the server
+    if (!dryRun && !noCore) {
+        const qint64 stale = m_settings->corePid();
+        if (stale > 0 && CoreProcess::terminateStaleCore(stale, QCoreApplication::applicationDirPath())) {
+            log(tr("stopped a core left behind by an earlier window (pid %1)").arg(stale), QStringLiteral("WARNING"));
+        }
+        m_settings->setCorePid(0);
+    }
     if (!Platform::installedInApplicationsFolder()) {
         QVariantMap fields;
         fields.insert(QStringLiteral("text"), tr("Input Leap runs from a disk image. Drag it to the Applications folder and open it from there, or macOS will keep asking for the Accessibility permission."));
@@ -520,7 +532,9 @@ void AppController::startup()
     if (m_settings->autoCheckUpdates()) {
         m_updates->maybeCheckOnStartup();
     }
-    if (m_settings->startedBefore() && m_settings->startCoreOnLaunch()) {
+    if (noCore) {
+        log(tr("development run: the core is not started"), QStringLiteral("WARNING"));
+    } else if (m_settings->startedBefore() && m_settings->startCoreOnLaunch()) {
         start();
     }
     emit stateChanged();
@@ -735,6 +749,9 @@ void AppController::applyLayout()
 
 void AppController::onCoreStateChanged()
 {
+    if (!m_core->serviceMode()) {
+        m_settings->setCorePid(m_core->state() == CoreProcess::Running ? m_core->pid() : 0);
+    }
     switch (m_core->state()) {
     case CoreProcess::Starting: setRunState(Starting); break;
     case CoreProcess::Running:

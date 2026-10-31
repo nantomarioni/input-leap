@@ -72,6 +72,11 @@ public:
     // Windows: reconnect the IPC socket to the service.
     Q_INVOKABLE void reconnectService();
 
+    // A core left running by a window that was killed (desktop mode only):
+    // terminates it when pid is alive and runs a binary from binDir. Returns
+    // true when something was terminated.
+    static bool terminateStaleCore(qint64 pid, const QString& binDir);
+
 signals:
     void lineReceived(const QString& line);                     // one raw core line
     void serviceMessage(const QString& text, bool isError);     // IPC chatter

@@ -17,7 +17,16 @@
 #include "CoreProcess.h"
 #include "IpcClient.h"
 
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QProcess>
+#if defined(Q_OS_MACOS)
+#include <libproc.h>
+#endif
+#if defined(Q_OS_UNIX)
+#include <signal.h>
+#endif
 
 #if defined(Q_OS_UNIX)
 #include <csignal>
@@ -164,6 +173,34 @@ void CoreProcess::stop()
         m_process->kill();
         m_process->waitForFinished(2000);
     }
+}
+
+bool CoreProcess::terminateStaleCore(qint64 pid, const QString& binDir)
+{
+#if defined(Q_OS_UNIX)
+    if (pid <= 1 || ::kill(static_cast<pid_t>(pid), 0) != 0) {
+        return false;   // gone already
+    }
+    QString executable;
+#if defined(Q_OS_MACOS)
+    char path[PROC_PIDPATHINFO_MAXSIZE];
+    if (proc_pidpath(static_cast<int>(pid), path, sizeof(path)) > 0) {
+        executable = QString::fromUtf8(path);
+    }
+#else
+    executable = QFile::symLinkTarget(QStringLiteral("/proc/%1/exe").arg(pid));
+#endif
+    const QString name = QFileInfo(executable).fileName();
+    if (!executable.startsWith(QDir(binDir).absolutePath()) ||
+        (name != QLatin1String("input-leapc") && name != QLatin1String("input-leaps"))) {
+        return false;   // the pid was reused by something else
+    }
+    return ::kill(static_cast<pid_t>(pid), SIGTERM) == 0;
+#else
+    Q_UNUSED(pid);
+    Q_UNUSED(binDir);
+    return false;       // the service owns the core on Windows
+#endif
 }
 
 void CoreProcess::reconnectService()

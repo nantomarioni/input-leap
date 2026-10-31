@@ -96,6 +96,9 @@ QString singleInstanceKey()
     if (!devStore.isEmpty()) {
         key += QLatin1Char('-') + QString::fromLatin1(QCryptographicHash::hash(devStore.toUtf8(), QCryptographicHash::Md5).toHex().left(8));
     }
+    if (qEnvironmentVariableIsSet("INPUTLEAP_UI_NO_CORE")) {
+        key += QStringLiteral("-nocore");   // runs beside the installed window on purpose
+    }
     return key;
 }
 

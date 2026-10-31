@@ -134,6 +134,8 @@ QString AppSettings::updateChannel() const { return value("ui/updateChannel", QS
 bool AppSettings::autoCheckUpdates() const { return value("ui/autoCheckUpdates", true).toBool(); }
 bool AppSettings::logDrawerOpen() const { return value("ui/logDrawerOpen", false).toBool(); }
 bool AppSettings::syncEnabled() const { return value("ui/syncEnabled", true).toBool(); }
+qint64 AppSettings::corePid() const { return value("ui/corePid", 0).toLongLong(); }
+void AppSettings::setCorePid(qint64 pid) { m_store->setValue(QStringLiteral("ui/corePid"), pid); }   // no changed(): bookkeeping
 
 QString AppSettings::peerName(const QString& sha256) const
 {
