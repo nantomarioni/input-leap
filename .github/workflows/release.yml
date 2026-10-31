@@ -8,6 +8,11 @@ on:
       - main
     tags:
       - 'v*'
+    # documentation alone is not worth a runner cycle
+    paths-ignore:
+      - 'docs/**'
+      - 'doc/newsfragments/**'
+      - '**.md'
 
 # Set the build type here
 env:
