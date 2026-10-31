@@ -378,10 +378,13 @@ Development hooks in `src/gui/app/main.cpp`:
   is retried for five minutes when it is not there at launch.
 - Windows: windeployqt puts Qt's QML modules under `qml/` next to the
   executable; the installer ships a `qt.conf` naming that folder and the app
-  adds it as an import path (without either, the window fails with
-  `module "QtQuick.Controls" plugin "qtquickcontrols2plugin" not found`).
-  A failed window shows a dialog with the errors; `gui.log` in
-  `%LOCALAPPDATA%\InputLeap\InputLeap` has them too.
+  adds it as an import path, and the install step copies that tree whole:
+  an earlier `*.*` filter dropped every extension-less `qmldir`, so the
+  engine fell back to the resource copies of Qt's modules and looked for
+  their plugins next to the executable (`module "QtQuick.Controls" plugin
+  "qtquickcontrols2plugin" not found`). A failed window shows a dialog with
+  the errors; `gui.log` in `%LOCALAPPDATA%\InputLeap\InputLeap` has them
+  too. Check a Windows artifact with `find . -name qmldir` before trusting it.
 - `INPUTLEAP_UI_COLOR_SCHEME=dark|light` forces the scheme where the platform
   theme honours it (macOS yes, offscreen no).
 
