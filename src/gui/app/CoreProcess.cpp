@@ -101,7 +101,9 @@ void CoreProcess::start(const QString& program, const QStringList& arguments, in
         // The service wants one string; quote the program path (spaces in
         // "Program Files") the way the legacy GUI did.
         QStringList parts{QStringLiteral("\"%1\"").arg(program)};
-        parts << arguments;
+        for (const QString& arg : arguments) {
+            parts << (arg.contains(QLatin1Char(' ')) ? QStringLiteral("\"%1\"").arg(arg) : arg);
+        }
         m_ipc->sendCommand(parts.join(QLatin1Char(' ')), static_cast<ElevateMode>(elevateMode));
         setState(Running);
         return;

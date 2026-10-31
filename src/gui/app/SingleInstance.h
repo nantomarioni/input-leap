@@ -37,6 +37,8 @@ public:
 
     bool isPrimary() const { return m_server != nullptr; }
     QString error() const { return m_error; }
+    // Gives the socket up (before relaunching ourselves, say).
+    void close();
     // From a secondary: delivers the message to the primary; false when it
     // could not be reached.
     bool notifyPrimary(const QByteArray& message);

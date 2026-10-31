@@ -61,8 +61,15 @@ SingleInstance::SingleInstance(const QString& key, QObject* parent) :
 
 SingleInstance::~SingleInstance()
 {
+    close();
+}
+
+void SingleInstance::close()
+{
     if (m_server != nullptr) {
         m_server->close();
+        delete m_server;
+        m_server = nullptr;
     }
 }
 

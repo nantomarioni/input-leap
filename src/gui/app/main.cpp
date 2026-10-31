@@ -33,7 +33,11 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QImage>
+#include <QMessageBox>
+#include <QProcess>
+#include <QProcessEnvironment>
 #include <QQmlApplicationEngine>
+#include <QQmlError>
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QSslSocket>
@@ -155,15 +159,52 @@ int main(int argc, char* argv[])
     });
 
     QQmlApplicationEngine engine;
-    QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app,
-                     []() { QCoreApplication::exit(1); }, Qt::QueuedConnection);
+    QStringList qmlProblems;
+    QObject::connect(&engine, &QQmlApplicationEngine::warnings, &app, [&qmlProblems](const QList<QQmlError>& warnings) {
+        for (const QQmlError& warning : warnings) {
+            qmlProblems << warning.toString();
+        }
+    });
     engine.loadFromModule("InputLeap.Ui", "Main");
 
     auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().value(0));
     if (window == nullptr) {
-        std::fprintf(stderr, "input-leap: the main window did not load\n");
+        // say so where the user can see it; gui.log has the same lines
+        qCritical("input-leap: the main window did not load");
+        for (const QString& problem : std::as_const(qmlProblems)) {
+            qCritical("%s", qPrintable(problem));
+        }
+        QMessageBox::critical(nullptr, QStringLiteral("Input Leap"),
+                              QObject::tr("The Input Leap window could not be created.\n\n%1\n\nDetails are in %2")
+                                  .arg(qmlProblems.join(QLatin1Char('\n')).left(1500), controller->guiLogPath()));
         return 1;
     }
+
+    // No usable graphics stack (a VM, a remote desktop session, a driver
+    // without Direct3D): try once more with Qt Quick's software renderer,
+    // then give up visibly instead of dying in silence.
+    QObject::connect(window, &QQuickWindow::sceneGraphError, &app,
+                     [&instance, controller](QQuickWindow::SceneGraphError, const QString& message) {
+        qCritical("input-leap: scene graph error: %s", qPrintable(message));
+        if (qEnvironmentVariable("QT_QUICK_BACKEND") != QLatin1String("software")) {
+            qWarning("input-leap: relaunching with the software renderer");
+            instance.close();
+            QProcess relaunch;
+            relaunch.setProgram(QCoreApplication::applicationFilePath());
+            relaunch.setArguments(QCoreApplication::arguments().mid(1));
+            QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+            env.insert(QStringLiteral("QT_QUICK_BACKEND"), QStringLiteral("software"));
+            relaunch.setProcessEnvironment(env);
+            if (relaunch.startDetached()) {
+                QCoreApplication::exit(0);
+                return;
+            }
+        }
+        QMessageBox::critical(nullptr, QStringLiteral("Input Leap"),
+                              QObject::tr("Input Leap cannot draw its window with this computer's graphics stack:\n%1\n\nDetails are in %2")
+                                  .arg(message, controller->guiLogPath()));
+        QCoreApplication::exit(1);
+    });
 
     TrayController tray(window);
     QObject::connect(&instance, &SingleInstance::messageReceived, &tray, [&tray](const QByteArray&) { tray.showWindow(); });
