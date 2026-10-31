@@ -278,6 +278,9 @@ MSWindowsWatchdog::startProcess()
         shutdownProcess(m_processInfo.hProcess, m_processInfo.dwProcessId, 20);
         m_processRunning = false;
     }
+    // and any core this daemon does not know about (left by an earlier
+    // daemon instance): one core per machine, always
+    shutdownExistingProcesses();
 
     m_session.updateActiveSession();
 
@@ -511,7 +514,12 @@ MSWindowsWatchdog::shutdownExistingProcesses()
         // make sure we're not checking the system process
         if (entry.th32ProcessID != 0) {
 
-            if (_stricmp(entry.szExeFile, "InputLeapc.exe") == 0 ||
+            // the binaries are input-leapc.exe / input-leaps.exe; the old
+            // spellings never matched, so a stray core survived every
+            // service restart and two servers fought over the mouse
+            if (_stricmp(entry.szExeFile, "input-leapc.exe") == 0 ||
+                _stricmp(entry.szExeFile, "input-leaps.exe") == 0 ||
+                _stricmp(entry.szExeFile, "InputLeapc.exe") == 0 ||
                 _stricmp(entry.szExeFile, "InputLeaps.exe") == 0) {
 
                 HANDLE handle = OpenProcess(PROCESS_ALL_ACCESS, FALSE, entry.th32ProcessID);
