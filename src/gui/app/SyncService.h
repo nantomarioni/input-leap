@@ -34,14 +34,17 @@ class QSslSocket;
 class QTcpServer;
 class QTimer;
 
-/* The GUI-to-GUI settings channel (docs/ui-redesign.md §4.7, phase C):
- * every app listens on a TLS socket with the certificate its core already
- * has and talks only to peers whose certificate fingerprint the trust check
- * accepts. Clients connect to the server's GUI (the port travels in the
- * zeroconf record); the server accepts. Messages are one JSON document per
- * line, each a `type`d snapshot ("hello", "settings", "state",
- * "server-config"); a peer keeps the latest of each kind. Read-only: nothing
- * here changes a setting on the other side (that is phase D).
+/* The GUI-to-GUI settings channel (docs/ui-redesign.md §4.7, phases C and
+ * D): every app listens on a TLS socket with the certificate its core
+ * already has and talks only to peers the trust check accepts. Clients
+ * connect to the server's GUI (the port travels in the zeroconf record);
+ * the server accepts. Messages are one JSON document per line:
+ *
+ * - snapshots, kept per peer, resent whenever they change: "hello",
+ *   "settings", "state", "server-config";
+ * - "access": what the sender lets this peer do (Read or Write);
+ * - requests, answered with an "ack" carrying the same id: "set" (one
+ *   setting of the other computer) and "action" (restart its core, …).
  */
 class SyncService : public QObject
 {
@@ -61,9 +64,18 @@ class SyncService : public QObject
     Q_PROPERTY(QVariantMap serverState READ serverState NOTIFY serverConfigChanged)
 
 public:
+    // What a peer may do here: nothing (dropped), read the snapshots, or
+    // also change this computer's own settings.
+    enum Access { None = 0, Read = 1, Write = 2 };
+    Q_ENUM(Access)
+
     // sha256: "AB:CD:…" of the peer's certificate; name: what the peer calls
     // itself in its hello; incoming: it connected to us.
-    using TrustCheck = std::function<bool(const QString& sha256, const QString& name, bool incoming)>;
+    using TrustCheck = std::function<int(const QString& sha256, const QString& name, bool incoming)>;
+    // Answers a request from a verified peer; returns the ack body
+    // ({"ok": bool, "text": "…", …}). access: that peer's level here.
+    using RequestHandler = std::function<QJsonObject(const QString& peer, const QString& kind, const QJsonObject& body, int access)>;
+    using AckHandler = std::function<void(const QJsonObject& ack)>;
 
     explicit SyncService(QObject* parent = nullptr);
     ~SyncService() override;
@@ -73,6 +85,7 @@ public:
     // The core's PEM file: certificate and private key.
     bool setIdentity(const QString& pemPath, QString* error = nullptr);
     void setTrustCheck(TrustCheck check);
+    void setRequestHandler(RequestHandler handler);
     void setLocalInfo(const QString& name, const QString& role, const QString& version);
 
     bool start();      // listens on a free port; false (and error()) when it cannot
@@ -85,6 +98,10 @@ public:
     // What this computer publishes; sent to every trusted peer, resent on change.
     void setDocument(const QString& kind, const QJsonObject& document);
     QJsonObject document(const QString& kind) const { return m_documents.value(kind); }
+
+    // A request to one peer ("set", "action"); the handler gets the ack, or
+    // a failed one when the peer is away or silent. Returns the request id.
+    QString request(const QString& peerName, const QString& kind, const QJsonObject& body, AckHandler handler);
 
     // Client role: reach the server's GUI; retried until forget() or stop().
     void connectTo(const QString& name, const QString& host, quint16 port);
@@ -100,6 +117,11 @@ public:
     QJsonObject serverDocument(const QString& kind) const;
     QJsonObject peerDocument(const QString& name, const QString& kind) const;
     Q_INVOKABLE QVariantMap peer(const QString& name) const;
+    Q_INVOKABLE int accessAt(const QString& name) const;   // what we may do on that peer
+
+    // Development only (INPUTLEAP_UI_DEMO_PEER): a peer that never answers.
+    void addDemoPeer(const QString& name, const QString& role, const QJsonObject& settings, const QJsonObject& state, int accessThere,
+                     const QJsonObject& serverConfig = QJsonObject());
 
 signals:
     void changed();
@@ -113,6 +135,9 @@ private:
         QSslSocket* socket = nullptr;
         bool incoming = true;
         bool verified = false;
+        int access = None;         // what it may do here
+        int accessThere = None;    // what we may do there (its "access" message)
+        int protocol = 1;
         QString targetName;        // outgoing: the name we were told
         QString name;              // from its hello
         QString role;
@@ -131,6 +156,12 @@ private:
         int retryMs = 0;
         QTimer* timer = nullptr;
     };
+    struct Pending
+    {
+        QString peerName;
+        AckHandler handler;
+        QTimer* timer = nullptr;
+    };
 
     void acceptIncoming(qintptr descriptor);
     void attempt(Target& target);
@@ -143,8 +174,10 @@ private:
     void sendDocument(Peer* peer, const QString& kind, const QJsonObject& document);
     void sendAll(Peer* peer);
     void broadcast();
+    void finishPending(const QString& id, const QJsonObject& ack);
     const Peer* serverPeer() const;
     const Peer* peerNamed(const QString& name) const;
+    Peer* mutablePeerNamed(const QString& name);
     QJsonObject hello() const;
     QVariantMap describe(const Peer* peer) const;
 
@@ -152,6 +185,7 @@ private:
     QSslConfiguration m_tls;
     bool m_identityReady = false;
     TrustCheck m_trust;
+    RequestHandler m_handler;
     QString m_name;
     QString m_role;
     QString m_version;
@@ -161,4 +195,5 @@ private:
     QTimer* m_broadcastTimer = nullptr;
     QList<Peer*> m_peers;
     QHash<QString, Target> m_targets;
+    QHash<QString, Pending> m_pending;
 };

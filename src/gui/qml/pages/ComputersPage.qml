@@ -9,7 +9,7 @@ ScrollView {
     contentWidth: availableWidth
     clip: true
 
-    property int selected: 0
+    property int selected: Math.max(0, App.computers.map(function(c) { return c.name }).indexOf(App.initialComputer))
     readonly property var computer: App.computers.length > selected ? App.computers[selected] : null
     readonly property int screenIndex: computer ? App.layout.indexOf(computer.name) : -1
 
@@ -20,6 +20,10 @@ ScrollView {
     Connections {
         target: App.sync
         function onChanged() { page.syncRevision++ }
+    }
+    Connections {
+        target: App
+        function onStateChanged() { page.syncRevision++ }
     }
 
     ColumnLayout {
@@ -145,6 +149,7 @@ ScrollView {
                         Item { Layout.fillWidth: true }
                         StatusPill {
                             text: page.computer && page.computer.isSelf ? qsTr("this computer")
+                                : page.peerConnected && (page.peer.accessThere || 0) >= 2 ? qsTr("shared · editable here")
                                 : page.peerConnected ? qsTr("shared · read-only") : qsTr("not shared yet")
                             tone: page.computer && page.computer.isSelf ? "info" : page.peerConnected ? "success" : "neutral"
                             showDot: false
@@ -200,36 +205,156 @@ ScrollView {
                         }
                     }
 
-                    // another computer, sharing: its settings and the state of its pieces
+                    // another computer, sharing: its own settings, editable when it
+                    // trusts this computer's certificate (phase D), and its pieces
                     ColumnLayout {
+                        id: remote
                         Layout.fillWidth: true
                         visible: page.computer && !page.computer.isSelf && page.peerConnected
-                        spacing: 4
+                        spacing: 0
                         readonly property var s: page.peer.settings || ({})
                         readonly property var st: page.peer.state || ({})
-                        InfoRow { label: qsTr("Status"); value: parent.st.statusText || ""; labelWidth: 130 }
-                        InfoRow { label: qsTr("Version"); value: (page.peer.version || "") + " · " + (parent.s.platform || ""); mono: true; labelWidth: 130 }
-                        InfoRow { label: qsTr("Addresses"); value: (parent.s.addresses || []).join(", "); mono: true; labelWidth: 130 }
-                        InfoRow { visible: parent.s.role === "client"; label: qsTr("Server to connect to"); value: parent.s.serverHostname || qsTr("found by discovery"); mono: true; labelWidth: 130 }
-                        InfoRow { visible: parent.s.role === "server"; label: qsTr("Listening on"); value: (parent.s.networkInterface || qsTr("all interfaces")) + " · " + qsTr("port %1").arg(parent.s.port); mono: true; labelWidth: 130 }
-                        InfoRow { label: qsTr("Discovery"); value: parent.s.discovery ? qsTr("on") : qsTr("off"); labelWidth: 130 }
-                        InfoRow { visible: parent.s.role === "client"; label: qsTr("Scroll step"); value: String(parent.s.scrollStep || ""); labelWidth: 130 }
-                        InfoRow { label: qsTr("Overlay hints"); value: parent.s.overlayHints ? qsTr("on") : qsTr("off"); labelWidth: 130 }
-                        InfoRow { label: qsTr("Log level"); value: parent.s.logLevelName || ""; labelWidth: 130 }
-                        InfoRow { label: qsTr("Launch at login"); value: parent.s.launchAtLogin ? qsTr("yes") : qsTr("no"); labelWidth: 130 }
-                        InfoRow { label: qsTr("TLS"); value: parent.s.cryptoEnabled ? (parent.s.fingerprint || qsTr("on")) : qsTr("off"); mono: true; labelWidth: 130 }
-                        Label { Layout.topMargin: 6; text: qsTr("Its pieces"); font.pixelSize: Theme.smallFontSize; font.weight: Font.DemiBold; color: Theme.muted }
+                        readonly property bool writable: (page.peer.accessThere || 0) >= 2
+                        readonly property string target: page.computer ? page.computer.name : ""
+                        readonly property bool running: remote.st.runState === 1 || remote.st.runState === 2
+
+                        // what the other side answered: where a change landed
+                        component RemoteNote: Label {
+                            property string key
+                            readonly property var r: (page.syncRevision, App.remoteResult(remote.target, key))
+                            Layout.fillWidth: true
+                            visible: r !== undefined && r.text !== undefined && r.text.length > 0
+                            text: r && r.text ? r.text : ""
+                            color: !r || r.pending ? Theme.muted : r.ok ? Theme.success : Theme.danger
+                            font.pixelSize: Theme.smallFontSize
+                            wrapMode: Text.WordWrap
+                        }
+
+                        InfoRow { label: qsTr("Status"); value: remote.st.statusText || ""; labelWidth: 130 }
+                        InfoRow { label: qsTr("Version"); value: (page.peer.version || "") + " · " + (remote.s.platform || ""); mono: true; labelWidth: 130 }
+                        InfoRow { label: qsTr("Addresses"); value: (remote.s.addresses || []).join(", "); mono: true; labelWidth: 130 }
+                        InfoRow {
+                            label: qsTr("TLS")
+                            labelWidth: 130
+                            mono: true
+                            value: !remote.s.cryptoEnabled ? qsTr("off")
+                                 : !remote.s.fingerprint ? qsTr("on")
+                                 : remote.s.fingerprint.length > 23 ? remote.s.fingerprint.substring(0, 23) + " …" : remote.s.fingerprint
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            Layout.topMargin: 8
+                            visible: !remote.writable
+                            text: qsTr("Read-only here: %1 does not trust this computer's certificate, so these can only be changed on it.").arg(remote.target)
+                            color: Theme.muted
+                            font.pixelSize: Theme.smallFontSize
+                            wrapMode: Text.WordWrap
+                        }
+
+                        SettingRow {
+                            label: qsTr("Screen name")
+                            Layout.topMargin: 6
+                            stacked: true
+                            TextField {
+                                id: remoteName
+                                Layout.preferredWidth: 180
+                                enabled: remote.writable
+                                font.family: App.monoFontFamily
+                                validator: RegularExpressionValidator { regularExpression: /[A-Za-z0-9._-]{0,255}/ }
+                                onEditingFinished: if (text.length > 0 && text !== remote.s.screenName) App.setRemote(remote.target, "screenName", text)
+                                // follows the peer while not being edited
+                                Binding { target: remoteName; property: "text"; value: remote.s.screenName || ""; when: !remoteName.activeFocus; restoreMode: Binding.RestoreNone }
+                            }
+                            RemoteNote { key: "screenName" }
+                        }
+                        SettingRow {
+                            visible: remote.s.role === "client"
+                            label: qsTr("Server to connect to")
+                            hint: qsTr("Empty uses what its discovery finds.")
+                            stacked: true
+                            TextField {
+                                id: remoteServer
+                                Layout.preferredWidth: 220
+                                enabled: remote.writable
+                                placeholderText: qsTr("found by discovery")
+                                font.family: App.monoFontFamily
+                                onEditingFinished: if (text !== (remote.s.serverHostname || "")) App.setRemote(remote.target, "serverHostname", text)
+                                Binding { target: remoteServer; property: "text"; value: remote.s.serverHostname || ""; when: !remoteServer.activeFocus; restoreMode: Binding.RestoreNone }
+                            }
+                            RemoteNote { key: "serverHostname" }
+                        }
+                        SettingRow {
+                            visible: remote.s.role === "server"
+                            label: qsTr("Listening on")
+                            Label { text: (remote.s.networkInterface || qsTr("all interfaces")) + " · " + qsTr("port %1").arg(remote.s.port || ""); font.family: App.monoFontFamily; color: Theme.muted }
+                        }
+                        SettingRow {
+                            label: qsTr("Find computers with Bonjour")
+                            stacked: true
+                            Switch { enabled: remote.writable; checked: remote.s.discovery === true; onToggled: App.setRemote(remote.target, "discovery", checked) }
+                            RemoteNote { key: "discovery" }
+                        }
+                        SettingRow {
+                            visible: remote.s.role === "client"
+                            label: qsTr("Scroll step")
+                            stacked: true
+                            NumberBox { enabled: remote.writable; from: 1; to: 10000; value: remote.s.scrollStep || 120; onValueModified: App.setRemote(remote.target, "scrollStep", value) }
+                            RemoteNote { key: "scrollStep" }
+                        }
+                        SettingRow {
+                            label: qsTr("Overlay hints")
+                            stacked: true
+                            Switch { enabled: remote.writable; checked: remote.s.overlayHints === true; onToggled: App.setRemote(remote.target, "overlayHints", checked) }
+                            RemoteNote { key: "overlayHints" }
+                        }
+                        SettingRow {
+                            label: qsTr("Log level")
+                            stacked: true
+                            ComboBox {
+                                Layout.preferredWidth: 140
+                                enabled: remote.writable
+                                model: [qsTr("Error"), qsTr("Warning"), qsTr("Note"), qsTr("Info"), qsTr("Debug"), qsTr("Debug 1"), qsTr("Debug 2")]
+                                currentIndex: remote.s.logLevel || 0
+                                onActivated: (index) => App.setRemote(remote.target, "logLevel", index)
+                            }
+                            RemoteNote { key: "logLevel" }
+                        }
+                        SettingRow {
+                            label: qsTr("Launch at login")
+                            stacked: true
+                            Switch { enabled: remote.writable; checked: remote.s.launchAtLogin === true; onToggled: App.setRemote(remote.target, "launchAtLogin", checked) }
+                            RemoteNote { key: "launchAtLogin" }
+                        }
+                        SettingRow {
+                            label: qsTr("Start its core at launch")
+                            stacked: true
+                            Switch { enabled: remote.writable; checked: remote.s.startCoreOnLaunch === true; onToggled: App.setRemote(remote.target, "startCoreOnLaunch", checked) }
+                            RemoteNote { key: "startCoreOnLaunch" }
+                        }
+
+                        Label { Layout.topMargin: 10; text: qsTr("Its pieces"); font.pixelSize: Theme.smallFontSize; font.weight: Font.DemiBold; color: Theme.muted }
                         Repeater {
                             model: page.peer.processes || []
                             delegate: RowLayout {
                                 required property var modelData
                                 Layout.fillWidth: true
+                                Layout.topMargin: 4
                                 spacing: 8
                                 Rectangle { width: 8; height: 8; radius: 4; color: !modelData.relevant ? Theme.borderSoft : modelData.ok ? Theme.success : Theme.offline }
                                 Label { text: modelData.name; color: Theme.text; Layout.preferredWidth: 150; elide: Text.ElideRight }
                                 Label { Layout.fillWidth: true; text: modelData.detail; color: Theme.muted; elide: Text.ElideRight }
                             }
                         }
+                        Flow {
+                            Layout.fillWidth: true
+                            Layout.topMargin: 10
+                            spacing: 8
+                            visible: remote.writable
+                            Button { text: qsTr("Restart its core"); enabled: remote.st.runState === 2; onClicked: App.remoteAction(remote.target, "restart") }
+                            Button { text: remote.running ? qsTr("Stop it") : qsTr("Start it"); onClicked: App.remoteAction(remote.target, remote.running ? "stop" : "start") }
+                            Button { text: qsTr("Restart its discovery"); flat: true; onClicked: App.remoteAction(remote.target, "restartDiscovery") }
+                        }
+                        RemoteNote { key: "action"; Layout.topMargin: 4 }
                     }
 
                     // another computer, not sharing yet

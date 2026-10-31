@@ -17,6 +17,8 @@
 #pragma once
 
 #include <QDateTime>
+#include <QHash>
+#include <QJsonObject>
 #include <QMap>
 #include <QObject>
 #include <QSet>
@@ -95,6 +97,7 @@ class AppController : public QObject
     Q_PROPERTY(QString platformName READ platformName CONSTANT)
     Q_PROPERTY(bool isWindows READ isWindows CONSTANT)
     Q_PROPERTY(bool isMac READ isMac CONSTANT)
+    Q_PROPERTY(QString initialComputer READ initialComputer CONSTANT)   // INPUTLEAP_UI_COMPUTER, for the grabs
 
 public:
     enum Role { Server, Client };
@@ -151,6 +154,7 @@ public:
     QString platformName() const;
     bool isWindows() const;
     bool isMac() const;
+    QString initialComputer() const { return qEnvironmentVariable("INPUTLEAP_UI_COMPUTER"); }
 
     // Called by main() once the window exists.
     void startup();
@@ -172,6 +176,11 @@ public slots:
     void checkForUpdates();
     void installUpdate();
     void restartSync();
+    // Phase D: change one of another computer's own settings, or ask it to
+    // act; the answer lands in remoteResult(computer, key).
+    void setRemote(const QString& computer, const QString& key, const QVariant& value);
+    void remoteAction(const QString& computer, const QString& action);
+    Q_INVOKABLE QVariantMap remoteResult(const QString& computer, const QString& key) const;
     void refreshAccessibility();
     void requestAccessibility();
     void openLogsFolder();
@@ -204,7 +213,8 @@ private:
     void startDiscovery();
     void startSync();
     void publishSync();
-    bool syncTrusted(const QString& sha256, const QString& name, bool incoming) const;
+    int syncTrusted(const QString& sha256, const QString& name, bool incoming) const;
+    QJsonObject handleSyncRequest(const QString& peer, const QString& kind, const QJsonObject& body, int access);
     int serverPort() const;
     bool buildLaunch(QString& program, QStringList& arguments, QString& error);
     void resetLiveState();
@@ -224,6 +234,7 @@ private:
     bool m_mirrorAvailable = false;
     bool m_dryRun = false;
     QString m_syncName;
+    QHash<QString, QHash<QString, QVariantMap>> m_remoteResults;
     LogModel* m_logModel = nullptr;
     LogFilterModel* m_log = nullptr;
     inputleap::fork_gui::UpdateChecker* m_updates = nullptr;

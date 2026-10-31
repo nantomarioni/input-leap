@@ -27,6 +27,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cstdio>
 #include <functional>
 
 namespace {
@@ -74,10 +75,21 @@ TEST(SyncService, exchangesDocumentsBetweenTrustedPeers)
 
     QString error;
     SyncService server;
+    std::fprintf(stderr, "[ tls      ] backend %s, %s\n", qPrintable(QSslSocket::activeBackend()), qPrintable(QSslSocket::sslLibraryVersionString()));
     ASSERT_TRUE(server.setIdentity(serverPem, &error)) << error.toStdString();
     server.setLocalInfo(QStringLiteral("desk-win"), QStringLiteral("server"), QStringLiteral("test"));
     server.setTrustCheck([&](const QString& sha, const QString& name, bool incoming) {
-        return incoming && sha == clientFp && name == QLatin1String("macbook");
+        return incoming && sha == clientFp && name == QLatin1String("macbook") ? SyncService::Read : SyncService::None;
+    });
+    QJsonObject lastRequest;
+    server.setRequestHandler([&](const QString& peer, const QString& kind, const QJsonObject& body, int access) {
+        lastRequest = body;
+        lastRequest.insert(QStringLiteral("peer"), peer);
+        lastRequest.insert(QStringLiteral("kind"), kind);
+        QJsonObject ack;
+        ack.insert(QStringLiteral("ok"), access >= SyncService::Write);
+        ack.insert(QStringLiteral("text"), access >= SyncService::Write ? QStringLiteral("applied") : QStringLiteral("read-only here"));
+        return ack;
     });
     ASSERT_TRUE(server.start()) << server.error().toStdString();
     ASSERT_GT(server.port(), 0);
@@ -89,7 +101,14 @@ TEST(SyncService, exchangesDocumentsBetweenTrustedPeers)
     ASSERT_TRUE(client.setIdentity(clientPem, &error)) << error.toStdString();
     client.setLocalInfo(QStringLiteral("macbook"), QStringLiteral("client"), QStringLiteral("test"));
     client.setTrustCheck([&](const QString& sha, const QString&, bool incoming) {
-        return !incoming && sha == serverFp;
+        return !incoming && sha == serverFp ? SyncService::Write : SyncService::None;
+    });
+    client.setRequestHandler([&](const QString&, const QString& kind, const QJsonObject& body, int access) {
+        QJsonObject ack;
+        ack.insert(QStringLiteral("ok"), access >= SyncService::Write && kind == QLatin1String("set"));
+        ack.insert(QStringLiteral("text"), QStringLiteral("on macbook, after its client restarts"));
+        ack.insert(QStringLiteral("echo"), body.value(QStringLiteral("value")));
+        return ack;
     });
     ASSERT_TRUE(client.start()) << client.error().toStdString();
     QJsonObject settings;
@@ -110,6 +129,34 @@ TEST(SyncService, exchangesDocumentsBetweenTrustedPeers)
     client.setDocument(QStringLiteral("settings"), settings);
     ASSERT_TRUE(waitFor([&]() { return server.peerDocument(QStringLiteral("macbook"), QStringLiteral("settings")).value(QStringLiteral("scrollStep")).toInt() == 240; }));
 
+    // each side learns what it may do on the other
+    ASSERT_TRUE(waitFor([&]() { return server.accessAt(QStringLiteral("macbook")) == SyncService::Write && client.accessAt(QStringLiteral("desk-win")) == SyncService::Read; }));
+
+    // the server may change the client's settings: the ack says where it lands
+    QJsonObject body;
+    body.insert(QStringLiteral("key"), QStringLiteral("logLevel"));
+    body.insert(QStringLiteral("value"), 4);
+    QJsonObject gotAck;
+    server.request(QStringLiteral("macbook"), QStringLiteral("set"), body, [&](const QJsonObject& ack) { gotAck = ack; });
+    ASSERT_TRUE(waitFor([&]() { return !gotAck.isEmpty(); }));
+    EXPECT_TRUE(gotAck.value(QStringLiteral("ok")).toBool());
+    EXPECT_EQ(gotAck.value(QStringLiteral("text")).toString(), QStringLiteral("on macbook, after its client restarts"));
+    EXPECT_EQ(gotAck.value(QStringLiteral("echo")).toInt(), 4);
+
+    // the client is read-only on the server: refused, not applied
+    gotAck = QJsonObject();
+    client.request(QStringLiteral("desk-win"), QStringLiteral("set"), body, [&](const QJsonObject& ack) { gotAck = ack; });
+    ASSERT_TRUE(waitFor([&]() { return !gotAck.isEmpty(); }));
+    EXPECT_FALSE(gotAck.value(QStringLiteral("ok")).toBool());
+    EXPECT_EQ(lastRequest.value(QStringLiteral("peer")).toString(), QStringLiteral("macbook"));
+    EXPECT_EQ(lastRequest.value(QStringLiteral("key")).toString(), QStringLiteral("logLevel"));
+
+    // a request to nobody fails at once
+    gotAck = QJsonObject();
+    server.request(QStringLiteral("nobody"), QStringLiteral("action"), QJsonObject(), [&](const QJsonObject& ack) { gotAck = ack; });
+    EXPECT_FALSE(gotAck.isEmpty());
+    EXPECT_FALSE(gotAck.value(QStringLiteral("ok")).toBool());
+
     // the server going away empties the mirror
     server.stop();
     ASSERT_TRUE(waitFor([&]() { return !client.serverConnected(); }));
@@ -129,7 +176,7 @@ TEST(SyncService, dropsPeersItDoesNotTrust)
     SyncService server;
     ASSERT_TRUE(server.setIdentity(serverPem));
     server.setLocalInfo(QStringLiteral("desk-win"), QStringLiteral("server"), QStringLiteral("test"));
-    server.setTrustCheck([](const QString&, const QString&, bool) { return false; });
+    server.setTrustCheck([](const QString&, const QString&, bool) { return SyncService::None; });
     ASSERT_TRUE(server.start());
     QJsonObject secret;
     secret.insert(QStringLiteral("conf"), QStringLiteral("private"));
@@ -138,7 +185,7 @@ TEST(SyncService, dropsPeersItDoesNotTrust)
     SyncService rogue;
     ASSERT_TRUE(rogue.setIdentity(roguePem));
     rogue.setLocalInfo(QStringLiteral("intruder"), QStringLiteral("client"), QStringLiteral("test"));
-    rogue.setTrustCheck([&](const QString& sha, const QString&, bool) { return sha == serverFp; });
+    rogue.setTrustCheck([&](const QString& sha, const QString&, bool) { return sha == serverFp ? SyncService::Write : SyncService::None; });
     ASSERT_TRUE(rogue.start());
     rogue.connectTo(QStringLiteral("desk-win"), QStringLiteral("127.0.0.1"), quint16(server.port()));
 

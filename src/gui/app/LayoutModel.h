@@ -118,6 +118,7 @@ class LayoutModel : public QAbstractListModel
     Q_PROPERTY(QStringList screenNames READ screenNames NOTIFY layoutChanged)
     Q_PROPERTY(int screenCount READ screenCount NOTIFY layoutChanged)
     Q_PROPERTY(QRect bounds READ bounds NOTIFY layoutChanged)
+    Q_PROPERTY(bool isMirror READ isMirror CONSTANT)
     Q_PROPERTY(QVariantList hotkeys READ hotkeyList NOTIFY hotkeysChanged)
 
     // options (section: options)

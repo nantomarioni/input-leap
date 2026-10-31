@@ -43,6 +43,7 @@
 #include <QJsonObject>
 #include <QNetworkInterface>
 #include <QQmlEngine>
+#include <QRegularExpression>
 #include <QStandardPaths>
 #include <QTimer>
 #include <QUrl>
@@ -105,11 +106,17 @@ AppController::AppController(QObject* parent) :
 
     connect(m_settings, &AppSettings::changed, this, [this]() {
         m_layout->setServerName(m_settings->screenName());
-        // the channel follows its switch and this computer's name
-        if (!m_dryRun && (m_settings->syncEnabled() != m_sync->listening() ||
-                          (m_sync->listening() && m_syncName != screenName()))) {
-            startSync();
-            startDiscovery();
+        // the channel follows its switch; a new name is announced to the
+        // peers and re-registered, both deferred so a change a peer asked
+        // for is answered first
+        if (!m_dryRun) {
+            if (m_settings->syncEnabled() != m_sync->listening()) {
+                QTimer::singleShot(0, this, [this]() { startSync(); startDiscovery(); });
+            } else if (m_sync->listening() && m_syncName != screenName()) {
+                m_syncName = screenName();
+                m_sync->setLocalInfo(screenName(), role() == Server ? QStringLiteral("server") : QStringLiteral("client"), m_version);
+                QTimer::singleShot(0, this, [this]() { startDiscovery(); });
+            }
         }
         emit stateChanged();
     });
@@ -859,6 +866,9 @@ void AppController::startSync()
     m_sync->setTrustCheck([this](const QString& sha256, const QString& name, bool incoming) {
         return syncTrusted(sha256, name, incoming);
     });
+    m_sync->setRequestHandler([this](const QString& peer, const QString& kind, const QJsonObject& body, int access) {
+        return handleSyncRequest(peer, kind, body, access);
+    });
     if (!m_sync->start()) {
         log(tr("settings channel off: %1").arg(m_sync->error()), QStringLiteral("WARNING"));
         return;
@@ -885,29 +895,185 @@ void AppController::restartSync()
     startDiscovery();
 }
 
-// Who may read this computer's settings: the same posture as the core. A
-// server takes the clients whose certificate it trusts, or any computer of
-// its layout when it does not check client certificates; a client takes
-// the server whose certificate it trusts, or the one it found when TLS is
-// off altogether.
-bool AppController::syncTrusted(const QString& sha256, const QString& name, bool incoming) const
+// Who may see and change this computer's settings: the same posture as the
+// core. A peer whose certificate is in the trusted database may change
+// them. A server also lets any computer of its layout read them when it
+// does not check client certificates; a client lets the server it found
+// read them when TLS is off altogether. Nobody else gets in.
+int AppController::syncTrusted(const QString& sha256, const QString& name, bool incoming) const
 {
     if (role() == Server) {
         if (!incoming) {
-            return false;
+            return SyncService::None;
         }
         if (m_identity->isTrusted(true, sha256)) {
-            return true;
+            return SyncService::Write;
         }
-        return !m_settings->requireClientCertificate() && m_layout->hasScreen(name);
+        return !m_settings->requireClientCertificate() && m_layout->hasScreen(name) ? SyncService::Read : SyncService::None;
     }
     if (incoming) {
-        return false;
+        return SyncService::None;
     }
     if (m_identity->isTrusted(false, sha256)) {
-        return true;
+        return SyncService::Write;
     }
-    return !m_settings->cryptoEnabled() && (m_discovery->servers().contains(name) || serverAddress() == name);
+    const bool found = m_discovery->servers().contains(name) || serverAddress() == name;
+    return !m_settings->cryptoEnabled() && found ? SyncService::Read : SyncService::None;
+}
+
+// A peer changes one of this computer's own settings, or asks it to act.
+// The ack says where and when it lands ("on mac-studio, after its client
+// restarts"), which the other window shows next to the control.
+QJsonObject AppController::handleSyncRequest(const QString& peer, const QString& kind, const QJsonObject& body, int access)
+{
+    auto answer = [](bool ok, const QString& text) {
+        QJsonObject ack;
+        ack.insert(QStringLiteral("ok"), ok);
+        ack.insert(QStringLiteral("text"), text);
+        return ack;
+    };
+    const QString me = screenName();
+    if (access < SyncService::Write) {
+        return answer(false, tr("%1 may read %2's settings but not change them: its certificate is not trusted here").arg(peer, me));
+    }
+    const QString coreWord = role() == Server ? tr("server") : tr("client");
+
+    if (kind == QLatin1String("action")) {
+        const QString action = body.value(QStringLiteral("action")).toString();
+        log(tr("%1 asked for %2").arg(peer, action));
+        if (action == QLatin1String("restart")) {
+            if (!running()) return answer(false, tr("%1 is not running its %2").arg(me, coreWord));
+            restart();
+            return answer(true, tr("%1 is restarting its %2").arg(me, coreWord));
+        }
+        if (action == QLatin1String("start")) {
+            if (running()) return answer(true, tr("%1 is already running").arg(me));
+            start();
+            return answer(true, tr("%1 is starting its %2").arg(me, coreWord));
+        }
+        if (action == QLatin1String("stop")) {
+            stop();
+            return answer(true, tr("%1 stopped its %2").arg(me, coreWord));
+        }
+        if (action == QLatin1String("restartDiscovery")) {
+            startDiscovery();
+            return answer(true, tr("%1 restarted discovery").arg(me));
+        }
+        if (action == QLatin1String("checkForUpdates")) {
+            checkForUpdates();
+            return answer(true, tr("%1 is checking for updates").arg(me));
+        }
+        return answer(false, tr("%1 does not know the action %2").arg(me, action));
+    }
+    if (kind != QLatin1String("set")) {
+        return answer(false, tr("%1 does not understand %2").arg(me, kind));
+    }
+
+    const QString key = body.value(QStringLiteral("key")).toString();
+    const QJsonValue value = body.value(QStringLiteral("value"));
+    enum When { Now, CoreRestart, NextLaunch } when = Now;
+    static const QRegularExpression namePattern(QStringLiteral("^[A-Za-z0-9._-]{1,255}$"));
+    if (key == QLatin1String("screenName")) {
+        const QString name = value.toString().trimmed();
+        if (!namePattern.match(name).hasMatch()) return answer(false, tr("%1 is not a valid screen name").arg(name));
+        m_settings->setScreenName(name);
+        when = CoreRestart;
+    } else if (key == QLatin1String("serverHostname")) {
+        m_settings->setServerHostname(value.toString());
+        when = CoreRestart;
+    } else if (key == QLatin1String("port")) {
+        const int port = value.toInt();
+        if (port < 1 || port > 65535) return answer(false, tr("%1 is not a valid port").arg(port));
+        m_settings->setPort(port);
+        when = CoreRestart;
+    } else if (key == QLatin1String("discovery")) {
+        m_settings->setDiscovery(value.toBool());
+        if (value.toBool()) startDiscovery(); else m_discovery->stop();
+    } else if (key == QLatin1String("scrollStep")) {
+        const int step = value.toInt();
+        if (step < 1 || step > 10000) return answer(false, tr("%1 is not a valid scroll step").arg(step));
+        m_settings->setScrollStep(step);
+        when = CoreRestart;
+    } else if (key == QLatin1String("overlayHints")) {
+        m_settings->setOverlayHints(value.toBool());
+    } else if (key == QLatin1String("logLevel")) {
+        const int level = value.toInt(-1);
+        if (level < 0 || level > 6) return answer(false, tr("%1 is not a log level").arg(level));
+        m_settings->setLogLevel(level);
+        when = CoreRestart;
+    } else if (key == QLatin1String("launchAtLogin")) {
+        setLaunchAtLogin(value.toBool());
+    } else if (key == QLatin1String("startCoreOnLaunch")) {
+        m_settings->setStartCoreOnLaunch(value.toBool());
+        when = NextLaunch;
+    } else if (key == QLatin1String("openHidden")) {
+        m_settings->setOpenHidden(value.toBool());
+        when = NextLaunch;
+    } else {
+        return answer(false, tr("%1 cannot be changed from another computer").arg(key));
+    }
+
+    const QString shown = value.isBool() ? (value.toBool() ? tr("on") : tr("off")) : value.toVariant().toString();
+    log(tr("%1 set %2 to %3").arg(peer, key, shown));
+    emit notify(tr("%1 changed a setting").arg(peer), tr("%1 is now %2").arg(key, shown));
+    QString text;
+    switch (when) {
+    case Now: text = tr("applied on %1").arg(me); break;
+    case CoreRestart: text = running() ? tr("on %1, after its %2 restarts").arg(me, coreWord) : tr("on %1, at its next start").arg(me); break;
+    case NextLaunch: text = tr("on %1, at its next launch").arg(me); break;
+    }
+    QJsonObject ack = answer(true, text);
+    ack.insert(QStringLiteral("applied"), when == Now ? QStringLiteral("now") : when == CoreRestart ? QStringLiteral("restart") : QStringLiteral("launch"));
+    return ack;
+}
+
+void AppController::setRemote(const QString& computer, const QString& key, const QVariant& value)
+{
+    QJsonObject body;
+    body.insert(QStringLiteral("key"), key);
+    body.insert(QStringLiteral("value"), QJsonValue::fromVariant(value));
+    QVariantMap pending;
+    pending.insert(QStringLiteral("pending"), true);
+    pending.insert(QStringLiteral("text"), tr("sending to %1…").arg(computer));
+    m_remoteResults[computer][key] = pending;
+    emit stateChanged();
+    m_sync->request(computer, QStringLiteral("set"), body, [this, computer, key](const QJsonObject& ack) {
+        QVariantMap result;
+        result.insert(QStringLiteral("pending"), false);
+        result.insert(QStringLiteral("ok"), ack.value(QStringLiteral("ok")).toBool());
+        result.insert(QStringLiteral("text"), ack.value(QStringLiteral("text")).toString());
+        m_remoteResults[computer][key] = result;
+        log(tr("%1 · %2: %3").arg(computer, key, ack.value(QStringLiteral("text")).toString()),
+            ack.value(QStringLiteral("ok")).toBool() ? QStringLiteral("INFO") : QStringLiteral("WARNING"));
+        emit stateChanged();
+    });
+}
+
+void AppController::remoteAction(const QString& computer, const QString& action)
+{
+    QJsonObject body;
+    body.insert(QStringLiteral("action"), action);
+    const QString key = QStringLiteral("action");
+    QVariantMap pending;
+    pending.insert(QStringLiteral("pending"), true);
+    pending.insert(QStringLiteral("text"), tr("asking %1…").arg(computer));
+    m_remoteResults[computer][key] = pending;
+    emit stateChanged();
+    m_sync->request(computer, QStringLiteral("action"), body, [this, computer, key](const QJsonObject& ack) {
+        QVariantMap result;
+        result.insert(QStringLiteral("pending"), false);
+        result.insert(QStringLiteral("ok"), ack.value(QStringLiteral("ok")).toBool());
+        result.insert(QStringLiteral("text"), ack.value(QStringLiteral("text")).toString());
+        m_remoteResults[computer][key] = result;
+        log(tr("%1: %2").arg(computer, ack.value(QStringLiteral("text")).toString()),
+            ack.value(QStringLiteral("ok")).toBool() ? QStringLiteral("INFO") : QStringLiteral("WARNING"));
+        emit stateChanged();
+    });
+}
+
+QVariantMap AppController::remoteResult(const QString& computer, const QString& key) const
+{
+    return m_remoteResults.value(computer).value(key);
 }
 
 void AppController::publishSync()

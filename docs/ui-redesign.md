@@ -257,15 +257,30 @@ resizable. The mocks use Inter; the app should use the system UI font
 | layout and links; per-computer screen options (aliases, modifiers, dead corners, fixes); switching; behaviour; dimming; hotkeys; listening address and port; TLS policy | the server, in the generated `.conf` and its settings | the server's Server, Layout and Computers pages; mirrored read-only to clients in phase C |
 | screen name; server to connect to; discovery; scroll step; overlay hints; log level; launch at login; appearance | each machine | that machine's own Computers tab and Settings; mirrored read-only to the others in phase C; written remotely in phase D |
 
-Phase C adds a **GUI-to-GUI channel**, independent of the core: each app
-listens on a TLS socket using the certificate it already has, advertises the
-port in the zeroconf record it already publishes, and accepts peers whose
-fingerprint is in the trusted database. Messages are small JSON documents:
-`hello` (name, role, build), `server-config` (the generated `.conf` plus the
-option values), `machine-settings`, `state` (process, cursor, dim). The core
-and the wire protocol stay untouched. Phase D adds `set` messages, each
-answered with where and when the change applies ("on mac-studio, after its
-client restarts"), shown next to the control. Alternative considered: new
+Phase C adds a **GUI-to-GUI channel**, independent of the core
+(`src/gui/app/SyncService.{h,cpp}`, built in M6/M7): each app listens on a
+TLS socket using the certificate it already has, advertises the port in the
+zeroconf record it already publishes (TXT `sync=1`, `port=<core port>`,
+`v=<build>`; records are resolved with `ZeroconfResolver`, which also gives
+the client core a proper `.local` address), and accepts peers the trust
+check allows. Clients dial the server's GUI; the server accepts. Trust
+mirrors the core's posture: a certificate in the trusted database grants
+**Write** (the peer may change this computer's own settings); a server
+without client-certificate checks grants **Read** to the computers of its
+layout, a client with TLS off grants Read to the server it found; anybody
+else is dropped before anything is shared. Each side tells the other what
+it granted (`access`).
+
+Messages are one JSON document per line, each with a `type`: snapshots
+kept per peer and resent on change (`hello` name/role/build/protocol,
+`settings` the machine's own settings, `state` run state/cursor/pieces,
+`server-config` the server's settings + the layout as JSON + the generated
+`.conf`), and requests answered by an `ack` with the same `id`: `set`
+(one key, validated and applied through the normal setters) and `action`
+(start, stop, restart, restartDiscovery, checkForUpdates). The ack says
+where and when the change lands ("on mac-studio, after its client
+restarts"), shown next to the control on the other window (phase D). The
+core and the wire protocol stay untouched. Alternative considered: new
 messages on the core connection; rejected because the GUI has no command
 channel to its own core beyond the Windows IPC, so every message would need
 core plumbing on both ends.
@@ -281,7 +296,7 @@ core plumbing on both ends.
 | M4 | Layout page (phase A); `INPUTLEAP_NEW_GUI` defaults ON; old `src/gui/src/*` removed; AGENTS.md updated | `latest-build` ships the new UI; the fleet updates without reconfiguring |
 | M5 | Polish: keyboard navigation, accessibility names, platform details (dock hiding, TCC prompts, launch at login), layout phase B | done 2026-10-31 |
 | M6 | Phase C, the sync channel read-only: the Server page on clients mirrors the connected server; remote tabs on Computers show each machine's own settings and process | built 2026-10-31 (`SyncService`, loopback-tested); not yet exercised on the fleet |
-| M7 | Phase D, remote writes with per-machine apply feedback | — |
+| M7 | Phase D, remote writes with per-machine apply feedback | built 2026-10-31; loopback-tested, not yet on the fleet |
 
 The fleet runs `latest-build`, so the old GUI keeps shipping until M4 flips
 the default; the option lets us test the new window on the real machines
@@ -349,8 +364,12 @@ Development hooks in `src/gui/app/main.cpp`:
   a development run never touches the real one; `INPUTLEAP_UI_DRY_RUN=1`
   (implied by `INPUTLEAP_UI_GRAB`) never starts the core, discovery or the
   update check, so a development run never touches the fleet.
-  `INPUTLEAP_UI_PAGE=<0-6>` opens that page. `INPUTLEAP_UI_DEMO_OVERLAY=1`
-  fires one HUD overlay.
+  `INPUTLEAP_UI_PAGE=<0-6>` opens that page, `INPUTLEAP_UI_COMPUTER=<name>`
+  that tab of the Computers page. `INPUTLEAP_UI_DEMO_PEER=<name>` pretends
+  that client shares its settings (the remote tab); `=<name>:server`
+  pretends a server does (a client's mirrored Server and Layout pages).
+  `INPUTLEAP_UI_TLS_CHECK=1` prints the TLS backend the channel would use.
+  `INPUTLEAP_UI_DEMO_OVERLAY=1` fires one HUD overlay.
 - `INPUTLEAP_UI_COLOR_SCHEME=dark|light` forces the scheme where the platform
   theme honours it (macOS yes, offscreen no).
 
@@ -379,13 +398,14 @@ UI-free classes moved into `src/gui/app/`), all seven pages exist, the layout
 places desktops freely with per-display sizes (phase B), join and trust
 requests are inline, the window is keyboard-navigable with accessible
 names, and the unit tests cover the parser, the settings store and the
-layout model. M6 is built: `SyncService` (TLS with the core's certificate,
-one JSON document per line, trust from the fingerprint databases, clients
-dial the server's GUI at the port in the zeroconf record, resolved with
-`ZeroconfResolver`) feeds the client's Server and Layout pages with the
-server's configuration and the Computers tabs with each peer's own
-settings and pieces; two loopback tests cover the exchange and the
-rejection of an untrusted peer. Not yet verified: a Windows build (the
-next push to `fork` makes one), the channel between two real machines,
-and the deployed bundle with the new TLS plugin. Next: M7, remote writes.
+layout model. M6 and M7 are built: the settings channel (§4.7) feeds the
+client's Server and Layout pages with the server's configuration and the
+Computers tabs with each peer's own settings and pieces, editable there
+when that computer trusts this one's certificate, every change answered
+with where it lands; the loopback tests cover the exchange, access levels,
+a request and its ack, and the rejection of an untrusted peer. On this Mac
+the channel runs on Qt's Secure Transport backend (the deployed bundle
+carries that plugin; no OpenSSL library is needed). Not yet verified: a
+Windows build (the next push to `fork` makes one) and the channel between
+two real machines.
 

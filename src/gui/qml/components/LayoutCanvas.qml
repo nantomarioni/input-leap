@@ -157,7 +157,8 @@ Item {
                     Label {
                         width: parent.width
                         visible: canvas.showDetails && slot.height >= 44
-                        text: slot.isServer ? qsTr("this computer")
+                        text: slot.isServer ? (canvas.model.isMirror ? qsTr("server") : qsTr("this computer"))
+                            : canvas.model.isMirror && slot.name === App.screenName ? qsTr("this computer")
                             : slot.state === "connected" ? qsTr("connected")
                             : slot.state === "offline" ? qsTr("offline")
                             : slot.position

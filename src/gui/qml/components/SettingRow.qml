@@ -62,7 +62,7 @@ ColumnLayout {
         RowLayout {
             id: slot
             Layout.fillWidth: row.stacked
-            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+            Layout.alignment: (row.stacked ? Qt.AlignLeft : Qt.AlignRight) | Qt.AlignVCenter
             spacing: 8
         }
     }

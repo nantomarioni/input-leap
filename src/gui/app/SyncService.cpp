@@ -26,6 +26,7 @@
 #include <QSslSocket>
 #include <QTcpServer>
 #include <QTimer>
+#include <QUuid>
 
 namespace {
 
@@ -34,6 +35,16 @@ const int kHelloTimeoutMs = 8000;
 const int kFirstRetryMs = 3000;
 const int kMaxRetryMs = 60000;
 const int kBroadcastDelayMs = 150;
+const int kAckTimeoutMs = 10000;
+const int kProtocol = 2;   // 1: snapshots; 2: access, set, action, ack
+
+QJsonObject failedAck(const QString& text)
+{
+    QJsonObject ack;
+    ack.insert(QStringLiteral("ok"), false);
+    ack.insert(QStringLiteral("text"), text);
+    return ack;
+}
 
 // A QTcpServer that hands the raw descriptor over, so the socket can be a
 // QSslSocket from the start.
@@ -170,11 +181,24 @@ void SyncService::setTrustCheck(TrustCheck check)
     m_trust = std::move(check);
 }
 
+void SyncService::setRequestHandler(RequestHandler handler)
+{
+    m_handler = std::move(handler);
+}
+
 void SyncService::setLocalInfo(const QString& name, const QString& role, const QString& version)
 {
+    const bool changed = m_name != name || m_role != role || m_version != version;
     m_name = name;
     m_role = role;
     m_version = version;
+    if (changed) {
+        for (Peer* peer : std::as_const(m_peers)) {
+            if (peer->verified) {
+                sendDocument(peer, QStringLiteral("hello"), hello());
+            }
+        }
+    }
 }
 
 bool SyncService::start()
@@ -206,10 +230,16 @@ void SyncService::stop()
         delete it->timer;
     }
     m_targets.clear();
+    const QStringList pending = m_pending.keys();
+    for (const QString& id : pending) {
+        finishPending(id, failedAck(tr("the channel stopped")));
+    }
     while (!m_peers.isEmpty()) {
         Peer* peer = m_peers.takeLast();
-        peer->socket->abort();
-        peer->socket->deleteLater();
+        if (peer->socket != nullptr) {
+            peer->socket->abort();
+            peer->socket->deleteLater();
+        }
         delete peer->helloTimer;
         delete peer;
     }
@@ -265,6 +295,9 @@ void SyncService::broadcast()
 
 void SyncService::sendDocument(Peer* peer, const QString& kind, const QJsonObject& document)
 {
+    if (peer->socket == nullptr) {
+        return;   // a demo peer
+    }
     QJsonObject out = document;
     out.insert(QStringLiteral("type"), kind);
     peer->socket->write(QJsonDocument(out).toJson(QJsonDocument::Compact) + '\n');
@@ -283,8 +316,53 @@ QJsonObject SyncService::hello() const
     doc.insert(QStringLiteral("name"), m_name);
     doc.insert(QStringLiteral("role"), m_role);
     doc.insert(QStringLiteral("version"), m_version);
-    doc.insert(QStringLiteral("protocol"), 1);
+    doc.insert(QStringLiteral("protocol"), kProtocol);
     return doc;
+}
+
+// ---- requests --------------------------------------------------------------
+
+QString SyncService::request(const QString& peerName, const QString& kind, const QJsonObject& body, AckHandler handler)
+{
+    Peer* peer = mutablePeerNamed(peerName);
+    if (peer == nullptr) {
+        if (handler) handler(failedAck(tr("%1 is not connected").arg(peerName)));
+        return QString();
+    }
+    if (peer->protocol < 2) {
+        if (handler) handler(failedAck(tr("%1 runs an older build that only shares, it does not accept changes").arg(peerName)));
+        return QString();
+    }
+    const QString id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    QJsonObject doc = body;
+    doc.insert(QStringLiteral("id"), id);
+    sendDocument(peer, kind, doc);
+
+    Pending pending;
+    pending.peerName = peerName;
+    pending.handler = std::move(handler);
+    pending.timer = new QTimer(this);
+    pending.timer->setSingleShot(true);
+    connect(pending.timer, &QTimer::timeout, this, [this, id, peerName]() {
+        finishPending(id, failedAck(tr("no answer from %1").arg(peerName)));
+    });
+    pending.timer->start(kAckTimeoutMs);
+    m_pending.insert(id, pending);
+    return id;
+}
+
+void SyncService::finishPending(const QString& id, const QJsonObject& ack)
+{
+    auto it = m_pending.find(id);
+    if (it == m_pending.end()) {
+        return;
+    }
+    Pending pending = *it;
+    m_pending.erase(it);
+    delete pending.timer;
+    if (pending.handler) {
+        pending.handler(ack);
+    }
 }
 
 // ---- connections -----------------------------------------------------------
@@ -461,11 +539,26 @@ void SyncService::handleLine(Peer* peer, const QByteArray& line)
     }
     QJsonObject object = doc.object();
     const QString kind = object.take(QStringLiteral("type")).toString();
+    if (kind == QLatin1String("hello") && peer->verified) {
+        // a peer renamed itself (or changed role): keep the connection
+        const QString name = object.value(QStringLiteral("name")).toString();
+        const bool wasServer = peer->role == QLatin1String("server");
+        if (!name.isEmpty()) {
+            peer->name = name;
+        }
+        peer->role = object.value(QStringLiteral("role")).toString();
+        peer->version = object.value(QStringLiteral("version")).toString();
+        emit changed();
+        if (wasServer || peer->role == QLatin1String("server")) {
+            emit serverConfigChanged();
+        }
+        return;
+    }
     if (kind == QLatin1String("hello")) {
         peer->name = object.value(QStringLiteral("name")).toString();
         peer->role = object.value(QStringLiteral("role")).toString();
         peer->version = object.value(QStringLiteral("version")).toString();
-        if (peer->name.isEmpty() || (m_trust && !m_trust(peer->fingerprint, peer->name, peer->incoming))) {
+        if (peer->name.isEmpty() || (m_trust && m_trust(peer->fingerprint, peer->name, peer->incoming) <= int(None))) {
             dropPeer(peer, tr("%1 (%2) is not trusted: nothing shared with it")
                                .arg(peer->name.isEmpty() ? peer->socket->peerAddress().toString() : peer->name,
                                     peer->fingerprint.left(11)));
@@ -475,6 +568,8 @@ void SyncService::handleLine(Peer* peer, const QByteArray& line)
             dropPeer(peer, tr("%1 answered as %2").arg(peer->targetName, peer->name));
             return;
         }
+        peer->access = m_trust ? qBound(int(None), m_trust(peer->fingerprint, peer->name, peer->incoming), int(Write)) : int(Read);
+        peer->protocol = object.value(QStringLiteral("protocol")).toInt(1);
         // one connection per peer: a newer one replaces the old
         for (Peer* other : std::as_const(m_peers)) {
             if (other != peer && other->verified && other->name == peer->name) {
@@ -484,7 +579,11 @@ void SyncService::handleLine(Peer* peer, const QByteArray& line)
         }
         peer->verified = true;
         peer->helloTimer->stop();
-        emit message(tr("settings channel: %1 (%2) connected").arg(peer->name, peer->role), false);
+        emit message(tr("settings channel: %1 (%2) connected, %3").arg(peer->name, peer->role,
+                        peer->access >= Write ? tr("may change this computer's settings") : tr("read-only")), false);
+        QJsonObject access;
+        access.insert(QStringLiteral("level"), peer->access);
+        sendDocument(peer, QStringLiteral("access"), access);
         sendAll(peer);
         emit changed();
         if (peer->role == QLatin1String("server")) {
@@ -493,6 +592,22 @@ void SyncService::handleLine(Peer* peer, const QByteArray& line)
         return;
     }
     if (!peer->verified || kind.isEmpty()) {
+        return;
+    }
+    if (kind == QLatin1String("access")) {
+        peer->accessThere = qBound(int(None), object.value(QStringLiteral("level")).toInt(), int(Write));
+        emit changed();
+        return;
+    }
+    if (kind == QLatin1String("ack")) {
+        finishPending(object.value(QStringLiteral("id")).toString(), object);
+        return;
+    }
+    if (kind == QLatin1String("set") || kind == QLatin1String("action")) {
+        QJsonObject ack = m_handler ? m_handler(peer->name, kind, object, peer->access)
+                                    : failedAck(tr("%1 does not take changes").arg(m_name));
+        ack.insert(QStringLiteral("id"), object.value(QStringLiteral("id")));
+        sendDocument(peer, QStringLiteral("ack"), ack);
         return;
     }
     peer->documents.insert(kind, object);
@@ -511,11 +626,21 @@ void SyncService::dropPeer(Peer* peer, const QString& why)
     const bool wasServer = peer->verified && peer->role == QLatin1String("server");
     const QString targetName = peer->targetName;
     const bool incoming = peer->incoming;
+    if (peer->verified) {
+        const QStringList ids = m_pending.keys();
+        for (const QString& id : ids) {
+            if (m_pending.value(id).peerName == peer->name) {
+                finishPending(id, failedAck(tr("%1 went away before answering").arg(peer->name)));
+            }
+        }
+    }
     if (!why.isEmpty()) {
         emit message(tr("settings channel: %1").arg(why), false);
     }
-    peer->socket->abort();
-    peer->socket->deleteLater();
+    if (peer->socket != nullptr) {
+        peer->socket->abort();
+        peer->socket->deleteLater();
+    }
     delete peer->helloTimer;
     delete peer;
     if (!incoming) {
@@ -547,6 +672,22 @@ const SyncService::Peer* SyncService::peerNamed(const QString& name) const
         }
     }
     return nullptr;
+}
+
+SyncService::Peer* SyncService::mutablePeerNamed(const QString& name)
+{
+    for (Peer* peer : std::as_const(m_peers)) {
+        if (peer->verified && peer->name == name) {
+            return peer;
+        }
+    }
+    return nullptr;
+}
+
+int SyncService::accessAt(const QString& name) const
+{
+    const Peer* peer = peerNamed(name);
+    return peer != nullptr ? peer->accessThere : int(None);
 }
 
 int SyncService::connectedCount() const
@@ -593,15 +734,44 @@ QVariantMap SyncService::describe(const Peer* peer) const
     map.insert(QStringLiteral("role"), peer->role);
     map.insert(QStringLiteral("version"), peer->version);
     map.insert(QStringLiteral("fingerprint"), peer->fingerprint);
-    map.insert(QStringLiteral("host"), peer->socket->peerAddress().toString());
+    map.insert(QStringLiteral("host"), peer->socket != nullptr ? peer->socket->peerAddress().toString() : QStringLiteral("demo"));
     map.insert(QStringLiteral("incoming"), peer->incoming);
     map.insert(QStringLiteral("connected"), peer->verified);
+    map.insert(QStringLiteral("access"), peer->access);
+    map.insert(QStringLiteral("accessThere"), peer->accessThere);
+    map.insert(QStringLiteral("protocol"), peer->protocol);
     map.insert(QStringLiteral("since"), peer->since.toString(QStringLiteral("HH:mm")));
     map.insert(QStringLiteral("settings"), peer->documents.value(QStringLiteral("settings")).toVariantMap());
     const QJsonObject state = peer->documents.value(QStringLiteral("state"));
     map.insert(QStringLiteral("state"), state.toVariantMap());
     map.insert(QStringLiteral("processes"), state.value(QStringLiteral("processes")).toArray().toVariantList());
     return map;
+}
+
+void SyncService::addDemoPeer(const QString& name, const QString& role, const QJsonObject& settings, const QJsonObject& state, int accessThere,
+                              const QJsonObject& serverConfig)
+{
+    auto* peer = new Peer;
+    peer->incoming = role != QLatin1String("server");
+    peer->verified = true;
+    peer->access = Write;
+    peer->accessThere = accessThere;
+    peer->protocol = 2;
+    peer->name = name;
+    peer->role = role;
+    peer->version = QStringLiteral("demo");
+    peer->fingerprint = QStringLiteral("DE:MO");
+    peer->since = QDateTime::currentDateTime();
+    peer->documents.insert(QStringLiteral("settings"), settings);
+    peer->documents.insert(QStringLiteral("state"), state);
+    if (!serverConfig.isEmpty()) {
+        peer->documents.insert(QStringLiteral("server-config"), serverConfig);
+    }
+    m_peers << peer;
+    emit changed();
+    if (role == QLatin1String("server")) {
+        emit serverConfigChanged();
+    }
 }
 
 QVariantList SyncService::peers() const
