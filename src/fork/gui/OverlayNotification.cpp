@@ -38,6 +38,14 @@ const int kAccentGap = 10;          // extra room for the accent bar
 const int kFadeInMs = 180;
 const int kFadeOutMs = 280;
 
+} // namespace
+
+#ifdef Q_OS_MACOS
+// OverlayNotification_mac.mm
+void keepOverlayOnEverySpace(QWidget* widget);
+#endif
+
+namespace {
 QColor toneColor(OverlayNotification::Tone tone) {
     switch (tone) {
     case OverlayNotification::Tone::Success: return QColor(0x4c, 0xd9, 0x64); // green
@@ -138,6 +146,9 @@ void OverlayNotification::presentText(const QString& text, Tone tone)
                  textSize.height() + 2 * kPadY);
 
     repositionToBottomCenter();
+#ifdef Q_OS_MACOS
+    keepOverlayOnEverySpace(this);
+#endif
     show();
     raise();
     animateTo(1.0, kFadeInMs, false);

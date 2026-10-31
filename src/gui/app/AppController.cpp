@@ -330,19 +330,43 @@ QVariantList AppController::computers() const
                               running() ? QStringLiteral("success") : QStringLiteral("neutral"), m_addresses.value(0), m_since);
                 continue;
             }
-            const bool on = m_connectedClients.contains(name);
+            // the core only tells us about clients that connected after this
+            // window attached; a client's own window says so too, over the channel
+            const QVariantMap peer = m_sync->peer(name);
+            const bool peerConnected = peer.value(QStringLiteral("connected")).toBool()
+                                       && peer.value(QStringLiteral("state")).toMap().value(QStringLiteral("connected")).toBool();
+            const bool on = m_connectedClients.contains(name) || (running() && peerConnected);
             QString state = on ? tr("Connected") : (running() ? tr("Not connected") : tr("Offline"));
             if (on && m_activeScreen == name) state = tr("Connected · cursor here");
+            const QString address = peer.value(QStringLiteral("settings")).toMap().value(QStringLiteral("addresses")).toList().value(0).toString();
             list << entry(name, m_layout->positionText(cell), state,
-                          on ? QStringLiteral("success") : QStringLiteral("neutral"), QString(), on ? m_since : QDateTime());
+                          on ? QStringLiteral("success") : QStringLiteral("neutral"), address, on ? m_since : QDateTime());
         }
     } else {
         list << entry(self, tr("client"), m_connectedToServer ? tr("Connected") : (running() ? tr("Connecting…") : tr("Not running")),
                       m_connectedToServer ? QStringLiteral("success") : QStringLiteral("neutral"), m_addresses.value(0), m_since);
-        const QString server = serverAddress();
+        // the server by its screen name when its window shares it, else by address
+        const QString address = serverAddress();
+        QString server = m_sync->serverConnected() ? m_sync->serverName() : m_mirror->serverName();
+        if (server.isEmpty()) {
+            server = address;
+        }
         if (!server.isEmpty()) {
-            list << entry(server, tr("server"), m_connectedToServer ? tr("Connected") : tr("Server"),
-                          m_connectedToServer ? QStringLiteral("success") : QStringLiteral("neutral"), server, m_since);
+            const QString position = m_mirrorAvailable ? m_mirror->positionText(m_mirror->indexOf(self)) : QString();
+            list << entry(server, position.isEmpty() ? tr("server") : tr("server · this computer is %1").arg(position),
+                          m_connectedToServer ? tr("Connected") : tr("Server"),
+                          m_connectedToServer ? QStringLiteral("success") : QStringLiteral("neutral"), address, m_since);
+        }
+        // the other computers of the server's layout, as the mirror shows them
+        if (m_mirrorAvailable) {
+            const QStringList others = m_mirror->screenNames();
+            for (const QString& name : others) {
+                if (name == self || name == server) continue;
+                const QVariantMap peer = m_sync->peer(name);
+                list << entry(name, m_mirror->positionText(m_mirror->indexOf(name)),
+                              peer.isEmpty() ? tr("via the server") : tr("Sharing"),
+                              peer.isEmpty() ? QStringLiteral("neutral") : QStringLiteral("success"), QString(), QDateTime());
+            }
         }
     }
     return list;
