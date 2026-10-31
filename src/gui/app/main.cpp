@@ -165,6 +165,9 @@ int main(int argc, char* argv[])
             qmlProblems << warning.toString();
         }
     });
+    // the deployed Qt QML modules sit in qml/ next to the executable (Windows);
+    // nothing to add where that folder does not exist
+    engine.addImportPath(QCoreApplication::applicationDirPath() + QStringLiteral("/qml"));
     engine.loadFromModule("InputLeap.Ui", "Main");
 
     auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().value(0));

@@ -208,6 +208,12 @@ elseif (WIN32)
         DESTINATION .
         FILES_MATCHING PATTERN "*.*"
     )
+    # windeployqt puts the QML modules under qml/ next to the executable, a
+    # folder the QML engine does not search on its own: qt.conf names it
+    # (macdeployqt writes the same for the bundle).
+    file(WRITE "${CMAKE_BINARY_DIR}/qt.conf"
+        "[Paths]\nPrefix = .\nPlugins = .\nImports = qml\nQmlImports = qml\nTranslations = translations\n")
+    install(FILES "${CMAKE_BINARY_DIR}/qt.conf" DESTINATION .)
 endif()
 
 if (INPUTLEAP_BUILD_TESTS)
