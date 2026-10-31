@@ -518,9 +518,7 @@ MSWindowsWatchdog::shutdownExistingProcesses()
             // spellings never matched, so a stray core survived every
             // service restart and two servers fought over the mouse
             if (_stricmp(entry.szExeFile, "input-leapc.exe") == 0 ||
-                _stricmp(entry.szExeFile, "input-leaps.exe") == 0 ||
-                _stricmp(entry.szExeFile, "InputLeapc.exe") == 0 ||
-                _stricmp(entry.szExeFile, "InputLeaps.exe") == 0) {
+                _stricmp(entry.szExeFile, "input-leaps.exe") == 0) {
 
                 HANDLE handle = OpenProcess(PROCESS_ALL_ACCESS, FALSE, entry.th32ProcessID);
                 shutdownProcess(handle, entry.th32ProcessID, 10);
