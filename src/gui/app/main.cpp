@@ -232,12 +232,22 @@ int main(int argc, char* argv[])
     // once; INPUTLEAP_UI_GRAB=<file.png> renders the window to a file and
     // exits (headless with QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software).
     if (qEnvironmentVariableIsSet("INPUTLEAP_UI_DEMO_OVERLAY")) {
-        QTimer::singleShot(400, window, []() {
+        // =1 fires after 400 ms; a larger number is a delay in ms (time to
+        // move to a full-screen Space first)
+        bool ok = false;
+        int delay = qEnvironmentVariableIntValue("INPUTLEAP_UI_DEMO_OVERLAY", &ok);
+        if (!ok || delay < 100) delay = 400;
+        QTimer::singleShot(delay, window, []() {
+            qInfo("input-leap: demo overlay firing");
             inputleap::fork_gui::OverlayNotification::instance()->showTransient(
                 QObject::tr("Input Leap connected"),
                 inputleap::fork_gui::OverlayNotification::Tone::Success);
         });
     }
+    // whether anything activates this app behind the user's back shows here
+    QObject::connect(&app, &QGuiApplication::applicationStateChanged, &app, [](Qt::ApplicationState state) {
+        qInfo("input-leap: application %s", state == Qt::ApplicationActive ? "became active" : state == Qt::ApplicationInactive ? "went inactive" : "state changed");
+    });
     // INPUTLEAP_UI_TLS_CHECK=1 reports what the settings channel would use.
     if (qEnvironmentVariableIsSet("INPUTLEAP_UI_TLS_CHECK")) {
         QString error;

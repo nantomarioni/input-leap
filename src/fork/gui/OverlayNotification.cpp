@@ -43,6 +43,7 @@ const int kFadeOutMs = 280;
 #ifdef Q_OS_MACOS
 // OverlayNotification_mac.mm
 void keepOverlayOnEverySpace(QWidget* widget);
+void orderOverlayFront(QWidget* widget);
 #endif
 
 namespace {
@@ -148,9 +149,12 @@ void OverlayNotification::presentText(const QString& text, Tone tone)
     repositionToBottomCenter();
 #ifdef Q_OS_MACOS
     keepOverlayOnEverySpace(this);
-#endif
+    show();
+    orderOverlayFront(this);
+#else
     show();
     raise();
+#endif
     animateTo(1.0, kFadeInMs, false);
     update();
 }

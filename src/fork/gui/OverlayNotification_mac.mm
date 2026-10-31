@@ -38,6 +38,20 @@ void keepOverlayOnEverySpace(QWidget* widget)
                               | NSWindowCollectionBehaviorIgnoresCycle;
     window.level = NSPopUpMenuWindowLevel;
     window.hidesOnDeactivate = NO;
+    // Qt makes a tool window an NSPanel; a panel that is not "non-activating"
+    // activates the application when ordered front, and activating the app
+    // moves macOS to the Space of its main window.
+    if ([window isKindOfClass:[NSPanel class]]) {
+        window.styleMask |= NSWindowStyleMaskNonactivatingPanel;
+        ((NSPanel*)window).becomesKeyOnlyIfNeeded = YES;
+    }
+}
+
+// Shows the panel without touching the application's activation state.
+void orderOverlayFront(QWidget* widget)
+{
+    NSView* view = reinterpret_cast<NSView*>(widget->winId());
+    [[view window] orderFrontRegardless];
 }
 
 } // namespace fork_gui
