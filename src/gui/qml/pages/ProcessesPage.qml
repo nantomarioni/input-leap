@@ -72,6 +72,8 @@ ScrollView {
                 InfoRow { label: qsTr("Version"); value: App.version; mono: true; labelWidth: 110 }
                 InfoRow { label: qsTr("Updates"); value: App.updateStatus.length > 0 ? App.updateStatus : qsTr("not checked yet"); labelWidth: 110 }
                 InfoRow { label: qsTr("Settings"); value: App.dataFolder; mono: true; labelWidth: 110 }
+                InfoRow { label: qsTr("Tray icon"); value: App.trayAvailable ? qsTr("shown · a click opens this window") : qsTr("not available · opening Input Leap again brings this window up"); labelWidth: 110 }
+                InfoRow { label: qsTr("GUI log"); value: App.guiLogPath; mono: true; labelWidth: 110 }
                 Flow {
                     Layout.fillWidth: true
                     spacing: 8

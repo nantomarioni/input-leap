@@ -98,6 +98,8 @@ class AppController : public QObject
     Q_PROPERTY(bool isWindows READ isWindows CONSTANT)
     Q_PROPERTY(bool isMac READ isMac CONSTANT)
     Q_PROPERTY(QString initialComputer READ initialComputer CONSTANT)   // INPUTLEAP_UI_COMPUTER, for the grabs
+    Q_PROPERTY(bool trayAvailable READ trayAvailable NOTIFY stateChanged)
+    Q_PROPERTY(QString guiLogPath READ guiLogPath CONSTANT)
 
 public:
     enum Role { Server, Client };
@@ -155,6 +157,9 @@ public:
     bool isWindows() const;
     bool isMac() const;
     QString initialComputer() const { return qEnvironmentVariable("INPUTLEAP_UI_COMPUTER"); }
+    bool trayAvailable() const { return m_trayAvailable; }
+    void setTrayAvailable(bool available);
+    QString guiLogPath() const { return dataFolder() + QStringLiteral("/gui.log"); }
 
     // Called by main() once the window exists.
     void startup();
@@ -233,6 +238,7 @@ private:
     LayoutModel* m_mirror = nullptr;
     bool m_mirrorAvailable = false;
     bool m_dryRun = false;
+    bool m_trayAvailable = false;
     QString m_syncName;
     QHash<QString, QHash<QString, QVariantMap>> m_remoteResults;
     LogModel* m_logModel = nullptr;

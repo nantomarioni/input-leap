@@ -25,8 +25,12 @@
 #include <QMenu>
 #include <QQuickWindow>
 #include <QSystemTrayIcon>
+#include <QTimer>
 
 namespace {
+
+const int kRetryMs = 2000;
+const int kMaxAttempts = 150;   // five minutes
 
 QIcon trayIcon(bool connected)
 {
@@ -38,8 +42,13 @@ QIcon trayIcon(bool connected)
     return icon;
 #else
     const char* name = connected ? "input-leap-connected" : "input-leap-disconnected";
-    const QString file = QStringLiteral(":/tray/icons/128x128/%1.png").arg(QLatin1String(name));
-    return QIcon::fromTheme(QLatin1String(name), QIcon(file));
+    const QIcon file(QStringLiteral(":/tray/icons/128x128/%1.png").arg(QLatin1String(name)));
+#if defined(Q_OS_LINUX)
+    // a desktop theme may carry its own version; the bundled one otherwise
+    return QIcon::fromTheme(QLatin1String(name), file);
+#else
+    return file;
+#endif
 #endif
 }
 
@@ -49,8 +58,6 @@ TrayController::TrayController(QQuickWindow* window, QObject* parent) :
     QObject(parent),
     m_window(window)
 {
-    AppController* app = AppController::instance();
-
     if (m_window != nullptr) {
         connect(m_window, &QWindow::visibleChanged, this, [](bool visible) {
             Platform::setDockIconVisible(visible);
@@ -58,9 +65,36 @@ TrayController::TrayController(QQuickWindow* window, QObject* parent) :
         Platform::setDockIconVisible(m_window->isVisible());
     }
 
-    if (!QSystemTrayIcon::isSystemTrayAvailable()) {
+    if (QSystemTrayIcon::isSystemTrayAvailable()) {
+        createTray();
         return;
     }
+    qWarning("input-leap: no system tray yet; the window stays open and the tray is retried");
+    m_retry = new QTimer(this);
+    m_retry->setInterval(kRetryMs);
+    connect(m_retry, &QTimer::timeout, this, [this]() {
+        if (QSystemTrayIcon::isSystemTrayAvailable()) {
+            m_retry->stop();
+            createTray();
+            emit availableChanged();
+            return;
+        }
+        if (++m_attempts >= kMaxAttempts) {
+            m_retry->stop();
+            qWarning("input-leap: giving up on the system tray; use the window");
+        }
+    });
+    m_retry->start();
+}
+
+TrayController::~TrayController()
+{
+    delete m_menu;
+}
+
+void TrayController::createTray()
+{
+    AppController* app = AppController::instance();
 
     m_menu = new QMenu();
     m_menu->addAction(tr("Show Input Leap"), this, &TrayController::showWindow);
@@ -80,8 +114,12 @@ TrayController::TrayController(QQuickWindow* window, QObject* parent) :
     m_tray = new QSystemTrayIcon(this);
     m_tray->setContextMenu(m_menu);
     connect(m_tray, &QSystemTrayIcon::activated, this, [this](QSystemTrayIcon::ActivationReason reason) {
+        // a plain click opens the window on Windows and most Linux desktops;
+        // macOS only ever opens the menu
         if (reason == QSystemTrayIcon::DoubleClick) {
             toggleWindow();
+        } else if (reason == QSystemTrayIcon::Trigger) {
+            showWindow();
         }
     });
     connect(app, &AppController::stateChanged, this, &TrayController::sync);
@@ -94,11 +132,7 @@ TrayController::TrayController(QQuickWindow* window, QObject* parent) :
 
     sync();
     m_tray->show();
-}
-
-TrayController::~TrayController()
-{
-    delete m_menu;
+    qInfo("input-leap: tray icon shown");
 }
 
 void TrayController::showWindow()
@@ -107,6 +141,9 @@ void TrayController::showWindow()
         return;
     }
     m_window->show();
+    if (m_window->windowState() & Qt::WindowMinimized) {
+        m_window->showNormal();
+    }
     m_window->raise();
     m_window->requestActivate();
 }
@@ -125,6 +162,9 @@ void TrayController::toggleWindow()
 
 void TrayController::sync()
 {
+    if (m_tray == nullptr) {
+        return;
+    }
     AppController* app = AppController::instance();
     m_tray->setIcon(trayIcon(app->connected()));
     m_tray->setToolTip(QStringLiteral("Input Leap · ") + app->statusText());

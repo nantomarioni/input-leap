@@ -17,12 +17,18 @@
 #include "AppController.h"
 #include "AppSettings.h"
 #include "LayoutModel.h"
+#include "SingleInstance.h"
 #include "SyncService.h"
 #include "TlsIdentity.h"
 #include "TrayController.h"
 #include "../../fork/gui/OverlayNotification.h"
 
 #include <QApplication>
+#include <QCryptographicHash>
+#include <QDateTime>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QIcon>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -31,12 +37,63 @@
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QSslSocket>
+#include <QStandardPaths>
 #include <QStyleHints>
+#include <QTextStream>
 #include <QTimer>
 
 #include <cstdio>
 
 namespace {
+
+// Qt's own messages (QML errors above all) go to gui.log in the data folder
+// as well as to stderr: a window that never appears can still be explained.
+QFile* g_guiLog = nullptr;
+QtMessageHandler g_previousHandler = nullptr;
+
+void guiLogHandler(QtMsgType type, const QMessageLogContext& context, const QString& message)
+{
+    if (g_guiLog != nullptr && g_guiLog->isOpen() && type != QtDebugMsg) {
+        const char* level = type == QtInfoMsg ? "INFO" : type == QtWarningMsg ? "WARNING" : type == QtCriticalMsg ? "ERROR" : "FATAL";
+        QTextStream out(g_guiLog);
+        out << QDateTime::currentDateTime().toString(Qt::ISODate) << ' ' << level << ": " << message << '\n';
+        out.flush();
+    }
+    if (g_previousHandler != nullptr) {
+        g_previousHandler(type, context, message);
+    }
+}
+
+void openGuiLog()
+{
+    const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
+    QDir().mkpath(dir);
+    const QString path = dir + QStringLiteral("/gui.log");
+    auto* file = new QFile(path);
+    const bool rotate = QFileInfo(path).size() > 1024 * 1024;
+    if (!file->open(QIODevice::WriteOnly | QIODevice::Text | (rotate ? QIODevice::Truncate : QIODevice::Append))) {
+        delete file;
+        return;
+    }
+    g_guiLog = file;
+    g_previousHandler = qInstallMessageHandler(guiLogHandler);
+}
+
+// One window per user; a development run with its own settings file keeps
+// out of the real one's way.
+QString singleInstanceKey()
+{
+    QString user = qEnvironmentVariable("USER");
+    if (user.isEmpty()) user = qEnvironmentVariable("USERNAME");
+    if (user.isEmpty()) user = QDir::home().dirName();
+    // short on purpose: a Unix socket path (with $TMPDIR in front) is capped at ~100 bytes
+    QString key = QStringLiteral("inputleap-ui-") + user.left(24);
+    const QString devStore = qEnvironmentVariable("INPUTLEAP_UI_SETTINGS_FILE");
+    if (!devStore.isEmpty()) {
+        key += QLatin1Char('-') + QString::fromLatin1(QCryptographicHash::hash(devStore.toUtf8(), QCryptographicHash::Md5).toHex().left(8));
+    }
+    return key;
+}
 
 void applyColorScheme(const QString& scheme)
 {
@@ -68,6 +125,24 @@ int main(int argc, char* argv[])
 #endif
     app.setWindowIcon(QIcon(QStringLiteral(":/tray/icons/256x256/input-leap.png")));
     app.setDesktopFileName(QStringLiteral("io.github.input_leap.input-leap"));
+    if (!qEnvironmentVariableIsSet("INPUTLEAP_UI_SETTINGS_FILE")) {
+        openGuiLog();
+    }
+    const bool launchedHidden = app.arguments().contains(QStringLiteral("--hidden"));
+    qInfo("input-leap %s starting%s", INPUTLEAP_VERSION, launchedHidden ? " (--hidden)" : "");
+
+    // A second launch (Start menu, Dock, the installer) brings the running
+    // window up instead of opening another one.
+    SingleInstance instance(singleInstanceKey());
+    if (!instance.isPrimary()) {
+        if (instance.notifyPrimary("show")) {
+            qInfo("input-leap: another window is already open; asked it to show itself");
+            return 0;
+        }
+        // nobody there and no socket of our own: carry on as a plain window
+        qWarning("input-leap: could not set up the single-instance socket (%s); continuing without it",
+                 qPrintable(instance.error()));
+    }
 
     // One look on every platform; light/dark follow the system unless set.
     QQuickStyle::setStyle(QStringLiteral("FluentWinUI3"));
@@ -91,7 +166,14 @@ int main(int argc, char* argv[])
     }
 
     TrayController tray(window);
-    const bool openHidden = controller->settings()->openHidden() && tray.available()
+    QObject::connect(&instance, &SingleInstance::messageReceived, &tray, [&tray](const QByteArray&) { tray.showWindow(); });
+    controller->setTrayAvailable(tray.available());
+    QObject::connect(&tray, &TrayController::availableChanged, controller, [controller, &tray]() {
+        controller->setTrayAvailable(tray.available());
+    });
+    // Hidden only when launched that way (at login) and the setting asks for
+    // it; a launch by hand always shows the window, tray or no tray.
+    const bool openHidden = launchedHidden && controller->settings()->openHidden() && tray.available()
                             && !qEnvironmentVariableIsSet("INPUTLEAP_UI_GRAB");
     if (openHidden) {
         window->hide();

@@ -101,7 +101,8 @@ bool setLaunchAtLogin(bool enabled)
            "\t<key>Label</key>\n\t<string>" << kAgentLabel << "</string>\n"
            "\t<key>ProgramArguments</key>\n\t<array>\n"
            "\t\t<string>/usr/bin/open</string>\n\t\t<string>-g</string>\n\t\t<string>-a</string>\n"
-           "\t\t<string>" << app << "</string>\n\t</array>\n"
+           "\t\t<string>" << app << "</string>\n"
+           "\t\t<string>--args</string>\n\t\t<string>--hidden</string>\n\t</array>\n"
            "\t<key>RunAtLoad</key>\n\t<true/>\n"
            "</dict>\n</plist>\n";
     return true;

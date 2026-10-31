@@ -22,10 +22,13 @@ class QAction;
 class QMenu;
 class QQuickWindow;
 class QSystemTrayIcon;
+class QTimer;
 
 /* The system tray icon and its menu. QtWidgets-based on purpose: the tray
  * and native menus are the one place the widgets module still earns its
- * place next to the Qt Quick window.
+ * place next to the Qt Quick window. When the tray is not there yet (a
+ * launch at login before the shell's tray exists) it keeps trying for a
+ * while, and the window stays visible until it appears.
  */
 class TrayController : public QObject
 {
@@ -41,11 +44,17 @@ public slots:
     void showWindow();
     void toggleWindow();
 
+signals:
+    void availableChanged();
+
 private:
+    void createTray();
     void sync();
 
     QQuickWindow* m_window;
     QSystemTrayIcon* m_tray = nullptr;
     QMenu* m_menu = nullptr;
     QAction* m_startStopAction = nullptr;
+    QTimer* m_retry = nullptr;
+    int m_attempts = 0;
 };

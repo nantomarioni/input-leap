@@ -55,7 +55,7 @@ bool setLaunchAtLogin(bool enabled)
     }
     QTextStream out(&file);
     out << "[Desktop Entry]\nType=Application\nName=Input Leap\nExec="
-        << QCoreApplication::applicationFilePath() << "\nX-GNOME-Autostart-enabled=true\n";
+        << QCoreApplication::applicationFilePath() << " --hidden\nX-GNOME-Autostart-enabled=true\n";
     return true;
 }
 

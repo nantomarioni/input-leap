@@ -270,6 +270,17 @@ QString AppController::platformName() const
     return Platform::name();
 }
 
+void AppController::setTrayAvailable(bool available)
+{
+    if (m_trayAvailable == available) {
+        return;
+    }
+    m_trayAvailable = available;
+    log(available ? tr("tray icon shown") : tr("no tray icon: this window stays reachable from the Start menu or Dock"),
+        available ? QStringLiteral("INFO") : QStringLiteral("WARNING"));
+    emit stateChanged();
+}
+
 bool AppController::isWindows() const
 {
 #if defined(Q_OS_WIN)
@@ -427,6 +438,9 @@ void AppController::startup()
     }
     startSync();
     startDiscovery();
+    if (m_settings->launchAtLogin()) {
+        Platform::setLaunchAtLogin(true);   // keeps the entry current (path, --hidden)
+    }
     if (m_settings->autoCheckUpdates()) {
         m_updates->maybeCheckOnStartup();
     }

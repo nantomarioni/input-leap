@@ -85,6 +85,7 @@ ScrollView {
                 }
                 SettingRow {
                     label: qsTr("Open hidden in the tray")
+                    hint: qsTr("Only when launched at login. Opening Input Leap from the Start menu or the Dock always shows this window, and a second launch brings a hidden one up.")
                     Switch { checked: App.settings.openHidden; onToggled: App.settings.openHidden = checked }
                 }
                 SettingRow {

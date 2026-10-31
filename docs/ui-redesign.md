@@ -370,6 +370,12 @@ Development hooks in `src/gui/app/main.cpp`:
   pretends a server does (a client's mirrored Server and Layout pages).
   `INPUTLEAP_UI_TLS_CHECK=1` prints the TLS backend the channel would use.
   `INPUTLEAP_UI_DEMO_OVERLAY=1` fires one HUD overlay.
+- The app runs one window per user (`SingleInstance`, a local socket): a
+  second launch tells the first to show itself and exits. The autostart
+  entries launch with `--hidden`; only such a launch honours "Open hidden in
+  the tray". Qt's warnings and QML errors are appended to `gui.log` in the
+  data folder (not during development runs with a settings file). The tray
+  is retried for five minutes when it is not there at launch.
 - `INPUTLEAP_UI_COLOR_SCHEME=dark|light` forces the scheme where the platform
   theme honours it (macOS yes, offscreen no).
 

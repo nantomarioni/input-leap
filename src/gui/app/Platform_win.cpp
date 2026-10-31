@@ -46,7 +46,7 @@ bool setLaunchAtLogin(bool enabled)
     QSettings run(QLatin1String(kRunKey), QSettings::NativeFormat);
     if (enabled) {
         run.setValue(QLatin1String(kRunValue),
-                     QStringLiteral("\"%1\"").arg(QDir::toNativeSeparators(QCoreApplication::applicationFilePath())));
+                     QStringLiteral("\"%1\" --hidden").arg(QDir::toNativeSeparators(QCoreApplication::applicationFilePath())));
     } else {
         run.remove(QLatin1String(kRunValue));
     }

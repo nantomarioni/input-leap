@@ -76,6 +76,8 @@ qt_add_executable(input-leap WIN32
     app/KeyCaptureItem.cpp
     app/KeyCaptureItem.h
     app/Platform.h
+    app/SingleInstance.cpp
+    app/SingleInstance.h
     app/SyncService.cpp
     app/SyncService.h
     app/TlsIdentity.cpp
