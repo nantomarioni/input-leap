@@ -109,9 +109,13 @@ Release, `CMAKE_UNITY_BUILD=1` builds for macOS arm64 and Windows. It runs **no
 tests**, builds **no Linux**, and doesn't use `-Werror` (`builds.yml` only
 triggers on `master`). So before pushing:
 
-1. **Build with `-DCMAKE_UNITY_BUILD=1`** on the platform you touched. A `.mm`
-   that imports Foundation/AppKit needs `SKIP_UNITY_BUILD_INCLUSION TRUE`, or it
-   lands in a C++-mode unity batch. Windows-only code is first compiled by CI.
+1. **Build with `-DCMAKE_UNITY_BUILD=1`** on macOS and Linux (what the macOS CI
+   job does). A `.mm` that imports Foundation/AppKit needs
+   `SKIP_UNITY_BUILD_INCLUSION TRUE`, or it lands in a C++-mode unity batch.
+   Windows builds **without** unity, like its CI job: a unity link there fails
+   on `synlib` (unresolved `inputleap::Config` symbols), a pre-existing issue.
+   Hand builds on Windows need `BONJOUR_SDK_HOME` set in every build shell,
+   not only at the first configure (`build.ps1` sets it).
 2. **No new warnings** in the files you touched. `-Werror` can't be used on
    macOS (upstream `OSX*` files use deprecated AppKit/IOKit APIs).
 3. **Tests pass locally:** `ctest --test-dir build`. Known macOS failures, not
