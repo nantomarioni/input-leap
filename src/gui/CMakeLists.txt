@@ -203,11 +203,10 @@ elseif (WIN32)
             --dir "${CMAKE_BINARY_DIR}/qtDeploy" $<TARGET_FILE:input-leap>
     )
     install(TARGETS input-leap DESTINATION .)
-    install(
-        DIRECTORY ${CMAKE_BINARY_DIR}/qtDeploy/
-        DESTINATION .
-        FILES_MATCHING PATTERN "*.*"
-    )
+    # everything windeployqt produced, including the extension-less qmldir
+    # files (a "*.*" filter here once dropped them, and with them every QML
+    # module: 'module "QtQuick.Controls" plugin "qtquickcontrols2plugin" not found')
+    install(DIRECTORY ${CMAKE_BINARY_DIR}/qtDeploy/ DESTINATION .)
     # windeployqt puts the QML modules under qml/ next to the executable, a
     # folder the QML engine does not search on its own: qt.conf names it
     # (macdeployqt writes the same for the bundle).
