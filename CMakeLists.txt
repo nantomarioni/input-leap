@@ -24,6 +24,13 @@ option(INPUTLEAP_USE_EXTERNAL_GTEST "Use external installation of Google Test fr
 option(INPUTLEAP_BUILD_X11 "Build with XWindows support" ON)
 option(INPUTLEAP_BUILD_LIBEI "Build with libei support" OFF)
 option(INPUTLEAP_BUILD_GULRAK_FILESYSTEM "Use internal filesystem library" OFF)
+option(INPUTLEAP_NEW_GUI "Build the new Qt Quick GUI (src/gui/app + src/gui/qml) instead of the legacy Qt Widgets one" OFF)
+if(INPUTLEAP_NEW_GUI)
+    # macdeployqt / windeployqt scan this directory for the QML imports to deploy
+    set(INPUTLEAP_QMLDIR "${CMAKE_SOURCE_DIR}/src/gui/qml")
+else()
+    set(INPUTLEAP_QMLDIR "")
+endif()
 set (CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set (CMAKE_CXX_EXTENSIONS OFF)
 set (CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -68,11 +75,37 @@ if (HAVE_WFORMAT)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wformat")
 endif()
 
+if (INPUTLEAP_BUILD_GUI AND APPLE)
+    # The macOS 26 SDK (Xcode 26) dropped the AGL framework, but Qt builds older
+    # than 6.9.2 still link it through FindWrapOpenGL (`-framework AGL`), which
+    # fails to link. Point that lookup at the OpenGL framework instead, so the
+    # link line stays valid on old and new SDKs alike.
+    # (find_library would still report the host's /System/Library copy, but the
+    # linker searches the SDK, so check the SDK directly.)
+    set(_inputleap_sdk "${CMAKE_OSX_SYSROOT}")
+    if (NOT _inputleap_sdk)
+        execute_process(COMMAND xcrun --show-sdk-path OUTPUT_VARIABLE _inputleap_sdk
+                        OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+    endif()
+    if (_inputleap_sdk AND NOT EXISTS "${_inputleap_sdk}/System/Library/Frameworks/AGL.framework"
+        AND EXISTS "${_inputleap_sdk}/System/Library/Frameworks/OpenGL.framework")
+        message(STATUS "SDK has no AGL framework; linking OpenGL in its place for Qt")
+        set(WrapOpenGL_AGL "${_inputleap_sdk}/System/Library/Frameworks/OpenGL.framework" CACHE FILEPATH
+            "AGL stand-in on SDKs without AGL (see CMakeLists.txt)" FORCE)
+    endif()
+endif()
+
 if (INPUTLEAP_BUILD_GUI)
     if (QT_DEFAULT_MAJOR_VERSION EQUAL 5)
         set(REQUIRED_QT_VERSION 5.9)
     elseif (QT_DEFAULT_MAJOR_VERSION EQUAL 6)
         set(REQUIRED_QT_VERSION 6.2)
+    endif()
+    if (INPUTLEAP_NEW_GUI)
+        if (NOT QT_DEFAULT_MAJOR_VERSION EQUAL 6)
+            message(FATAL_ERROR "INPUTLEAP_NEW_GUI needs Qt 6.8 or newer")
+        endif()
+        set(REQUIRED_QT_VERSION 6.8)
     endif()
 
     find_package(Qt${QT_DEFAULT_MAJOR_VERSION} COMPONENTS Core REQUIRED)

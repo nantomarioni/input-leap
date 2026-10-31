@@ -1,0 +1,66 @@
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+import InputLeap.Ui
+
+Rectangle {
+    id: header
+
+    readonly property bool stopped: App.runState === App.Stopped || App.runState === App.Failed
+
+    implicitHeight: 56
+    color: Theme.surface
+
+    Rectangle {
+        anchors.bottom: parent.bottom
+        width: parent.width
+        height: 1
+        color: Theme.border
+    }
+
+    RowLayout {
+        anchors.fill: parent
+        anchors.leftMargin: 20
+        anchors.rightMargin: 20
+        spacing: 16
+
+        RowLayout {
+            Layout.minimumWidth: 150
+            spacing: 10
+
+            Image {
+                source: "../icons/logo.svg"
+                sourceSize: Qt.size(24, 24)
+            }
+            Label {
+                text: "Input Leap"
+                font.pixelSize: 15
+                font.weight: Font.Bold
+                color: Theme.text
+            }
+        }
+
+        RoleSwitch {}
+
+        Item { Layout.fillWidth: true }
+
+        StatusPill {
+            text: App.statusText
+            tone: App.runState === App.Running ? "success"
+                : App.runState === App.Failed ? "danger"
+                : header.stopped ? "neutral" : "warning"
+        }
+
+        Button {
+            text: qsTr("Restart")
+            enabled: App.runState === App.Running
+            onClicked: App.restart()
+        }
+
+        Button {
+            text: header.stopped ? qsTr("Start") : qsTr("Stop")
+            highlighted: true
+            onClicked: header.stopped ? App.start() : App.stop()
+        }
+    }
+}

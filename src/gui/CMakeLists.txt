@@ -1,3 +1,122 @@
+# ---------------------------------------------------------------------------
+# New Qt Quick GUI (INPUTLEAP_NEW_GUI=ON): src/gui/app (C++) + src/gui/qml.
+# The legacy Qt Widgets GUI below is untouched and stays the default until the
+# rewrite reaches milestone M4 (docs/ui-redesign.md).
+# ---------------------------------------------------------------------------
+if(INPUTLEAP_NEW_GUI)
+    # Svg is linked only so the deploy tools ship the SVG image/icon plugins the rail icons need.
+    find_package(Qt6 6.8 COMPONENTS Core Gui Widgets Network Qml Quick QuickControls2 Svg REQUIRED)
+    message(STATUS "Building the new Qt Quick GUI with Qt ${Qt6_VERSION}")
+
+    set(CMAKE_AUTOMOC ON)
+    set(CMAKE_AUTORCC ON)
+    set(CMAKE_INCLUDE_CURRENT_DIR ON)
+    qt_policy(SET QTP0001 NEW)   # QML resources live under :/qt/qml
+    qt_policy(SET QTP0004 NEW)   # one qmldir per QML subdirectory
+
+    if (WIN32)
+        set(NEWGUI_RC_FILES res/win/InputLeap.rc)
+        set_property(SOURCE res/win/InputLeap.rc PROPERTY COMPILE_FLAGS /nologo)
+    endif()
+
+    qt_add_executable(input-leap WIN32
+        app/main.cpp
+        app/AppController.cpp
+        app/AppController.h
+        app/TrayController.cpp
+        app/TrayController.h
+        ../fork/gui/OverlayNotification.cpp
+        ../fork/gui/OverlayNotification.h
+        ${NEWGUI_RC_FILES}
+    )
+
+    set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+
+    qt_add_qml_module(input-leap
+        URI InputLeap.Ui
+        VERSION 1.0
+        QML_FILES
+            qml/Main.qml
+            qml/Theme.qml
+            qml/components/AppHeader.qml
+            qml/components/AppStatusBar.qml
+            qml/components/Card.qml
+            qml/components/LogDrawer.qml
+            qml/components/NavRail.qml
+            qml/components/PagePlaceholder.qml
+            qml/components/RailItem.qml
+            qml/components/RoleOption.qml
+            qml/components/RoleSwitch.qml
+            qml/components/SectionTitle.qml
+            qml/components/StatusPill.qml
+            qml/pages/OverviewPage.qml
+            qml/pages/LayoutPage.qml
+            qml/pages/ServerPage.qml
+            qml/pages/ComputersPage.qml
+            qml/pages/SecurityPage.qml
+            qml/pages/ProcessesPage.qml
+            qml/pages/SettingsPage.qml
+        RESOURCES
+            qml/icons/logo.svg
+            qml/icons/overview.svg
+            qml/icons/layout.svg
+            qml/icons/server.svg
+            qml/icons/computers.svg
+            qml/icons/security.svg
+            qml/icons/processes.svg
+            qml/icons/settings.svg
+    )
+
+    qt_add_resources(input-leap "inputleap_tray"
+        PREFIX "/tray"
+        BASE res
+        FILES
+            res/icons/128x128/input-leap-connected.png
+            res/icons/128x128/input-leap-connected-mask.png
+            res/icons/128x128/input-leap-disconnected.png
+            res/icons/128x128/input-leap-disconnected-mask.png
+            res/icons/128x128/input-leap-transfering.png
+            res/icons/128x128/input-leap-transfering-mask.png
+            res/icons/256x256/input-leap.png
+    )
+
+    target_compile_definitions(input-leap PRIVATE
+        INPUTLEAP_VERSION_STAGE="${INPUTLEAP_VERSION_STAGE}"
+        INPUTLEAP_REVISION="${INPUTLEAP_REVISION}")
+    # the generated QML type registration includes the headers by basename
+    target_include_directories(input-leap PRIVATE app)
+    target_link_libraries(input-leap PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Network Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Svg)
+
+    if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
+        install(TARGETS input-leap DESTINATION ${INPUTLEAP_BUNDLE_BINARY_DIR})
+    elseif (${CMAKE_SYSTEM_NAME} MATCHES "Linux" OR ${CMAKE_SYSTEM_NAME} MATCHES "BSD")
+        install(TARGETS input-leap DESTINATION bin)
+    elseif(WIN32)
+        set(CMAKE_INSTALL_SYSTEM_RUNTIME_DESTINATION .)
+        if(${CMAKE_BUILD_TYPE} MATCHES "Debug")
+            set(CMAKE_INSTALL_DEBUG_LIBRARIES TRUE)
+        endif()
+        set(CMAKE_INSTALL_UCRT_LIBRARIES TRUE)
+        include(InstallRequiredSystemLibraries)
+        add_custom_command(
+            TARGET input-leap POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E remove_directory "${CMAKE_BINARY_DIR}/qtDeploy"
+            COMMAND ${QT_DEPLOY_TOOL} --no-compiler-runtime --no-system-d3d-compiler
+                --qmldir "${CMAKE_CURRENT_SOURCE_DIR}/qml"
+                --dir "${CMAKE_BINARY_DIR}/qtDeploy" $<TARGET_FILE:input-leap>
+        )
+        install(TARGETS input-leap DESTINATION .)
+        install(
+            DIRECTORY ${CMAKE_BINARY_DIR}/qtDeploy/
+            DESTINATION .
+            FILES_MATCHING PATTERN "*.*"
+        )
+    endif()
+
+    return()
+endif()
+
 
 find_package (Qt${QT_DEFAULT_MAJOR_VERSION} ${REQUIRED_QT_VERSION} COMPONENTS Core Widgets Network LinguistTools REQUIRED)
 

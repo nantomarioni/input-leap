@@ -3,7 +3,8 @@
 Primary agent guide for this repo — a fork of the archived upstream Input Leap.
 No nested `AGENTS.md`. On-demand docs: `docs/fork-extension-pattern.md` (how
 fork features attach to core classes), `docs/releases.md` (dev/stable channels,
-signing).
+signing), `docs/ui-redesign.md` (the Qt Quick GUI rewrite: plan, mocks, local
+workflow).
 
 ## What this is
 
@@ -96,8 +97,9 @@ injects keystrokes, so don't run it while using the Mac. Prefer `unittests`.
 ### Useful CMake options (defaults in parens)
 
 `INPUTLEAP_BUILD_GUI` (ON) · `INPUTLEAP_BUILD_TESTS` (ON) · `INPUTLEAP_BUILD_X11`
-(ON) · `INPUTLEAP_BUILD_LIBEI` (OFF) · `QT_DEFAULT_MAJOR_VERSION` (6). Linux
-needs at least one of X11 / libei.
+(ON) · `INPUTLEAP_BUILD_LIBEI` (OFF) · `QT_DEFAULT_MAJOR_VERSION` (6) ·
+`INPUTLEAP_NEW_GUI` (OFF: the Qt Quick rewrite on branch `ui-rewrite`, Qt ≥ 6.8,
+see `docs/ui-redesign.md` §8). Linux needs at least one of X11 / libei.
 
 ## Quality gate
 

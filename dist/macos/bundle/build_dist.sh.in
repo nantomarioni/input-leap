@@ -12,6 +12,8 @@ B_BINDIR="@CMAKE_RUNTIME_OUTPUT_DIRECTORY@"
 B_BUILDTYPE="@CMAKE_BUILD_TYPE@"
 B_INPUTLEAPC="InputLeap.app/Contents/MacOS/input-leapc"
 B_INPUTLEAPS="InputLeap.app/Contents/MacOS/input-leaps"
+# Non-empty when the new Qt Quick GUI is built: macdeployqt scans it for QML imports
+B_QMLDIR="@INPUTLEAP_QMLDIR@"
 
 # Colorized output
 info() { tput bold; echo "$@"; tput sgr0 ; }
@@ -37,19 +39,221 @@ cp -r "$B_BINDIR" "$B_MACOS" || exit 1
 
 DEPLOYQT=@QT_DEPLOY_TOOL@
 
+# Homebrew's Qt links brotli/glib/icu through @rpath; let macdeployqt find
+# them (the official Qt installer's frameworks need nothing extra).
+DEPLOY_LIBPATH=""
+case "$DEPLOYQT" in
+    /opt/homebrew/*) DEPLOY_LIBPATH="-libpath=/opt/homebrew/lib" ;;
+esac
+
+# macdeployqt rewrites install names, which invalidates the linker's ad-hoc
+# signature; on Apple Silicon the kernel then kills the app at launch. Re-sign
+# ad hoc here; CI replaces this with the real identity for Release builds.
+adhoc_sign() {
+    codesign --force --deep --sign - InputLeap.app || exit 1
+}
+
+# The build tree leaves an rpath to the Qt install on the executables. Plugins
+# reference Qt as @rpath/Qt*.framework, so with that rpath in place the app
+# loads a second Qt from the build machine when it exists there. Keep only the
+# bundle's own Frameworks on the rpath.
+# macdeployqt copies whole module trees for `import QtQuick`, including
+# modules the app never imports (3D, PDF, virtual keyboard…); their plugins
+# would then pull their frameworks in. The window imports QtQuick,
+# QtQuick.Controls (FluentWinUI3, with Basic/Fusion as fallbacks),
+# QtQuick.Layouts, QtQuick.Templates and QtQml.
+prune_qml() {
+    Q="InputLeap.app/Contents/Resources/qml"
+    [ -d "$Q" ] || return 0
+    for d in Dialogs LocalStorage Particles Pdf Scene2D Scene3D Timeline VirtualKeyboard NativeStyle VectorImage tooling; do
+        rm -rf "$Q/QtQuick/$d"
+    done
+    for d in macOS iOS Material Universal Imagine designer; do
+        rm -rf "$Q/QtQuick/Controls/$d"
+    done
+    rm -rf "$Q/QtQml/StateMachine" "$Q/QtQml/XmlListModel" "$Q/Qt"
+}
+
+# Image-format plugins pull their frameworks in (qpdf → QtPdf). Keep the
+# formats the app can meet: svg icons, png (built in), jpeg, gif, ico, webp.
+prune_plugins() {
+    P="InputLeap.app/Contents/PlugIns"
+    [ -d "$P" ] || return 0
+    for f in "$P"/imageformats/*.dylib; do
+        case "$(basename "$f")" in
+            libqsvg.dylib|libqjpeg.dylib|libqgif.dylib|libqico.dylib|libqwebp.dylib|libqicns.dylib) ;;
+            *) rm -f "$f" ;;
+        esac
+    done
+    # macdeployqt also copies every QML plugin into PlugIns/quick; keep the
+    # ones whose module survived prune_qml.
+    if [ -d "$P/quick" ]; then
+        for f in "$P"/quick/*.dylib; do
+            n=$(basename "$f")
+            find InputLeap.app/Contents/Resources/qml -name "$n" | grep -q . || rm -f "$f"
+        done
+    fi
+    # the on-screen keyboard input context is not used on the desktop
+    rm -f "$P"/platforminputcontexts/libqtvirtualkeyboardplugin.dylib
+    rm -rf "$P"/virtualkeyboard
+}
+
+# Drop every framework and dylib that nothing left in the bundle references
+# (walks @rpath/@executable_path/@loader_path references from the
+# executables, the plugins and the QML modules).
+prune_frameworks() {
+    FW="InputLeap.app/Contents/Frameworks"
+    keep=$(mktemp); list=$(mktemp); seen=$(mktemp)
+    find InputLeap.app/Contents/MacOS InputLeap.app/Contents/PlugIns InputLeap.app/Contents/Resources/qml -type f \( -perm -u+x -o -name '*.dylib' \) > "$list" 2>/dev/null
+    changed=1
+    while [ "$changed" = 1 ]; do
+        changed=0
+        while read -r bin; do
+            grep -qx "$bin" "$seen" && continue
+            echo "$bin" >> "$seen"
+            file "$bin" | grep -q Mach-O || continue
+            for dep in $(otool -L "$bin" | awk 'NR>1 && $1 ~ /^@(rpath|executable_path|loader_path)\// {print $1}'); do
+                name=$(echo "$dep" | sed -n 's#.*/\([^/]*\.framework\)/.*#\1#p')
+                [ -n "$name" ] || name=$(basename "$dep")
+                if ! grep -qx "$name" "$keep"; then
+                    echo "$name" >> "$keep"
+                    changed=1
+                    if [ -d "$FW/$name" ]; then
+                        echo "$FW/$name/Versions/A/${name%.framework}" >> "$list"
+                    elif [ -f "$FW/$name" ]; then
+                        echo "$FW/$name" >> "$list"
+                    fi
+                fi
+            done
+        done < "$list"
+    done
+    for item in "$FW"/*; do
+        if ! grep -qx "$(basename "$item")" "$keep"; then
+            rm -rf "$item"
+        fi
+    done
+    rm -f "$keep" "$list" "$seen"
+    info "Frameworks kept: $(ls "$FW" | wc -l | tr -d ' ')"
+}
+
+fix_rpaths() {
+    for exe in InputLeap.app/Contents/MacOS/*; do
+        otool -l "$exe" | awk '/LC_RPATH/ {getline; getline; print $2}' | while read -r rp; do
+            install_name_tool -delete_rpath "$rp" "$exe" 2>/dev/null || true
+        done
+        install_name_tool -add_rpath "@executable_path/../Frameworks" "$exe" 2>/dev/null || true
+    done
+}
+
+# Homebrew only: macdeployqt copies Qt's helper dylibs (brotli, glib, icu…)
+# but leaves their @rpath references to each other unresolved. Pull the
+# transitive closure into Frameworks and let every dylib find its siblings
+# next to itself. The official Qt installer's frameworks need none of this.
+homebrew_fixup() {
+    [ -n "$DEPLOY_LIBPATH" ] || return 0
+    FW="InputLeap.app/Contents/Frameworks"
+
+    # Copy the transitive closure of @rpath helper dylibs (brotli, glib, icu…)
+    # that macdeployqt leaves unresolved.
+    copy_rpath_closure() {
+        list=$(mktemp)
+        changed=1
+        while [ "$changed" = 1 ]; do
+            changed=0
+            find InputLeap.app/Contents -type f \( -name '*.dylib' -o -path '*/Versions/A/Qt*' -o -path '*/MacOS/*' \) > "$list"
+            while read -r bin; do
+                file "$bin" | grep -q Mach-O || continue
+                for dep in $(otool -L "$bin" | awk 'NR>1 && $1 ~ /^@rpath\// {print $1}'); do
+                    rel="${dep#@rpath/}"
+                    case "$rel" in
+                        *.framework/*)
+                            fw="${rel%%/*}"
+                            if [ ! -d "$FW/$fw" ] && [ -d "/opt/homebrew/opt/qt/lib/$fw" ]; then
+                                info "Adding $fw (needed by $(basename "$bin"))"
+                                cp -R "/opt/homebrew/opt/qt/lib/$fw" "$FW/" && chmod -R u+w "$FW/$fw" && changed=1
+                                rm -rf "$FW/$fw/Headers" "$FW/$fw/Versions/A/Headers"
+                            fi ;;
+                        *.dylib)
+                            if [ ! -e "$FW/$rel" ]; then
+                                src=$(find -L /opt/homebrew/lib -maxdepth 1 -name "$rel" | head -1)
+                                if [ -n "$src" ]; then
+                                    info "Adding $rel (needed by $(basename "$bin"))"
+                                    cp -L "$src" "$FW/$rel" && chmod u+w "$FW/$rel" && changed=1
+                                else
+                                    warn "Cannot find $rel for $(basename "$bin")"
+                                fi
+                            fi ;;
+                    esac
+                done
+            done < "$list"
+        done
+        rm -f "$list"
+    }
+
+    # Plugins and QML modules reference Qt by its Cellar path, which
+    # macdeployqt does not recognise (it matches the opt/qt symlink). Point
+    # every remaining Homebrew reference at the bundle copy.
+    rewrite_absolute_refs() {
+        find InputLeap.app/Contents -type f \( -name '*.dylib' -o -path '*/Versions/A/Qt*' -o -path '*/MacOS/*' \) | while read -r bin; do
+            file "$bin" | grep -q Mach-O || continue
+            otool -L "$bin" | awk 'NR>1 && $1 ~ /^\/opt\/homebrew\// {print $1}' | while read -r dep; do
+                case "$dep" in
+                    */Qt*.framework/Versions/A/*)
+                        new="@executable_path/../Frameworks/${dep#*/lib/}" ;;
+                    *)
+                        name=$(basename "$dep")
+                        if [ ! -e "$FW/$name" ]; then
+                            info "Adding $name (Homebrew dependency of $(basename "$bin"))"
+                            cp -L "$dep" "$FW/$name" && chmod u+w "$FW/$name"
+                        fi
+                        new="@executable_path/../Frameworks/$name" ;;
+                esac
+                install_name_tool -change "$dep" "$new" "$bin" 2>/dev/null || true
+            done
+        done
+    }
+
+    for pass in 1 2 3; do
+        copy_rpath_closure
+        rewrite_absolute_refs
+    done
+    for lib in "$FW"/*.dylib; do
+        install_name_tool -add_rpath @loader_path "$lib" 2>/dev/null || true
+    done
+}
+
 # Use macdeployqt to include libraries and create dmg
 if [ "$B_BUILDTYPE" = "Release" ]; then
     info "Building Release disk image (dmg)"
     "$DEPLOYQT" InputLeap.app -dmg \
+    ${B_QMLDIR:+-qmldir="$B_QMLDIR"} \
+    $DEPLOY_LIBPATH \
     -executable="$B_INPUTLEAPC" \
     -executable="$B_INPUTLEAPS" || exit 1
+    prune_qml
+    prune_plugins
+    fix_rpaths
+    homebrew_fixup
+    prune_frameworks
+    adhoc_sign
     mv "InputLeap.dmg" "InputLeap-$B_VERSION.dmg" || exit 1
     success "Created InputLeap-$B_VERSION.dmg"
 else
     warn "Disk image (dmg) only created for Release builds"
     info "Building debug bundle"
     "$DEPLOYQT" InputLeap.app -no-strip \
+    ${B_QMLDIR:+-qmldir="$B_QMLDIR"} \
+    $DEPLOY_LIBPATH \
     -executable="$B_INPUTLEAPC" \
     -executable="$B_INPUTLEAPS" || exit 1
+    prune_qml
+    prune_plugins
+    fix_rpaths
+    homebrew_fixup
+    prune_frameworks
+    adhoc_sign
     success "Bundle created successfully"
 fi
+
+# The helpers above end in tput, which fails without a TERM; report our own status.
+exit 0
