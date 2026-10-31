@@ -93,6 +93,8 @@ ctest --test-dir build --verbose   # or ./build/bin/unittests, ./build/bin/integ
 
 `integtests` uses the real machine: on macOS it writes the system clipboard and
 injects keystrokes, so don't run it while using the Mac. Prefer `unittests`.
+`guiunittests` opens two TLS sockets on localhost for the settings channel's
+loopback tests; it needs no network and no certificate of yours.
 
 ### Useful CMake options (defaults in parens)
 
