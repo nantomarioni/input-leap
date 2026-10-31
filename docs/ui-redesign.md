@@ -376,6 +376,12 @@ Development hooks in `src/gui/app/main.cpp`:
   the tray". Qt's warnings and QML errors are appended to `gui.log` in the
   data folder (not during development runs with a settings file). The tray
   is retried for five minutes when it is not there at launch.
+- Windows: windeployqt puts Qt's QML modules under `qml/` next to the
+  executable; the installer ships a `qt.conf` naming that folder and the app
+  adds it as an import path (without either, the window fails with
+  `module "QtQuick.Controls" plugin "qtquickcontrols2plugin" not found`).
+  A failed window shows a dialog with the errors; `gui.log` in
+  `%LOCALAPPDATA%\InputLeap\InputLeap` has them too.
 - `INPUTLEAP_UI_COLOR_SCHEME=dark|light` forces the scheme where the platform
   theme honours it (macOS yes, offscreen no).
 
