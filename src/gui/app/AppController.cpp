@@ -1490,5 +1490,14 @@ void AppController::log(const QString& text, const QString& level)
 {
     m_logModel->append(LogModel::App, level, text);
     m_lastEvent = text;
+    // gui.log (and stderr) get the app's own lines too, so a machine can be
+    // diagnosed from its files alone
+    if (level == QLatin1String("ERROR") || level == QLatin1String("FATAL")) {
+        qCritical("app: %s", qPrintable(text));
+    } else if (level == QLatin1String("WARNING")) {
+        qWarning("app: %s", qPrintable(text));
+    } else {
+        qInfo("app: %s", qPrintable(text));
+    }
     emit stateChanged();
 }
