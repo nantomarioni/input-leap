@@ -2,11 +2,7 @@ name: Release
 
 on:
   workflow_dispatch:
-    inputs:
-      new_gui:
-        description: "Build the new Qt Quick GUI (INPUTLEAP_NEW_GUI=ON, Qt 6.9) instead of the legacy one"
-        type: boolean
-        default: false
+    inputs: {}
   push:
     branches:
       - fork
@@ -28,7 +24,7 @@ jobs:
        include:
          - name: macOS-Apple_Silicon
            os: macos-14
-           qt-version: ${{ inputs.new_gui && '6.9.2' || '6.6' }}
+           qt-version: 6.9.2
            min-macOS-version: 14
            arch: 'arm64'
 
@@ -93,7 +89,6 @@ jobs:
                 -DCMAKE_OSX_DEPLOYMENT_TARGET=${{matrix.min-macOS-version}} -DCMAKE_UNITY_BUILD=1 \
                 -DQT_DEFAULT_MAJOR_VERSION=$(echo ${{matrix.qt-version}} | cut -c -1) \
                 -DINPUTLEAP_VERSION_DESC=git \
-                -DINPUTLEAP_NEW_GUI=${{ inputs.new_gui && 'ON' || 'OFF' }} \
                 -DINPUTLEAP_BUILD_GULRAK_FILESYSTEM=${{ matrix.qt-version == '5.15' && '1' || '0' }} \
                 -DCMAKE_OSX_ARCHITECTURES="${{matrix.arch}}"
 
@@ -156,7 +151,7 @@ jobs:
        include:
          - name: Windows Qt6
            os: windows-2022
-           qt-version: ${{ inputs.new_gui && '6.9.2' || '6.6' }}
+           qt-version: 6.9.2
            qt-major: 6
 
     steps:
@@ -194,7 +189,6 @@ jobs:
           cmake -S ..\input-leap -G "$env:CMAKE_GEN" -A x64 -D CMAKE_BUILD_TYPE=$B_BUILD_TYPE `
             -DQT_DEFAULT_MAJOR_VERSION=${{matrix.qt-major}} `
             -DINPUTLEAP_VERSION_DESC=git `
-            -DINPUTLEAP_NEW_GUI=${{ inputs.new_gui && 'ON' || 'OFF' }} `
             -DINPUTLEAP_BUILD_GULRAK_FILESYSTEM=${{ matrix.qt-major == '5' && '1' || '0' }} `
             -DDNSSD_LIB="$env:BONJOUR_SDK_HOME\Lib\x64\dnssd.lib" -D CMAKE_INSTALL_PREFIX=input-leap-install
         env:

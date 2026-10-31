@@ -303,7 +303,7 @@ without blocking fixes to the core.
    languages can return later?
 3. **External config file mode**: keep it (cheap, mocked in the Server page) or
    drop it?
-4. **Transition**: CMake option `INPUTLEAP_NEW_GUI` defaulting OFF until M4
+4. **Transition**: the rewrite lived behind a CMake option (`INPUTLEAP_NEW_GUI`, default OFF) until M4 made it the only GUI
    (recommended), or a runtime flag?
 5. ~~Where the new GUI lives~~ Resolved: everything under `src/gui/`, the
    overlay, router and updater included; no fork/upstream distinction in the
@@ -319,26 +319,21 @@ without blocking fixes to the core.
 Branch `ui-rewrite` holds the rewrite. CI runs only on pushes to `fork` and on
 `fork-v*` tags, so pushing the branch costs nothing; merge into `fork` a few
 times per milestone at most, since each push there builds the macOS and Windows
-installers (the macOS runner is the expensive one). Pushes to `fork` keep
-building the legacy GUI until M4; a manual run of `release.yml`
-(workflow_dispatch, input `new_gui`) builds the new GUI on Qt 6.9 on both
-platforms when an installer is wanted.
+installers (the macOS runner is the expensive one). Since M4 the Qt Quick GUI
+is the only GUI and CI builds it on Qt 6.9.
 
-Build tree `build/ui` (ignored by git), new GUI on, tests off:
+Build tree `build/ui` (ignored by git):
 
 ```bash
-cmake -S . -B build/ui -G Ninja -DCMAKE_BUILD_TYPE=Debug -DINPUTLEAP_NEW_GUI=ON \
-      -DINPUTLEAP_BUILD_TESTS=OFF \
+cmake -S . -B build/ui -G Ninja -DCMAKE_BUILD_TYPE=Debug \
       -DCMAKE_PREFIX_PATH="/opt/homebrew/opt/qt;/opt/homebrew/opt/openssl@3" \
       -DCMAKE_OSX_SYSROOT="$(xcrun --show-sdk-path)"
-cmake --build build/ui --target input-leap --parallel        # the window only, about a minute
-./build/ui/bin/input-leap                                    # runs against Homebrew Qt
-cmake --build build/ui --target InputLeap_MacOS --parallel   # core + deployed bundle in build/ui/bundle
-open build/ui/bundle/InputLeap.app                           # the deployed app, self-contained
+cmake --build build/ui --target input-leap guiunittests --parallel   # the window and its tests
+./build/ui/bin/guiunittests
+./build/ui/bin/input-leap                                            # runs against Homebrew Qt
+cmake --build build/ui --target InputLeap_MacOS --parallel           # core + deployed bundle in build/ui/bundle
+open build/ui/bundle/InputLeap.app                                   # the deployed app, self-contained
 ```
-
-The legacy GUI builds locally the same way without `-DINPUTLEAP_NEW_GUI=ON`
-(use another tree, e.g. `build/legacy`), handy for side-by-side comparison.
 
 Development hooks in `src/gui/app/main.cpp`:
 
@@ -347,8 +342,12 @@ Development hooks in `src/gui/app/main.cpp`:
   headless; the offscreen platform has no real palette, so standard buttons
   look faint there. Judge looks on the real platform (the window shows for
   under two seconds).
-- `INPUTLEAP_UI_DEMO=1` fills the Overview with sample state (join request,
-  update chip). `INPUTLEAP_UI_DEMO_OVERLAY=1` fires one HUD overlay.
+- `INPUTLEAP_UI_SETTINGS_FILE=<ini>` uses that file as the settings store, so
+  a development run never touches the real one; `INPUTLEAP_UI_DRY_RUN=1`
+  (implied by `INPUTLEAP_UI_GRAB`) never starts the core, discovery or the
+  update check, so a development run never touches the fleet.
+  `INPUTLEAP_UI_PAGE=<0-6>` opens that page. `INPUTLEAP_UI_DEMO_OVERLAY=1`
+  fires one HUD overlay.
 - `INPUTLEAP_UI_COLOR_SCHEME=dark|light` forces the scheme where the platform
   theme honours it (macOS yes, offscreen no).
 
@@ -371,11 +370,12 @@ Local quirks handled in the build:
   script also returns its own exit status instead of `tput`'s.
 - QtSvg is linked only so the deploy tools ship the SVG image/icon plugins.
 
-M0 status, 2026-10-31: the shell builds and runs on macOS, both from Homebrew
-Qt and from the deployed bundle (`build/ui/bundle/InputLeap.app`, verified to
-load only bundled libraries, SVG icons included): header with the role
-switch, rail, Overview with the live addresses, status bar, log drawer, tray
-icon with menu, HUD overlay, system light/dark. Next: M1 (the application
-layer). The Windows build has not been run; dispatch `release.yml` with
-`new_gui` when an installer is wanted.
+Status, 2026-10-31: M0 to M4 are done on this Mac. The Qt Quick GUI is the
+only GUI (the Widgets sources and the translations are gone; the reused
+UI-free classes moved into `src/gui/app/`), all seven pages exist, the layout
+is editable by drag and drop, join and trust requests are inline, and the
+unit tests cover the parser, the settings store and the layout model. Not
+yet verified: a Windows build (the next push to `fork` makes one) and a
+full client/server session on the real fleet. Next: M5 polish, then the
+sync channel (M6, M7).
 

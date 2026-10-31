@@ -44,13 +44,13 @@ this repo (study it before adding more):
   `inputleap_fork_server`, platform-gated via `if(WIN32/APPLE/LINUX)`), and the
   per-target `CMakeLists.txt` under `src/{client,server,daemon}` and
   `src/lib/platform` + the test CMakeLists link/expose it.
-- **GUI fork code is the exception**: Qt sources live in `src/fork/gui/`
-  (`UpdateChecker`, `NotificationRouter`, `OverlayNotification`) and are compiled *into the gui target*
-  (listed directly in `src/gui/CMakeLists.txt` so AUTOMOC picks them up),
-  with a one-line hook in `MainWindow.cpp`. The update checker polls the
-  `latest-build` GitHub Release and compares its target commit against the
-  hash inside `INPUTLEAP_VERSION` (menu: Help → "Check for Updates...", plus
-  a rate-limited daily startup check).
+- **The GUI is not an extension**: `src/gui/` is the fork's own Qt Quick
+  app (docs/ui-redesign.md). `src/fork/gui/` keeps the pieces that predate it
+  (`UpdateChecker`, `NotificationRouter`, `OverlayNotification`), compiled
+  into the gui target and driven from `src/gui/app/AppController.cpp`. The
+  update checker polls the `latest-build` GitHub Release and compares its
+  target commit against the hash inside `INPUTLEAP_VERSION` (Settings →
+  Updates, the tray menu, plus a rate-limited daily startup check).
 
 **Invariants the pattern relies on (enforced only by convention):**
 

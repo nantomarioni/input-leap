@@ -30,11 +30,12 @@ ColumnLayout {
     ColumnLayout {
         spacing: 4
         Label { text: qsTr("Name"); font.pixelSize: Theme.smallFontSize; font.weight: Font.DemiBold; color: Theme.muted }
-        RowLayout {
+        Flow {
+            Layout.fillWidth: true
             spacing: 8
             TextField {
                 id: nameField
-                Layout.preferredWidth: 200
+                width: 200
                 text: panel.valid ? panel.s.name : ""
                 font.family: App.monoFontFamily
                 validator: RegularExpressionValidator { regularExpression: /[A-Za-z0-9._-]{0,255}/ }
@@ -116,7 +117,7 @@ ColumnLayout {
         spacing: 4
         Label { text: qsTr("Modifier keys on this computer"); font.pixelSize: Theme.smallFontSize; font.weight: Font.DemiBold; color: Theme.muted }
         GridLayout {
-            columns: panel.compact ? 2 : 4
+            columns: panel.compact ? 1 : 3
             columnSpacing: 10
             rowSpacing: 4
             Repeater {

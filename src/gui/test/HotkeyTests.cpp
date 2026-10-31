@@ -15,7 +15,7 @@
 */
 
 
-#include "../src/Hotkey.h"
+#include "Hotkey.h"
 #include <gtest/gtest.h>
 #include "Utils.h"
 

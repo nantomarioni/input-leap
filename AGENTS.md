@@ -12,9 +12,9 @@ Input Leap shares one keyboard/mouse (and clipboard) across computers over TCP:
 the *server* owns the physical input, each *client* receives injected input.
 C++ descended from Synergy → Barrier → Input Leap, with a Qt GUI.
 
-- **Stack:** C++17 (Qt6) / C++14 (Qt5), Objective-C++ on macOS; CMake ≥ 3.21;
-  GoogleTest/GoogleMock. Deps: Qt, OpenSSL ≥ 1.1.1, Bonjour/Avahi mDNS, X11 /
-  libei, Cocoa/Carbon, Win32. Submodules in `ext/`: `gtest`, `gulrak-filesystem`.
+- **Stack:** C++17, Objective-C++ on macOS; CMake ≥ 3.21; GoogleTest/GoogleMock.
+  Deps: Qt ≥ 6.8 (Qt Quick, FluentWinUI3 style) for the GUI, OpenSSL ≥ 1.1.1,
+  Bonjour/Avahi mDNS, X11 / libei, Cocoa/Carbon, Win32. Submodules in `ext/`: `gtest`, `gulrak-filesystem`.
 - **Platforms:** Windows 10/11, macOS 10.12+, Linux (X11, Wayland via libei),
   FreeBSD, OpenBSD. This fleet: a Windows server, Apple Silicon clients.
 
@@ -63,7 +63,7 @@ Outputs land in `build/bin/` (executables) and `build/lib/`. The four binaries:
 |---|---|---|
 | `input-leaps` | server daemon (`src/server`) | always |
 | `input-leapc` | client daemon (`src/client`) | always |
-| `input-leap` | Qt GUI (`src/gui`) | `INPUTLEAP_BUILD_GUI=ON` (default) |
+| `input-leap` | Qt Quick GUI (`src/gui`: `app/` C++ layer, `qml/` window) | `INPUTLEAP_BUILD_GUI=ON` (default) |
 | `input-leapd` | Windows service wrapper (`src/daemon`) | Windows only |
 
 Run a daemon directly: `./build/bin/input-leaps -f` / `input-leapc -f <server-ip>`;
@@ -96,10 +96,9 @@ injects keystrokes, so don't run it while using the Mac. Prefer `unittests`.
 
 ### Useful CMake options (defaults in parens)
 
-`INPUTLEAP_BUILD_GUI` (ON) · `INPUTLEAP_BUILD_TESTS` (ON) · `INPUTLEAP_BUILD_X11`
-(ON) · `INPUTLEAP_BUILD_LIBEI` (OFF) · `QT_DEFAULT_MAJOR_VERSION` (6) ·
-`INPUTLEAP_NEW_GUI` (OFF: the Qt Quick rewrite on branch `ui-rewrite`, Qt ≥ 6.8,
-see `docs/ui-redesign.md` §8). Linux needs at least one of X11 / libei.
+`INPUTLEAP_BUILD_GUI` (ON; needs Qt ≥ 6.8, no Qt 5) · `INPUTLEAP_BUILD_TESTS`
+(ON) · `INPUTLEAP_BUILD_X11` (ON) · `INPUTLEAP_BUILD_LIBEI` (OFF). Linux needs
+at least one of X11 / libei. GUI workflow and dev hooks: `docs/ui-redesign.md` §8.
 
 ## Quality gate
 
@@ -128,9 +127,9 @@ triggers on `master`). So before pushing:
    class by inheritance + `friend` (via a relative include into
    `src/fork/lib/<component>/`) or a `fork_*` free-function hook; this keeps
    them in one place and portable (e.g. to Deskflow). Fork sources are listed in
-   `src/fork/CMakeLists.txt` (target `inputleap_fork_server`, platform-gated);
-   GUI fork code is the exception — `src/fork/gui/` is compiled into the gui
-   target for AUTOMOC. Fork-only logging is `FORK_LOG(...)`
+   `src/fork/CMakeLists.txt` (target `inputleap_fork_server`, platform-gated).
+   The GUI (`src/gui/`) is the fork's own code, not an extension; `src/fork/gui/`
+   holds the overlay, notification router and update checker it compiles in. Fork-only logging is `FORK_LOG(...)`
    (`src/fork/lib/base/LogExtension.h` → `inputleap_fork_debug.log` in the temp
    dir). Wiring examples: `docs/fork-extension-pattern.md`.
 2. **Each `*Extension` class has exactly one inheritor** — its host recovers
@@ -176,7 +175,7 @@ triggers on `master`). So before pushing:
 └── src/
     ├── client/ server/         # input-leapc / input-leaps executables (thin mains)
     ├── daemon/                 # input-leapd Windows service (Win only)
-    ├── gui/                    # Qt GUI app `input-leap` (src/, res/, test/)
+    ├── gui/                    # Qt Quick GUI `input-leap`: app/ (C++ layer), qml/ (window), res/ (icons), test/
     ├── lib/                    # core libraries (from upstream; fix in place)
     │   ├── arch/{unix,win32}   # arch abstraction
     │   ├── base/               # logging, utilities
@@ -188,7 +187,7 @@ triggers on `master`). So before pushing:
     ├── fork/                   # fork features (extension pattern)
     │   ├── CMakeLists.txt       # builds the inputleap_fork_server static lib
     │   ├── lib/{base,client,inputleap,platform,server}/  # *Extension.{h,cpp,mm}, QuitReason, LogExtension
-    │   └── gui/                 # UpdateChecker, NotificationRouter, OverlayNotification (built into the gui target)
+    │   └── gui/                 # UpdateChecker, NotificationRouter, OverlayNotification (compiled into the gui)
     └── test/{unittests,integtests,mock,global}
 ```
 
@@ -223,6 +222,7 @@ Then run the quality gate and push to `fork` (CI publishes `latest-build`).
   (archived, still readable) and its wiki; config examples in `doc/`.
 - **Fixes and advisories to port:** github.com/deskflow/deskflow — its Security
   tab and release notes.
+- **The GUI's design, pages, dev hooks and local workflow:** `docs/ui-redesign.md`.
 - **Release pipeline:** `.github/workflows/release.yml` + `docs/releases.md`.
   `builds.yml` / `RELEASING.md` are upstream's (Linux recipes too), reference only.
 - **The fork pattern in detail:** `docs/fork-extension-pattern.md` and the
