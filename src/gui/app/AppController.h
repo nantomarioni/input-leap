@@ -35,6 +35,7 @@
 #include "SyncService.h"
 #include "TlsIdentity.h"
 
+class QFileSystemWatcher;
 class QQmlEngine;
 class QJSEngine;
 class QTimer;
@@ -53,7 +54,8 @@ class AppController : public QObject
     QML_SINGLETON
 
     Q_PROPERTY(AppSettings* settings READ settings CONSTANT)
-    Q_PROPERTY(LayoutModel* layout READ layout CONSTANT)
+    Q_PROPERTY(LayoutModel* layout READ layout NOTIFY layoutSourceChanged)
+    Q_PROPERTY(QString layoutSource READ layoutSource NOTIFY layoutSourceChanged)
     Q_PROPERTY(TlsIdentity* identity READ identity CONSTANT)
     Q_PROPERTY(Discovery* discovery READ discovery CONSTANT)
     Q_PROPERTY(CoreProcess* core READ core CONSTANT)
@@ -111,7 +113,10 @@ public:
     static AppController* create(QQmlEngine* qmlEngine, QJSEngine* jsEngine);
 
     AppSettings* settings() const { return m_settings; }
-    LayoutModel* layout() const { return m_layout; }
+    // The layout the server runs: the editable one kept in the settings, or
+    // a read-only reading of the configuration file when one is used.
+    LayoutModel* layout() const { return m_externalActive ? m_external : m_layout; }
+    QString layoutSource() const;
     TlsIdentity* identity() const { return m_identity; }
     Discovery* discovery() const { return m_discovery; }
     CoreProcess* core() const { return m_core; }
@@ -201,6 +206,7 @@ public slots:
 signals:
     void roleChanged();
     void stateChanged();
+    void layoutSourceChanged();
     void requestsChanged();
     void notify(const QString& title, const QString& text);   // tray balloon / system notification
 
@@ -217,6 +223,7 @@ private:
     void onPeerResolved(const QString& name, const QString& host, quint16 port, const QMap<QString, QString>& txt);
     void startDiscovery();
     void startSync();
+    void reloadExternalLayout();
     void publishSync();
     int syncTrusted(const QString& sha256, const QString& name, bool incoming) const;
     QJsonObject handleSyncRequest(const QString& peer, const QString& kind, const QJsonObject& body, int access);
@@ -236,6 +243,10 @@ private:
     CoreProcess* m_core = nullptr;
     SyncService* m_sync = nullptr;
     LayoutModel* m_mirror = nullptr;
+    LayoutModel* m_external = nullptr;
+    QFileSystemWatcher* m_externalWatcher = nullptr;
+    bool m_externalActive = false;
+    QString m_externalPath;
     bool m_mirrorAvailable = false;
     bool m_dryRun = false;
     bool m_trayAvailable = false;

@@ -18,6 +18,7 @@
 
 #include <QFile>
 #include <QJsonArray>
+#include <QRegularExpression>
 #include <QTextStream>
 
 #include <algorithm>
@@ -231,8 +232,8 @@ int LayoutModel::indexOf(const QString& name) const
         return -1;
     }
     for (int i = 0; i < m_screens.size(); ++i) {
-        if (m_screens[i].name == name) {
-            return i;
+        if (m_screens[i].name.compare(name, Qt::CaseInsensitive) == 0) {
+            return i;   // the core matches names without regard to case
         }
     }
     return -1;
@@ -1089,6 +1090,206 @@ void LayoutModel::loadJson(const QJsonObject& json)
     m_dimmingPercentage = qBound(0, options.value(QStringLiteral("dimmingPercentage")).toInt(30), 100);
 
     m_mirrorHotkeys = json.value(QStringLiteral("hotkeys")).toArray().toVariantList();
+    endResetModel();
+    emit layoutChanged();
+    emit optionsChanged();
+    emit hotkeysChanged();
+}
+
+// ---- a .conf of the core's format --------------------------------------------------
+
+void LayoutModel::loadConfigText(const QString& text, const QString& serverName)
+{
+    struct RawLink { int from; int side; int a1; int a2; QString to; int b1; int b2; };
+    QVector<ScreenConfig> screens;
+    QVector<RawLink> links;
+    QVariantList hotkeys;
+    auto indexNamed = [&screens](const QString& name) {
+        for (int i = 0; i < screens.size(); ++i) {
+            if (screens[i].name.compare(name, Qt::CaseInsensitive) == 0) return i;
+        }
+        return -1;
+    };
+    auto ensureScreen = [&](const QString& name) {
+        int i = indexNamed(name);
+        if (i < 0) {
+            ScreenConfig s;
+            s.name = name;
+            screens << s;
+            i = screens.size() - 1;
+        }
+        return i;
+    };
+
+    // options come back as defaults first
+    m_hasHeartbeat = false; m_heartbeat = 5000; m_relativeMouseMoves = false; m_screenSaverSync = true;
+    m_win32KeepForeground = false; m_hasSwitchDelay = false; m_switchDelay = 250; m_hasSwitchDoubleTap = false;
+    m_switchDoubleTap = 250; m_switchCornerSize = 0; m_switchCorners.fill(false); m_ignoreAutoConfigClient = false;
+    m_enableDragAndDrop = true; m_clipboardSharing = true; m_clipboardSharingSize = 100ull * 1000 * 1000;
+    m_dimmingEnabled = false; m_dimmingPercentage = 30;
+
+    static const QRegularExpression linkPattern(QStringLiteral("^(left|right|up|down)\\s*(?:\\(\\s*(\\d+)\\s*,\\s*(\\d+)\\s*\\))?\\s*=\\s*([^\\s(]+)\\s*(?:\\(\\s*(\\d+)\\s*,\\s*(\\d+)\\s*\\))?\\s*$"));
+    static const QStringList modifierNames{QStringLiteral("shift"), QStringLiteral("ctrl"), QStringLiteral("alt"), QStringLiteral("meta"), QStringLiteral("super"), QStringLiteral("none")};
+    static const QStringList fixNames{QStringLiteral("halfDuplexCapsLock"), QStringLiteral("halfDuplexNumLock"), QStringLiteral("halfDuplexScrollLock"), QStringLiteral("xtestIsXineramaUnaware"), QStringLiteral("preserveFocus")};
+    static const QStringList cornerNames{QStringLiteral("top-left"), QStringLiteral("top-right"), QStringLiteral("bottom-left"), QStringLiteral("bottom-right")};
+    auto parseCorners = [&](const QString& value, QVector<bool>& corners) {
+        const QStringList parts = value.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+        for (const QString& part : parts) {
+            if (part == QLatin1String("all")) corners.fill(true);
+            else if (part == QLatin1String("none")) corners.fill(false);
+            else if (part.startsWith(QLatin1Char('+')) || part.startsWith(QLatin1Char('-'))) {
+                const int c = cornerNames.indexOf(part.mid(1));
+                if (c >= 0) corners[c] = part.startsWith(QLatin1Char('+'));
+            }
+        }
+    };
+    auto isTrue = [](const QString& v) { return v == QLatin1String("true") || v == QLatin1String("yes") || v == QLatin1String("on") || v == QLatin1String("1"); };
+
+    QString section;
+    int current = -1;
+    const QStringList lines = text.split(QLatin1Char('\n'));
+    for (QString line : lines) {
+        const int hash = line.indexOf(QLatin1Char('#'));
+        if (hash >= 0) line.truncate(hash);
+        line = line.trimmed();
+        if (line.isEmpty()) continue;
+        if (line.startsWith(QLatin1String("section:"))) {
+            section = line.mid(8).trimmed();
+            current = -1;
+            continue;
+        }
+        if (line == QLatin1String("end")) { section.clear(); current = -1; continue; }
+        const bool header = line.endsWith(QLatin1Char(':')) && !line.contains(QLatin1Char('='));
+        if (section == QLatin1String("screens")) {
+            if (header) { current = ensureScreen(line.chopped(1).trimmed()); continue; }
+            if (current < 0) continue;
+            const int eq = line.indexOf(QLatin1Char('='));
+            if (eq < 0) continue;
+            const QString key = line.left(eq).trimmed();
+            const QString value = line.mid(eq + 1).trimmed();
+            ScreenConfig& s = screens[current];
+            const int modifier = modifierNames.indexOf(key);
+            const int fix = fixNames.indexOf(key);
+            if (modifier >= 0 && modifier < ScreenConfig::None) {
+                const int to = modifierNames.indexOf(value);
+                if (to >= 0) s.modifiers[modifier] = to;
+            } else if (fix >= 0) {
+                s.fixes[fix] = isTrue(value);
+            } else if (key == QLatin1String("switchCorners")) {
+                parseCorners(value, s.corners);
+            } else if (key == QLatin1String("switchCornerSize")) {
+                s.cornerSize = value.toInt();
+            }
+        } else if (section == QLatin1String("links")) {
+            if (header) { current = ensureScreen(line.chopped(1).trimmed()); continue; }
+            if (current < 0) continue;
+            const QRegularExpressionMatch m = linkPattern.match(line);
+            if (!m.hasMatch()) continue;
+            RawLink link;
+            link.from = current;
+            const QString dir = m.captured(1);
+            link.side = dir == QLatin1String("left") ? Left : dir == QLatin1String("right") ? Right : dir == QLatin1String("up") ? Up : Down;
+            link.a1 = m.captured(2).isEmpty() ? 0 : m.captured(2).toInt();
+            link.a2 = m.captured(3).isEmpty() ? 100 : m.captured(3).toInt();
+            link.to = m.captured(4);
+            link.b1 = m.captured(5).isEmpty() ? 0 : m.captured(5).toInt();
+            link.b2 = m.captured(6).isEmpty() ? 100 : m.captured(6).toInt();
+            ensureScreen(link.to);
+            links << link;
+        } else if (section == QLatin1String("aliases")) {
+            if (header) { current = ensureScreen(line.chopped(1).trimmed()); continue; }
+            if (current >= 0 && !screens[current].aliases.contains(line)) screens[current].aliases << line;
+        } else if (section == QLatin1String("options")) {
+            const int eq = line.indexOf(QLatin1Char('='));
+            if (eq < 0) continue;
+            const QString key = line.left(eq).trimmed();
+            const QString value = line.mid(eq + 1).trimmed();
+            if (key.startsWith(QLatin1String("keystroke(")) || key.startsWith(QLatin1String("mousebutton("))) {
+                QVariantMap hotkey;
+                hotkey.insert(QStringLiteral("key"), key);
+                hotkey.insert(QStringLiteral("actions"), QVariantList{value});
+                hotkey.insert(QStringLiteral("text"), line);
+                hotkeys << hotkey;
+            } else if (key == QLatin1String("heartbeat")) { m_hasHeartbeat = true; m_heartbeat = value.toInt(); }
+            else if (key == QLatin1String("relativeMouseMoves")) m_relativeMouseMoves = isTrue(value);
+            else if (key == QLatin1String("screenSaverSync")) m_screenSaverSync = isTrue(value);
+            else if (key == QLatin1String("win32KeepForeground")) m_win32KeepForeground = isTrue(value);
+            else if (key == QLatin1String("switchDelay")) { m_hasSwitchDelay = true; m_switchDelay = value.toInt(); }
+            else if (key == QLatin1String("switchDoubleTap")) { m_hasSwitchDoubleTap = true; m_switchDoubleTap = value.toInt(); }
+            else if (key == QLatin1String("switchCorners")) parseCorners(value, m_switchCorners);
+            else if (key == QLatin1String("switchCornerSize")) m_switchCornerSize = value.toInt();
+            else if (key == QLatin1String("clipboardSharing")) m_clipboardSharing = isTrue(value);
+            else if (key == QLatin1String("clipboardSharingSize")) m_clipboardSharingSize = value.toULongLong();
+            else if (key == QLatin1String("screenDimmingEnabled")) m_dimmingEnabled = isTrue(value);
+            else if (key == QLatin1String("screenDimmingPercentage")) m_dimmingPercentage = qBound(0, value.toInt(), 100);
+        }
+    }
+
+    // Desktops from the links: start at the server, walk outwards; a link's
+    // ranges size the neighbour along the shared edge.
+    QVector<bool> placed(screens.size(), false);
+    int start = indexNamed(serverName);
+    if (start < 0 && !screens.isEmpty()) start = 0;
+    auto place = [&](int a, int side, int a1, int a2, int b, int b1, int b2) {
+        ScreenConfig& A = screens[a];
+        ScreenConfig& B = screens[b];
+        const QRect ra = A.desktop();
+        DisplayConfig d;
+        const bool horizontal = side == Left || side == Right;
+        const int edgeA = horizontal ? ra.height() : ra.width();
+        const int spanA = a2 - a1, spanB = b2 - b1;
+        if (spanA > 0 && spanB > 0) {
+            const int edgeB = qMax(100, int(qint64(edgeA) * spanA / spanB));
+            if (horizontal) d.height = edgeB; else d.width = edgeB;
+        }
+        B.displays = {d};
+        const QRect rb = B.desktop();
+        if (horizontal) {
+            B.x = side == Right ? rightOf(ra) : ra.x() - rb.width();
+            B.y = ra.y() + int(qint64(ra.height()) * a1 / 100) - int(qint64(rb.height()) * b1 / 100);
+        } else {
+            B.y = side == Down ? bottomOf(ra) : ra.y() - rb.height();
+            B.x = ra.x() + int(qint64(ra.width()) * a1 / 100) - int(qint64(rb.width()) * b1 / 100);
+        }
+        placed[b] = true;
+    };
+    if (start >= 0) {
+        screens[start].x = 0;
+        screens[start].y = 0;
+        placed[start] = true;
+        bool progress = true;
+        while (progress) {
+            progress = false;
+            for (const RawLink& l : std::as_const(links)) {
+                const int to = indexNamed(l.to);
+                if (to < 0 || to == l.from) continue;
+                if (placed[l.from] && !placed[to]) {
+                    place(l.from, l.side, l.a1, l.a2, to, l.b1, l.b2);
+                    progress = true;
+                } else if (!placed[l.from] && placed[to]) {
+                    const int opposite = l.side == Left ? Right : l.side == Right ? Left : l.side == Up ? Down : Up;
+                    place(to, opposite, l.b1, l.b2, l.from, l.a1, l.a2);
+                    progress = true;
+                }
+            }
+        }
+    }
+    // whatever no link reaches goes to the right end
+    for (int i = 0; i < screens.size(); ++i) {
+        if (placed[i]) continue;
+        int right = 0;
+        for (int j = 0; j < screens.size(); ++j) {
+            if (placed[j]) right = qMax(right, rightOf(screens[j].desktop()));
+        }
+        screens[i].x = right;
+        screens[i].y = 0;
+        placed[i] = true;
+    }
+
+    beginResetModel();
+    m_screens = screens;
+    m_serverName = start >= 0 ? screens[start].name : serverName;
+    m_mirrorHotkeys = hotkeys;
     endResetModel();
     emit layoutChanged();
     emit optionsChanged();

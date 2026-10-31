@@ -12,6 +12,8 @@ Item {
     readonly property bool mirror: App.role === App.Client
     readonly property var cfg: mirror ? App.mirrorLayout : App.layout
     readonly property var srv: mirror && App.mirrorAvailable ? App.sync.serverSettings : App.settings
+    // the server runs a configuration file: the layout's options come from it, read-only
+    readonly property bool fromFile: !mirror && App.layout.isMirror
 
     EmptyState {
         anchors.fill: parent
@@ -85,6 +87,14 @@ Item {
                     }
                 }
                 Label {
+                    visible: page.fromFile
+                    Layout.fillWidth: true
+                    text: qsTr("The options and hotkeys below, and the Layout page, show what the file says; edit the file to change them (it reloads when saved).")
+                    color: Theme.muted
+                    font.pixelSize: Theme.smallFontSize
+                    wrapMode: Text.WordWrap
+                }
+                Label {
                     visible: !page.srv.useExternalConfig
                     text: qsTr("Written to %1 on every start.").arg(page.mirror ? page.srv.generatedConfigPath : App.generatedConfigPath)
                     color: Theme.muted
@@ -138,6 +148,7 @@ Item {
                     Layout.preferredWidth: 1
                     padding: 14
                     spacing: 0
+                    enabled: !page.fromFile
                     SectionTitle { text: qsTr("Switching screens"); Layout.bottomMargin: 6 }
                     SettingRow {
                         label: qsTr("Switch after waiting at the edge")
@@ -184,6 +195,7 @@ Item {
                     Layout.preferredWidth: 1
                     padding: 14
                     spacing: 0
+                    enabled: !page.fromFile
                     SectionTitle { text: qsTr("Behaviour"); Layout.bottomMargin: 6 }
                     SettingRow {
                         label: qsTr("Share the clipboard")
@@ -230,6 +242,7 @@ Item {
                     Layout.preferredWidth: 1
                     padding: 14
                     spacing: 0
+                    enabled: !page.fromFile
                     SectionTitle { text: qsTr("Inactive screens"); Layout.bottomMargin: 6 }
                     SettingRow {
                         label: qsTr("Dim the screens the cursor is not on")
@@ -258,6 +271,7 @@ Item {
                 padding: 14
                 spacing: 8
 
+                enabled: !page.fromFile
                 RowLayout {
                     Layout.fillWidth: true
                     SectionTitle { text: qsTr("Hotkeys & actions") }

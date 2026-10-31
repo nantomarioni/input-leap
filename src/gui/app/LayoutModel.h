@@ -259,6 +259,10 @@ public:
     void save();
     QJsonObject toJson() const;                 // the whole server configuration
     void loadJson(const QJsonObject& json);     // replaces everything; a mirror's only input
+    // A configuration file in the core's format (section: screens / links /
+    // aliases / options): screens, options and hotkeys as written, desktops
+    // laid out from the links (sizes from their ranges). For a mirror.
+    void loadConfigText(const QString& text, const QString& serverName);
     Q_INVOKABLE QString configText() const;
     Q_INVOKABLE bool writeConfig(const QString& path) const;
 

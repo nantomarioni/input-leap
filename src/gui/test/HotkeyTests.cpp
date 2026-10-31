@@ -167,7 +167,7 @@ void doHotkeyLoadSaveTest(const TestHotKey& test_hotkey)
 
     Hotkey hotkey_before, hotkey_after;
     {
-        QSettings settings(filename, QSettings::NativeFormat);
+        QSettings settings(filename, QSettings::IniFormat);   // a file on every platform (NativeFormat is the registry on Windows)
 
         hotkey_before = createHotkey(test_hotkey);
 
@@ -176,7 +176,7 @@ void doHotkeyLoadSaveTest(const TestHotKey& test_hotkey)
         settings.endGroup();
     }
     {
-        QSettings settings(filename, QSettings::NativeFormat);
+        QSettings settings(filename, QSettings::IniFormat);   // a file on every platform (NativeFormat is the registry on Windows)
 
         settings.beginGroup("test");
         hotkey_after.loadSettings(settings);

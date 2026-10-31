@@ -280,10 +280,10 @@ std::string create_fingerprint_randomart(const std::vector<std::uint8_t>& dgst_r
             y += (input & 0x2) ? 1 : -1;
 
             /* assure we are still in bounds */
-            x = std::max(x, 0);
-            y = std::max(y, 0);
-            x = std::min(x, FLDSIZE_X - 1);
-            y = std::min(y, FLDSIZE_Y - 1);
+            x = (std::max)(x, 0);
+            y = (std::max)(y, 0);
+            x = (std::min)(x, FLDSIZE_X - 1);
+            y = (std::min)(y, FLDSIZE_Y - 1);
 
             /* augment the field */
             if (field[x][y] < len - 2)

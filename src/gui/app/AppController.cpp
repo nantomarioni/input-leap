@@ -36,6 +36,7 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFileSystemWatcher>
 #include <QFontDatabase>
 #include <QGuiApplication>
 #include <QHostInfo>
@@ -82,6 +83,8 @@ AppController::AppController(QObject* parent) :
     m_core = new CoreProcess(this);
     m_sync = new SyncService(this);
     m_mirror = new LayoutModel(nullptr, this);
+    m_external = new LayoutModel(nullptr, this);
+    m_externalWatcher = new QFileSystemWatcher(this);
     m_logModel = new LogModel(this);
     m_log = new LogFilterModel(m_logModel, this);
     m_updates = new inputleap::fork_gui::UpdateChecker(nullptr);
@@ -107,6 +110,9 @@ AppController::AppController(QObject* parent) :
 
     connect(m_settings, &AppSettings::changed, this, [this]() {
         m_layout->setServerName(m_settings->screenName());
+        if (m_settings->useExternalConfig() != m_externalActive || m_settings->configFile() != m_externalPath) {
+            reloadExternalLayout();
+        }
         // the channel follows its switch; a new name is announced to the
         // peers and re-registered, both deferred so a change a peer asked
         // for is answered first
@@ -123,6 +129,10 @@ AppController::AppController(QObject* parent) :
     });
     connect(m_layout, &LayoutModel::layoutChanged, this, &AppController::stateChanged);
     connect(m_layout, &LayoutModel::optionsChanged, this, &AppController::publishSync);
+    connect(m_external, &LayoutModel::layoutChanged, this, &AppController::stateChanged);
+    connect(m_externalWatcher, &QFileSystemWatcher::fileChanged, this, [this]() {
+        QTimer::singleShot(300, this, &AppController::reloadExternalLayout);   // editors save in several steps
+    });
     connect(m_layout, &LayoutModel::hotkeysChanged, this, &AppController::publishSync);
     connect(this, &AppController::stateChanged, this, &AppController::publishSync);
     connect(m_discovery, &Discovery::peerResolved, this, &AppController::onPeerResolved);
@@ -179,7 +189,44 @@ AppController::AppController(QObject* parent) :
         emit stateChanged();
     });
 
+    reloadExternalLayout();
     log(tr("Input Leap %1 started").arg(m_version));
+}
+
+// The configuration file, when the server runs one, read into a model of
+// its own so the pages show what the core actually loads.
+void AppController::reloadExternalLayout()
+{
+    const bool want = m_settings->useExternalConfig();
+    const QString path = want ? m_settings->configFile() : QString();
+    if (want) {
+        QFile file(path);
+        if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            m_external->loadConfigText(QString::fromUtf8(file.readAll()), screenName());
+        } else {
+            m_external->loadJson(QJsonObject());
+            log(tr("cannot read the configuration file %1").arg(path), QStringLiteral("WARNING"));
+        }
+    }
+    const QStringList watched = m_externalWatcher->files();
+    if (!watched.isEmpty()) {
+        m_externalWatcher->removePaths(watched);
+    }
+    if (want && QFile::exists(path)) {
+        m_externalWatcher->addPath(path);
+    }
+    const bool changed = want != m_externalActive || path != m_externalPath;
+    m_externalActive = want;
+    m_externalPath = path;
+    if (changed) {
+        emit layoutSourceChanged();
+    }
+    emit stateChanged();
+}
+
+QString AppController::layoutSource() const
+{
+    return m_externalActive ? tr("the file %1").arg(m_externalPath) : tr("generated from the layout");
 }
 
 // ---- derived state -----------------------------------------------------------
@@ -204,7 +251,7 @@ QString AppController::statusText() const
         return server ? tr("Starting the server…") : tr("Connecting to %1…").arg(serverAddress());
     case Running: {
         if (server) {
-            const int total = m_layout->screenCount() - (m_layout->hasScreen(screenName()) ? 1 : 0);
+            const int total = layout()->screenCount() - (layout()->hasScreen(screenName()) ? 1 : 0);
             if (!m_listening) return tr("Server starting…");
             if (m_connectedClients.isEmpty()) return tr("Running as server · waiting for clients");
             return tr("Running as server · %1 of %2 clients connected").arg(m_connectedClients.size()).arg(qMax(total, int(m_connectedClients.size())));
@@ -317,15 +364,15 @@ QVariantList AppController::computers() const
     };
 
     if (role() == Server) {
-        const QStringList names = m_layout->screenNames();
-        if (!names.contains(self)) {
+        const QStringList names = layout()->screenNames();
+        if (!layout()->hasScreen(self)) {
             list << entry(self, tr("not placed"), tr("this computer · server"), QStringLiteral("warning"), m_addresses.value(0), QDateTime());
         }
         for (const QString& name : names) {
-            const int cell = m_layout->indexOf(name);
-            if (name == self) {
+            const int cell = layout()->indexOf(name);
+            if (name.compare(self, Qt::CaseInsensitive) == 0) {
                 const bool active = m_activeScreen.isEmpty() || m_activeScreen == self;
-                list << entry(name, m_layout->positionText(cell),
+                list << entry(name, layout()->positionText(cell),
                               running() && active ? tr("this computer · cursor here") : tr("this computer · server"),
                               running() ? QStringLiteral("success") : QStringLiteral("neutral"), m_addresses.value(0), m_since);
                 continue;
@@ -335,11 +382,15 @@ QVariantList AppController::computers() const
             const QVariantMap peer = m_sync->peer(name);
             const bool peerConnected = peer.value(QStringLiteral("connected")).toBool()
                                        && peer.value(QStringLiteral("state")).toMap().value(QStringLiteral("connected")).toBool();
-            const bool on = m_connectedClients.contains(name) || (running() && peerConnected);
+            bool loggedOn = false;
+            for (const QString& client : std::as_const(m_connectedClients)) {
+                if (client.compare(name, Qt::CaseInsensitive) == 0) loggedOn = true;
+            }
+            const bool on = loggedOn || (running() && peerConnected);
             QString state = on ? tr("Connected") : (running() ? tr("Not connected") : tr("Offline"));
-            if (on && m_activeScreen == name) state = tr("Connected · cursor here");
+            if (on && m_activeScreen.compare(name, Qt::CaseInsensitive) == 0) state = tr("Connected · cursor here");
             const QString address = peer.value(QStringLiteral("settings")).toMap().value(QStringLiteral("addresses")).toList().value(0).toString();
-            list << entry(name, m_layout->positionText(cell), state,
+            list << entry(name, layout()->positionText(cell), state,
                           on ? QStringLiteral("success") : QStringLiteral("neutral"), address, on ? m_since : QDateTime());
         }
     } else {
@@ -786,7 +837,7 @@ void AppController::handleEvent(const CoreEvent& event)
         if (m_activeScreen == event.name) m_activeScreen.clear();
         break;
     case Type::ClientRefused:
-        if (!event.name.isEmpty() && !m_layout->hasScreen(event.name)) {
+        if (!event.name.isEmpty() && !layout()->hasScreen(event.name)) {
             requestJoin(event.name);
         }
         break;
@@ -854,7 +905,7 @@ void AppController::handleEvent(const CoreEvent& event)
 void AppController::onClientFound(const QString& name)
 {
     log(tr("discovery found client %1").arg(name));
-    if (role() == Server && !m_layout->hasScreen(name) && !m_layout->ignoreAutoConfigClient()) {
+    if (role() == Server && !layout()->hasScreen(name) && !layout()->ignoreAutoConfigClient()) {
         requestJoin(name);
     }
     emit stateChanged();
@@ -952,7 +1003,7 @@ int AppController::syncTrusted(const QString& sha256, const QString& name, bool 
         if (m_identity->isTrusted(true, sha256)) {
             return SyncService::Write;
         }
-        return !m_settings->requireClientCertificate() && m_layout->hasScreen(name) ? SyncService::Read : SyncService::None;
+        return !m_settings->requireClientCertificate() && layout()->hasScreen(name) ? SyncService::Read : SyncService::None;
     }
     if (incoming) {
         return SyncService::None;
@@ -1169,8 +1220,8 @@ void AppController::publishSync()
         server.insert(QStringLiteral("configFile"), m_settings->configFile());
         server.insert(QStringLiteral("generatedConfigPath"), generatedConfigPath());
         config.insert(QStringLiteral("settings"), server);
-        config.insert(QStringLiteral("layout"), m_layout->toJson());
-        config.insert(QStringLiteral("conf"), m_layout->configText());
+        config.insert(QStringLiteral("layout"), layout()->toJson());
+        config.insert(QStringLiteral("conf"), layout()->configText());
         m_sync->setDocument(QStringLiteral("server-config"), config);
     }
 }
@@ -1188,6 +1239,11 @@ void AppController::requestJoin(const QString& name)
 
 void AppController::placeJoin(const QString& name, int direction)
 {
+    if (m_externalActive) {
+        removeRequest(QStringLiteral("join:") + name);
+        log(tr("%1 asked to join, but the layout comes from %2: add it to that file").arg(name, m_externalPath), QStringLiteral("WARNING"));
+        return;
+    }
     bool placed = false;
     m_layout->setServerName(screenName());
     m_layout->ensureServerPlaced();

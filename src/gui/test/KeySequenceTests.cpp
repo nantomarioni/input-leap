@@ -95,7 +95,7 @@ TEST_P(KeySequenceLoadSaveTestFixture, SupportsSpecialSymbols)
     auto filename = getTemporaryFilename();
 
     {
-        QSettings settings(filename, QSettings::NativeFormat);
+        QSettings settings(filename, QSettings::IniFormat);   // a file on every platform (NativeFormat is the registry on Windows)
         KeySequence sequence;
 
         sequence.appendKey(key, 0);
@@ -105,7 +105,7 @@ TEST_P(KeySequenceLoadSaveTestFixture, SupportsSpecialSymbols)
         settings.endGroup();
     }
     {
-        QSettings settings(filename, QSettings::NativeFormat);
+        QSettings settings(filename, QSettings::IniFormat);   // a file on every platform (NativeFormat is the registry on Windows)
         KeySequence sequence;
 
         settings.beginGroup("test");

@@ -46,7 +46,7 @@ switch ($Config.ToLower()) {
 }
 
 # Set environment variables
-$env:QT_ROOT = "C:\Users\nicoc\6.6.3\msvc2019_64"
+$env:QT_ROOT = "C:\Users\nicoc\6.9.2\msvc2022_64"
 $env:BONJOUR_SDK_HOME = (Resolve-Path ".\deps\bonjour-sdk").Path
 
 Write-Info "Environment Variables Set:"

@@ -116,10 +116,15 @@ ScrollView {
                         Layout.fillWidth: true
                         SectionTitle { text: qsTr("Held by the server") }
                         Item { Layout.fillWidth: true }
-                        StatusPill { text: qsTr("editable here"); tone: "success"; showDot: false }
+                        StatusPill {
+                            text: App.layout.isMirror ? qsTr("from the configuration file") : qsTr("editable here")
+                            tone: App.layout.isMirror ? "info" : "success"
+                            showDot: false
+                        }
                     }
                     ScreenSettingsPanel {
                         Layout.fillWidth: true
+                        enabled: !App.layout.isMirror
                         visible: page.screenIndex >= 0
                         screenIndex: page.screenIndex
                         compact: true

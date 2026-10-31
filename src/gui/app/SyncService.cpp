@@ -667,8 +667,8 @@ const SyncService::Peer* SyncService::serverPeer() const
 const SyncService::Peer* SyncService::peerNamed(const QString& name) const
 {
     for (const Peer* peer : m_peers) {
-        if (peer->verified && peer->name == name) {
-            return peer;
+        if (peer->verified && peer->name.compare(name, Qt::CaseInsensitive) == 0) {
+            return peer;   // screen names are compared without case, as the core does
         }
     }
     return nullptr;
@@ -677,7 +677,7 @@ const SyncService::Peer* SyncService::peerNamed(const QString& name) const
 SyncService::Peer* SyncService::mutablePeerNamed(const QString& name)
 {
     for (Peer* peer : std::as_const(m_peers)) {
-        if (peer->verified && peer->name == name) {
+        if (peer->verified && peer->name.compare(name, Qt::CaseInsensitive) == 0) {
             return peer;
         }
     }

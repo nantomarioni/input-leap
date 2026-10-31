@@ -118,7 +118,7 @@ ScrollView {
                         visible: App.role === App.Server
                         label: qsTr("Configuration")
                         value: App.settings.useExternalConfig
-                               ? qsTr("file %1").arg(App.settings.configFile)
+                               ? qsTr("from %1 · %2 screens").arg(App.settings.configFile).arg(App.layout.screenCount)
                                : qsTr("generated from the layout · %1 screens, %2 hotkeys").arg(App.layout.screenCount).arg(App.layout.hotkeys.length)
                     }
                     InfoRow {

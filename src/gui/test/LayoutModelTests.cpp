@@ -335,6 +335,72 @@ TEST(LayoutModel, mirrorsItselfThroughJson)
     EXPECT_EQ(mirror.positionText(1), QStringLiteral("right of desk-win"));
 }
 
+TEST(LayoutModel, readsAConfigurationFileOfTheCoresFormat)
+{
+    const QString text = QStringLiteral(
+        "# the fleet's hand-written file\n"
+        "section: screens\n"
+        "\tDeepPurple:\n"
+        "\tMacBookPro-R:\n"
+        "\tMacBookPro-P:\n"
+        "\t\tshift = ctrl\n"
+        "\t\thalfDuplexCapsLock = true\n"
+        "\t\tswitchCorners = none +top-left\n"
+        "\tMacBookPro-A:\n"
+        "end\n"
+        "section: links\n"
+        "\tDeepPurple:\n"
+        "\t\tright = MacBookPro-R\n"
+        "\t\tdown(10,60) = MacBookPro-P(0,100)\n"
+        "\t\tleft = MacBookPro-A\n"
+        "\tMacBookPro-P:\n"
+        "\t\tup = DeepPurple(10,60)\n"
+        "\tMacBookPro-R:\n"
+        "\t\tleft = DeepPurple\n"
+        "\tMacBookPro-A:\n"
+        "\t\tright = DeepPurple\n"
+        "end\n"
+        "section: aliases\n"
+        "\tMacBookPro-P:\n"
+        "\t\tmacbookpro-p.local\n"
+        "end\n"
+        "section: options\n"
+        "\tswitchDelay = 300\n"
+        "\tscreenDimmingEnabled = true\n"
+        "\tscreenDimmingPercentage = 50\n"
+        "\tkeystroke(super+alt+l) = lockCursorToScreen(toggle)\n"
+        "end\n");
+    LayoutModel layout(nullptr);
+    layout.loadConfigText(text, QStringLiteral("DEEPPURPLE"));   // the server's own name, any case
+
+    EXPECT_EQ(layout.screenCount(), 4);
+    EXPECT_EQ(layout.serverName(), QStringLiteral("DeepPurple"));
+    EXPECT_EQ(desktopOf(layout, QStringLiteral("DeepPurple")), QRect(0, 0, W, H));
+    EXPECT_EQ(desktopOf(layout, QStringLiteral("MacBookPro-R")), QRect(W, 0, W, H));
+    EXPECT_EQ(desktopOf(layout, QStringLiteral("MacBookPro-A")), QRect(-W, 0, W, H));
+    // half as wide as the server (10-60 % of its bottom edge), starting at 10 %
+    EXPECT_EQ(desktopOf(layout, QStringLiteral("MacBookPro-P")), QRect(W / 10, H, W / 2, H));
+    EXPECT_EQ(layout.indexOf(QStringLiteral("macbookpro-p")), layout.indexOf(QStringLiteral("MacBookPro-P")));
+    EXPECT_EQ(layout.positionText(layout.indexOf(QStringLiteral("MacBookPro-P"))), QStringLiteral("below DeepPurple"));
+    EXPECT_EQ(layout.positionText(layout.indexOf(QStringLiteral("MacBookPro-A"))), QStringLiteral("left of DeepPurple"));
+
+    const QVariantMap p = layout.screenSettings(layout.indexOf(QStringLiteral("MacBookPro-P")));
+    EXPECT_EQ(p.value(QStringLiteral("modifiers")).toList().value(ScreenConfig::Shift).toInt(), int(ScreenConfig::Ctrl));
+    EXPECT_TRUE(p.value(QStringLiteral("fixes")).toList().value(ScreenConfig::CapsLock).toBool());
+    EXPECT_TRUE(p.value(QStringLiteral("corners")).toList().value(ScreenConfig::TopLeft).toBool());
+    EXPECT_EQ(p.value(QStringLiteral("aliases")).toStringList(), QStringList{QStringLiteral("macbookpro-p.local")});
+    EXPECT_TRUE(layout.hasSwitchDelay());
+    EXPECT_EQ(layout.switchDelay(), 300);
+    EXPECT_TRUE(layout.dimmingEnabled());
+    EXPECT_EQ(layout.dimmingPercentage(), 50);
+    ASSERT_EQ(layout.hotkeyList().size(), 1);
+    EXPECT_EQ(layout.hotkeyList().first().toMap().value(QStringLiteral("key")).toString(), QStringLiteral("keystroke(super+alt+l)"));
+    // the geometry gives the ranges back
+    const QString conf = layout.configText();
+    EXPECT_TRUE(conf.contains(QStringLiteral("\t\tdown(10,60) = MacBookPro-P\n"))) << conf.toStdString();
+    EXPECT_TRUE(conf.contains(QStringLiteral("\t\tup = DeepPurple(10,60)\n"))) << conf.toStdString();
+}
+
 TEST(LayoutModel, renamesAndRemoves)
 {
     Store store;

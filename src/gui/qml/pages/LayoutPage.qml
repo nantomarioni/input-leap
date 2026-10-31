@@ -10,6 +10,8 @@ Item {
 
     property int selectedIndex: App.layout.indexOf(App.screenName)
     readonly property int panelWidth: 300
+    // the server runs a configuration file: shown as the core reads it, edited there
+    readonly property bool fromFile: App.role === App.Server && App.layout.isMirror
 
     EmptyState {
         anchors.fill: parent
@@ -82,13 +84,16 @@ Item {
                     Label { text: qsTr("Screen layout"); font.pixelSize: Theme.titleFontSize; font.weight: Font.DemiBold; color: Theme.text }
                     Label {
                         Layout.fillWidth: true
-                        text: qsTr("Drag the computers to where they sit on your desk; edges that touch become links. Each computer is drawn to the size of its displays. Changes apply when the server restarts.")
+                        text: page.fromFile
+                              ? qsTr("As read from %1. Edit that file (it reloads here when saved), or choose \"Generate from the layout\" on the Server page to arrange it here.").arg(App.settings.configFile)
+                              : qsTr("Drag the computers to where they sit on your desk; edges that touch become links. Each computer is drawn to the size of its displays. Changes apply when the server restarts.")
                         color: Theme.muted
                         wrapMode: Text.WordWrap
                     }
                 }
-                Button { text: qsTr("Add computer"); visible: !addRow.visible; onClicked: { addRow.visible = true; addField.forceActiveFocus() } }
-                Button { text: qsTr("Apply and restart"); highlighted: true; enabled: App.runState === App.Running; onClicked: App.restart() }
+                StatusPill { visible: page.fromFile; text: qsTr("from a file · read-only"); tone: "info"; showDot: false }
+                Button { text: qsTr("Add computer"); visible: !addRow.visible && !page.fromFile; onClicked: { addRow.visible = true; addField.forceActiveFocus() } }
+                Button { text: qsTr("Apply and restart"); visible: !page.fromFile; highlighted: true; enabled: App.runState === App.Running; onClicked: App.restart() }
             }
 
             RowLayout {
@@ -139,7 +144,7 @@ Item {
                     anchors.fill: parent
                     anchors.margins: 8
                     anchors.bottomMargin: 28
-                    interactive: true
+                    interactive: !page.fromFile
                     selectedIndex: page.selectedIndex
                     onSelected: (index) => page.selectedIndex = index
                     onRejected: rejectFlash.restart()
@@ -221,13 +226,14 @@ Item {
                     ScreenSettingsPanel {
                         id: panel
                         Layout.fillWidth: true
+                        enabled: !page.fromFile
                         visible: page.selectedIndex >= 0 && valid
                         screenIndex: page.selectedIndex
                         compact: true
                     }
 
                     Button {
-                        visible: panel.visible
+                        visible: panel.visible && !page.fromFile
                         text: qsTr("Remove from layout")
                         enabled: panel.valid && !panel.s.isServer
                         onClicked: { App.layout.removeScreen(page.selectedIndex); page.selectedIndex = -1 }
