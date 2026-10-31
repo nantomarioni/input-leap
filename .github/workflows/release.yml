@@ -22,8 +22,10 @@ jobs:
       fail-fast: false
       matrix:
        include:
+         # macos-14 images retire on 2026-11-02 (runner-images issue 13518);
+         # the app still targets macOS 14 through min-macOS-version.
          - name: macOS-Apple_Silicon
-           os: macos-14
+           os: macos-15
            qt-version: 6.9.2
            min-macOS-version: 14
            arch: 'arm64'
@@ -49,16 +51,16 @@ jobs:
 
       - name: Cache OpenSSL
         id: cache-openssl
-        if: matrix.os == 'macos-14'
+        if: matrix.os == 'macos-15'
         uses: actions/cache@v4.2.4
         with:
           path: ${{env.OpenSSL_Install_Path}}
           key: macOS-${{matrix.os}}-ssl-${{matrix.arch}}-${{env.OpenSSL_Version}}
 
       - name: Build OpenSSL
-        if: ((steps.cache-openssl.outputs.cache-hit != 'true') && (matrix.os == 'macos-14'))
+        if: ((steps.cache-openssl.outputs.cache-hit != 'true') && (matrix.os == 'macos-15'))
         run: |
-          wget https://github.com/openssl/openssl/releases/download/openssl-${{env.OpenSSL_Version}}/openssl-${{env.OpenSSL_Version}}.tar.gz
+          curl -sSL -o openssl-${{env.OpenSSL_Version}}.tar.gz https://github.com/openssl/openssl/releases/download/openssl-${{env.OpenSSL_Version}}/openssl-${{env.OpenSSL_Version}}.tar.gz
           tar -xf openssl-${{env.OpenSSL_Version}}.tar.gz
           echo "#!/bin/bash
           if [[ \$* == *-arch\ x86_64* ]] && ! [[ \$* == *-arch\ arm64* ]]; then
