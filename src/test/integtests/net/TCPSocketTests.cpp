@@ -73,9 +73,11 @@ TEST(TCPSocketTests, aJobQueuedBeforeCloseStopsInsteadOfWriting)
     ProbeSocket client(&events, &multiplexer, IArchNetwork::kINET);
     client.connect(address);
 
-    std::unique_ptr<IDataSocket> accepted;
-    ASSERT_TRUE(waitFor([&]() { accepted = listener.accept(); return accepted != nullptr; }));
+    // connected first: accept() only works once a connection is pending
+    // (on macOS it gets no socket before, which the socket asserts on)
     ASSERT_TRUE(waitFor([&]() { return client.connected(); }));
+    std::unique_ptr<IDataSocket> accepted = listener.accept();
+    ASSERT_NE(nullptr, accepted);
 
     const char line[] = "ILOG";
     client.write(line, sizeof(line));
