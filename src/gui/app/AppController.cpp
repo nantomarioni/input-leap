@@ -397,6 +397,11 @@ bool AppController::connected() const
 QString AppController::statusText() const
 {
     const bool server = role() == Server;
+    // Windows: the service launches the core; without it nothing runs,
+    // whatever was asked
+    if (m_core->serviceMode() && !m_core->serviceConnected() && (m_runState == Starting || m_runState == Running)) {
+        return tr("Waiting for the InputLeap service · if this stays, start it in Windows Services");
+    }
     switch (m_runState) {
     case Stopped:
         return m_pausedForTrust ? tr("Paused · waiting for you to trust the server") : tr("Not running");
@@ -613,7 +618,7 @@ QVariantList AppController::processes() const
 
     if (m_core->serviceMode()) {
         list << item(QStringLiteral("service"), tr("Service · input-leapd"),
-                     m_core->serviceConnected() ? tr("Connected over IPC") : tr("Not reachable over IPC"),
+                     m_core->serviceConnected() ? tr("Connected over IPC") : tr("Not reachable: the InputLeap service is not running"),
                      m_core->serviceConnected(), true);
     } else {
         list << item(QStringLiteral("service"), tr("Service"), tr("Not used on %1: the app launches the core itself").arg(Platform::name()), true, false);

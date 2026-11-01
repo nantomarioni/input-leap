@@ -57,6 +57,8 @@ Filename: {sys}\netsh.exe; Parameters: "advfirewall firewall delete rule name=""
 Filename: {sys}\netsh.exe; Parameters: "advfirewall firewall add rule name=""{#MyAppListenerDesc}"" protocol=TCP dir=in localport=24800,24802 action=allow"; Flags: runhidden
 Filename: {sys}\sc.exe; Parameters: "create {#MyAppServiceName} start= auto binPath= ""\""{app}\{#MyAppServiceExe}\"""""; Flags: runhidden
 Filename: {sys}\sc.exe; Parameters: "description {#MyAppServiceName} ""{#MyAppServiceDesc}"""; Flags: runhidden
+; if the service ever dies, Windows starts it again (2 s, 5 s, then 10 s; the count resets after a day)
+Filename: {sys}\sc.exe; Parameters: "failure {#MyAppServiceName} reset= 86400 actions= restart/2000/restart/5000/restart/10000"; Flags: runhidden
 Filename: {sys}\sc.exe; Parameters: "start {#MyAppServiceName}"; Flags: runhidden
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall
 

@@ -155,8 +155,13 @@ IpcCommandMessage IpcClientProxy::parseCommand()
 void
 IpcClientProxy::disconnect()
 {
+    // once: a dropped connection reports its input and its output shutting
+    // down, and each report would close the stream again and queue another
+    // disconnect for a proxy the server deletes on the first
+    if (m_disconnecting.exchange(true)) {
+        return;
+    }
     LOG_DEBUG("ipc disconnect, closing stream");
-    m_disconnecting = true;
     stream_->close();
     m_events->add_event(EventType::IPC_CLIENT_PROXY_DISCONNECTED, this);
 }

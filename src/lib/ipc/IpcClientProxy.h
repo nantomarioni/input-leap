@@ -25,6 +25,7 @@
 #include "base/EventTarget.h"
 #include "base/Fwd.h"
 
+#include <atomic>
 #include <mutex>
 
 namespace inputleap {
@@ -53,7 +54,7 @@ private:
 private:
     std::unique_ptr<inputleap::IStream> stream_;
     EIpcClientType m_clientType;
-    bool m_disconnecting;
+    std::atomic<bool> m_disconnecting;   // read by the log thread through IpcServer
     std::mutex m_readMutex;
     std::mutex m_writeMutex;
     IEventQueue* m_events;

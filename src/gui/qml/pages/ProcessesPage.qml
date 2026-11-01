@@ -136,7 +136,8 @@ ScrollView {
                     label: qsTr("State")
                     labelWidth: 110
                     value: App.core.serviceMode
-                           ? (App.core.serviceConnected ? qsTr("Connected over IPC on 127.0.0.1:24801") : qsTr("Not reachable over IPC"))
+                           ? (App.core.serviceConnected ? qsTr("Connected over IPC on 127.0.0.1:24801")
+                                                       : qsTr("Not reachable on 127.0.0.1:24801: the InputLeap service is not running. Start it in Windows Services, or run \"sc start InputLeap\" as administrator."))
                            : qsTr("Not used on %1: the app launches the core itself").arg(App.platformName)
                 }
                 InfoRow {

@@ -1,0 +1,1 @@
+Windows: if the InputLeap service stops unexpectedly, Windows now starts it again within seconds (the installer sets the service's recovery actions), the service tears a closing app connection down once instead of twice, and the window says when the service is not running instead of showing the core as running.
