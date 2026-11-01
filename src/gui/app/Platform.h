@@ -16,7 +16,9 @@
 
 #pragma once
 
+#include <QRect>
 #include <QString>
+#include <QVector>
 
 /* The few OS-specific things the window needs, one implementation per
  * platform file (Platform_mac.cpp, Platform_win.cpp, Platform_other.cpp).
@@ -43,6 +45,11 @@ bool setLaunchAtLogin(bool enabled);
 
 // Windows: whether a service is running ("Bonjour Service", the daemon).
 bool serviceRunning(const QString& name);
+
+// This computer's displays in the pixels its core sees: points on macOS
+// (CGDisplayBounds, like OSXScreen), physical pixels on Windows (the core is
+// per-monitor DPI aware), device pixels elsewhere. Empty when unknown.
+QVector<QRect> displays();
 
 // Human readable name of the platform's service flavour ("Windows service",
 // "LaunchAgent", ...).

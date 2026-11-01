@@ -46,6 +46,7 @@
 #include <QNetworkInterface>
 #include <QQmlEngine>
 #include <QRegularExpression>
+#include <QScreen>
 #include <QStandardPaths>
 #include <QTimer>
 #include <QUrl>
@@ -91,6 +92,12 @@ AppController::AppController(QObject* parent) :
     m_updates->setParent(this);
     m_restartTimer = new QTimer(this);
     m_restartTimer->setSingleShot(true);
+    m_displaysTimer = new QTimer(this);
+    m_displaysTimer->setSingleShot(true);
+    m_displaysTimer->setInterval(1000);
+    m_displaysApplyTimer = new QTimer(this);
+    m_displaysApplyTimer->setSingleShot(true);
+    m_displaysApplyTimer->setInterval(2000);
 
     const auto all = QNetworkInterface::allAddresses();
     for (const QHostAddress& address : all) {
@@ -110,6 +117,7 @@ AppController::AppController(QObject* parent) :
 
     connect(m_settings, &AppSettings::changed, this, [this]() {
         m_layout->setServerName(m_settings->screenName());
+        onDisplaysReported(screenName(), m_localDisplays);   // a new name or role: the server's own desktop
         if (m_settings->useExternalConfig() != m_externalActive || m_settings->configFile() != m_externalPath) {
             reloadExternalLayout();
         }
@@ -131,6 +139,30 @@ AppController::AppController(QObject* parent) :
         emit stateChanged();
     });
     connect(m_layout, &LayoutModel::layoutChanged, this, &AppController::stateChanged);
+    // this computer's monitors, sent to the server (docs/ui-redesign.md §4.4)
+    connect(m_displaysTimer, &QTimer::timeout, this, &AppController::publishDisplays);
+    connect(m_displaysApplyTimer, &QTimer::timeout, this, &AppController::applyLayout);
+    if (auto* gui = qobject_cast<QGuiApplication*>(QCoreApplication::instance())) {
+        auto watch = [this](QScreen* screen) {
+            connect(screen, &QScreen::geometryChanged, m_displaysTimer, qOverload<>(&QTimer::start));
+        };
+        const auto screens = QGuiApplication::screens();
+        for (QScreen* screen : screens) {
+            watch(screen);
+        }
+        connect(gui, &QGuiApplication::screenAdded, this, [this, watch](QScreen* screen) {
+            watch(screen);
+            m_displaysTimer->start();
+        });
+        connect(gui, &QGuiApplication::screenRemoved, m_displaysTimer, qOverload<>(&QTimer::start));
+        connect(gui, &QGuiApplication::primaryScreenChanged, m_displaysTimer, qOverload<>(&QTimer::start));
+    }
+    connect(m_sync, &SyncService::peerDocumentChanged, this, [this](const QString& name, const QString& kind) {
+        if (kind == QLatin1String("displays")) {
+            const QJsonObject doc = m_sync->peerDocument(name, kind);
+            onDisplaysReported(name, LayoutModel::displaysFromJson(doc.value(QStringLiteral("displays")).toArray()));
+        }
+    });
     connect(m_layout, &LayoutModel::optionsChanged, this, &AppController::publishSync);
     connect(m_external, &LayoutModel::layoutChanged, this, &AppController::stateChanged);
     connect(m_externalWatcher, &QFileSystemWatcher::fileChanged, this, [this]() {
@@ -193,6 +225,7 @@ AppController::AppController(QObject* parent) :
     });
 
     reloadExternalLayout();
+    publishDisplays();
     log(tr("Input Leap %1 started").arg(m_version));
 }
 
@@ -944,6 +977,11 @@ void AppController::onPeerResolved(const QString& name, const QString& host, qui
 {
     log(tr("%1 is %2 · channel port %3%4").arg(name, host).arg(port)
             .arg(txt.value(QStringLiteral("sync")) == QLatin1String("1") ? QString() : tr(" · no settings channel")));
+    // the record's display list is a first guess; the settings channel, once
+    // the computer is in, has the last word
+    if (role() == Server && txt.contains(QStringLiteral("d")) && m_sync->peerDocument(name, QStringLiteral("displays")).isEmpty()) {
+        onDisplaysReported(name, LayoutModel::displaysFromText(txt.value(QStringLiteral("d"))));
+    }
     if (role() == Client && txt.value(QStringLiteral("sync")) == QLatin1String("1") && m_sync->listening()) {
         m_sync->connectTo(name, host, port);
     }
@@ -959,6 +997,10 @@ void AppController::startDiscovery()
     txt.insert(QStringLiteral("sync"), m_sync->listening() ? QStringLiteral("1") : QStringLiteral("0"));
     txt.insert(QStringLiteral("port"), QString::number(m_settings->port()));
     txt.insert(QStringLiteral("v"), m_version);
+    m_advertisedDisplays = LayoutModel::displaysToText(m_localDisplays);
+    if (!m_advertisedDisplays.isEmpty() && m_advertisedDisplays.size() <= 250) {   // one TXT entry holds 255 bytes
+        txt.insert(QStringLiteral("d"), m_advertisedDisplays);
+    }
     m_discovery->start(role() == Server, screenName(), quint16(m_sync->port()), txt);
 }
 
@@ -1203,6 +1245,49 @@ void AppController::remoteAction(const QString& computer, const QString& action)
 QVariantMap AppController::remoteResult(const QString& computer, const QString& key) const
 {
     return m_remoteResults.value(computer).value(key);
+}
+
+// This computer's monitors: to the server over the settings channel, in the
+// zeroconf record for a server that has not let it in yet, and into the
+// layout directly when this computer is the server.
+void AppController::publishDisplays()
+{
+    QVector<DisplayConfig> displays;
+    const QVector<QRect> rects = Platform::displays();
+    for (const QRect& r : rects) {
+        DisplayConfig d;
+        d.x = r.x();
+        d.y = r.y();
+        d.width = r.width();
+        d.height = r.height();
+        displays << d;
+    }
+    displays = LayoutModel::cleanDisplays(displays);
+    if (displays.isEmpty() || displays == m_localDisplays) {
+        return;
+    }
+    m_localDisplays = displays;
+    log(tr("this computer's displays: %1").arg(LayoutModel::displaysToText(displays)));
+    QJsonObject doc;
+    doc.insert(QStringLiteral("displays"), LayoutModel::displaysToJson(displays));
+    m_sync->setDocument(QStringLiteral("displays"), doc);
+    onDisplaysReported(screenName(), displays);
+    if (m_discovery->active() && LayoutModel::displaysToText(displays) != m_advertisedDisplays) {
+        startDiscovery();
+    }
+}
+
+void AppController::onDisplaysReported(const QString& name, const QVector<DisplayConfig>& displays)
+{
+    if (role() != Server || displays.isEmpty()) {
+        return;
+    }
+    if (m_layout->reportDisplays(name, displays)) {
+        log(tr("%1 reports its displays: %2").arg(name, LayoutModel::displaysToText(displays)));
+        if (!m_externalActive) {
+            m_displaysApplyTimer->start();
+        }
+    }
 }
 
 void AppController::publishSync()

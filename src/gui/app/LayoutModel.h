@@ -20,6 +20,7 @@
 
 #include <QAbstractListModel>
 #include <QHash>
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QRect>
 #include <QSettings>
@@ -31,8 +32,9 @@
 #include <QtQml/qqmlregistration.h>
 
 /* One display of a computer: its size and where it sits inside the
- * computer's desktop, in pixels. Typed by hand until the core reports it
- * (docs/ui-redesign.md §4.4).
+ * computer's desktop, in the pixels its core sees. Reported by that
+ * computer's window over the settings channel (or its zeroconf record), or
+ * typed by hand (docs/ui-redesign.md §4.4).
  */
 struct DisplayConfig
 {
@@ -63,6 +65,7 @@ struct ScreenConfig
     int x = 0;                               // desktop origin in the shared space
     int y = 0;
     QVector<DisplayConfig> displays = {DisplayConfig()};
+    bool displaysReported = false;           // the displays came from the computer itself
     QStringList aliases;
     QVector<int> modifiers = {Shift, Ctrl, Alt, Meta, Super};   // index = modifier, value = mapped to
     QVector<bool> corners = QVector<bool>(CornerCount, false);
@@ -206,6 +209,28 @@ public:
     // Makes sure the server has a desktop so links can be computed.
     void ensureServerPlaced();
 
+    // ---- displays reported by the computers themselves --------------------
+    // Remembers what `name` reports (placed or not; a computer placed later
+    // starts with them) and applies it unless its displays were typed by
+    // hand. A desktop that grows or shrinks pushes the desktops right of and
+    // below it along so they keep touching. True when the layout changed.
+    bool reportDisplays(const QString& name, const QVector<DisplayConfig>& displays);
+    QVector<DisplayConfig> reportedDisplays(const QString& name) const { return m_reported.value(name); }
+    // Replaces hand-typed displays with the reported ones; false when there
+    // are none or they do not fit.
+    Q_INVOKABLE bool useReportedDisplays(int index);
+
+    // The wire forms of a display list: JSON for the settings channel, a
+    // short text ("0,0,3024x1964;3024,0,2560x1440") for a zeroconf TXT
+    // entry. Reading clamps sizes and offsets, drops what does not parse,
+    // keeps at most kMaxReportedDisplays and moves the bounding box to (0, 0).
+    static constexpr int kMaxReportedDisplays = 8;
+    static QVector<DisplayConfig> cleanDisplays(const QVector<DisplayConfig>& displays);
+    static QJsonArray displaysToJson(const QVector<DisplayConfig>& displays);
+    static QVector<DisplayConfig> displaysFromJson(const QJsonArray& json);
+    static QString displaysToText(const QVector<DisplayConfig>& displays);
+    static QVector<DisplayConfig> displaysFromText(const QString& text);
+
     // ---- options -----------------------------------------------------------
     bool hasHeartbeat() const { return m_hasHeartbeat; }
     int heartbeat() const { return m_heartbeat; }
@@ -273,6 +298,8 @@ signals:
 
 private:
     bool overlapsAnother(int index, const QRect& rect) const;
+    bool applyDisplays(int index, const QVector<DisplayConfig>& displays);
+    ScreenConfig newScreen(const QString& name) const;
     bool fitsAt(const QRect& rect, int except) const { return !overlapsAnother(except, rect); }
     void changed(int first, int last);
     void loadScreen(ScreenConfig& screen);
@@ -284,6 +311,7 @@ private:
     QString m_serverName;
     QVector<ScreenConfig> m_screens;
     QHash<QString, QString> m_liveStates;
+    QHash<QString, QVector<DisplayConfig>> m_reported;   // never persisted: re-reported every session
 
     bool m_hasHeartbeat = false;
     int m_heartbeat = 5000;

@@ -26,6 +26,17 @@
 namespace {
 const char kRunKey[] = "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 const char kRunValue[] = "InputLeap";
+
+BOOL CALLBACK addMonitor(HMONITOR monitor, HDC, LPRECT, LPARAM data)
+{
+    MONITORINFO info;
+    info.cbSize = sizeof(info);
+    if (GetMonitorInfoW(monitor, &info)) {
+        const RECT& r = info.rcMonitor;
+        reinterpret_cast<QVector<QRect>*>(data)->append(QRect(r.left, r.top, r.right - r.left, r.bottom - r.top));
+    }
+    return TRUE;
+}
 } // namespace
 
 namespace Platform {
@@ -76,6 +87,15 @@ bool serviceRunning(const QString& name)
 QString name()
 {
     return QStringLiteral("Windows");
+}
+
+// Qt makes the window per-monitor DPI aware, so the rectangles are in
+// physical pixels, the same space as the core's virtual desktop.
+QVector<QRect> displays()
+{
+    QVector<QRect> list;
+    EnumDisplayMonitors(nullptr, nullptr, addMonitor, reinterpret_cast<LPARAM>(&list));
+    return list;
 }
 
 } // namespace Platform

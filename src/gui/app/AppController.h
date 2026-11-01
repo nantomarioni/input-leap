@@ -226,6 +226,8 @@ private:
     void reloadExternalLayout();
     void dialServerAddress();
     void publishSync();
+    void publishDisplays();
+    void onDisplaysReported(const QString& name, const QVector<DisplayConfig>& displays);
     int syncTrusted(const QString& sha256, const QString& name, bool incoming) const;
     QJsonObject handleSyncRequest(const QString& peer, const QString& kind, const QJsonObject& body, int access);
     int serverPort() const;
@@ -258,6 +260,10 @@ private:
     LogFilterModel* m_log = nullptr;
     inputleap::fork_gui::UpdateChecker* m_updates = nullptr;
     QTimer* m_restartTimer = nullptr;
+    QTimer* m_displaysTimer = nullptr;        // monitors come and go in bursts: read them once it settles
+    QTimer* m_displaysApplyTimer = nullptr;   // one server restart for several reports
+    QVector<DisplayConfig> m_localDisplays;
+    QString m_advertisedDisplays;
 
     RunState m_runState = Stopped;
     bool m_wantRunning = false;

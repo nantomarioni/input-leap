@@ -70,6 +70,33 @@ ColumnLayout {
                 color: Theme.muted
             }
         }
+        Label {
+            Layout.fillWidth: true
+            visible: panel.valid && panel.s.displaysReported && !panel.s.reportDiffers
+            text: qsTr("As %1 reports them; they follow its monitors.").arg(panel.s.name)
+            color: Theme.muted
+            font.pixelSize: Theme.smallFontSize
+            wrapMode: Text.WordWrap
+        }
+        RowLayout {
+            Layout.fillWidth: true
+            visible: panel.valid && panel.s.reportDiffers
+            spacing: 8
+            Label {
+                Layout.fillWidth: true
+                Layout.preferredWidth: 1
+                text: panel.valid && panel.s.displaysReported
+                      ? qsTr("%1 reports %n display(s) that would run into a neighbour; move it apart and try again.", "", panel.s.reportedDisplays.length).arg(panel.s.name)
+                      : qsTr("Typed by hand; %1 reports %n display(s).", "", panel.valid ? panel.s.reportedDisplays.length : 0).arg(panel.valid ? panel.s.name : "")
+                color: Theme.warning
+                font.pixelSize: Theme.smallFontSize
+                wrapMode: Text.WordWrap
+            }
+            Button {
+                text: panel.valid && panel.s.displaysReported ? qsTr("Try again") : qsTr("Use them")
+                onClicked: if (!App.layout.useReportedDisplays(panel.screenIndex)) panel.revision++
+            }
+        }
         Repeater {
             model: panel.valid ? panel.s.displays : []
             delegate: ColumnLayout {
@@ -162,7 +189,7 @@ ColumnLayout {
             Label {
                 Layout.fillWidth: true
                 Layout.preferredWidth: 1
-                text: qsTr("Pixels, as that computer reports them; offsets place a display beside the first.")
+                text: qsTr("Pixels as that computer's core sees them; offsets place a display beside the first. Typing here stops the reports from replacing them.")
                 color: Theme.muted
                 font.pixelSize: Theme.smallFontSize
                 wrapMode: Text.WordWrap

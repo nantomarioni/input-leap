@@ -118,4 +118,23 @@ QString name()
     return QStringLiteral("macOS");
 }
 
+QVector<QRect> displays()
+{
+    QVector<QRect> list;
+    CGDirectDisplayID ids[16];
+    uint32_t count = 0;
+    if (CGGetActiveDisplayList(16, ids, &count) != kCGErrorSuccess) {
+        return list;
+    }
+    for (uint32_t i = 0; i < count; ++i) {
+        // a mirror has the bounds of the display it copies: one tile is enough
+        if (CGDisplayIsInMirrorSet(ids[i]) && CGDisplayMirrorsDisplay(ids[i]) != kCGNullDirectDisplay) {
+            continue;
+        }
+        const CGRect r = CGDisplayBounds(ids[i]);
+        list << QRect(int(r.origin.x), int(r.origin.y), int(r.size.width), int(r.size.height));
+    }
+    return list;
+}
+
 } // namespace Platform

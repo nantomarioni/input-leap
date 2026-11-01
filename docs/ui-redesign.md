@@ -217,8 +217,9 @@ mock shows `desk-win · 1` / `desk-win · 2` and a portrait `mac-studio · 2`).
   are computed from neighbours exactly as `ServerConfig::operator<<` does
   today. Same `.conf` output.
 - **Phase B (M5, done)**: per-display free placement. Each display is a
-  rectangle with a size and a position inside its computer (typed by hand
-  until the core can report it; `LayoutModel::DisplayConfig`). The config
+  rectangle with a size and a position inside its computer
+  (`LayoutModel::DisplayConfig`), reported by that computer (below) or
+  typed by hand. The config
   compiler collapses each computer's displays into its desktop bounding box
   and turns touching edges into links with ranges, `left(a,b) = name(c,d)`,
   which the config format already supports; the core switches on
@@ -226,10 +227,23 @@ mock shows `desk-win · 1` / `desk-win · 2` and a portrait `mac-studio · 2`).
   store migrates on load: every cell becomes a 1920×1080 desktop at the
   cell's place (`internalConfig/layoutVersion` = 2 once saved). Dragging
   snaps to nearby edges; a drop that would overlap is refused.
-- **Later core extension**: clients report their display geometry to the
-  server (a new wire message, both ends on this build, like the dimming
-  messages) so sizes and positions fill in by themselves, and the overlay
-  hints can name the display the cursor left from.
+- **Reported displays (built 2026-11-01)**: every window reads its own
+  monitors in the core's units (`Platform::displays()`: `CGDisplayBounds`
+  points on macOS, physical pixels from `EnumDisplayMonitors` on Windows,
+  where the core is per-monitor DPI aware; Qt geometry times the device
+  pixel ratio elsewhere) and publishes them as a `displays` snapshot on the
+  settings channel and as TXT `d=x,y,WxH;…` in its zeroconf record. The
+  record covers a computer the server has not let in yet (the channel only
+  grants Read to computers in the layout), so it is placed at its real size;
+  the channel's snapshot wins once it arrives. The server's own displays go
+  straight into its layout. `LayoutModel::reportDisplays` applies a report
+  to a computer still on the placeholder display or whose displays came
+  from a report (`displaysReported`, persisted); one typed by hand keeps
+  its values and the panel offers "Use them". A desktop that changes size
+  keeps its origin and moves the desktops wholly right of / below it by the
+  change, so neighbours keep touching; then the server restarts once
+  (debounced). No core or wire change. Still open: overlay hints naming the
+  display the cursor left from.
 
 ### 4.5 The process model, as shown in the UI
 

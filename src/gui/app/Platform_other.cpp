@@ -19,6 +19,8 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
+#include <QGuiApplication>
+#include <QScreen>
 #include <QStandardPaths>
 #include <QTextStream>
 
@@ -64,6 +66,22 @@ bool serviceRunning(const QString&) { return false; }
 QString name()
 {
     return QStringLiteral("Linux");
+}
+
+QVector<QRect> displays()
+{
+    QVector<QRect> list;
+    if (qobject_cast<QGuiApplication*>(QCoreApplication::instance()) == nullptr) {
+        return list;
+    }
+    const auto screens = QGuiApplication::screens();
+    for (const QScreen* screen : screens) {
+        // Qt divides X11 pixels by the scale factor; the core counts them as they are
+        const qreal ratio = screen->devicePixelRatio();
+        const QRect g = screen->geometry();
+        list << QRect(qRound(g.x() * ratio), qRound(g.y() * ratio), qRound(g.width() * ratio), qRound(g.height() * ratio));
+    }
+    return list;
 }
 
 } // namespace Platform

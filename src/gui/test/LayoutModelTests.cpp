@@ -419,3 +419,96 @@ TEST(LayoutModel, renamesAndRemoves)
     layout.setServerName(QStringLiteral("desk-win-3"));
     EXPECT_EQ(layout.indexOf(QStringLiteral("desk-win-3")), 0);
 }
+
+TEST(LayoutModel, takesTheDisplaysTheComputersReport)
+{
+    Store store;
+    LayoutModel layout(&store.settings);
+    layout.setServerName(QStringLiteral("desk-win"));
+    layout.ensureServerPlaced();
+    EXPECT_TRUE(layout.placeNextTo(QStringLiteral("macbook"), QStringLiteral("desk-win"), LayoutModel::Right));
+    EXPECT_TRUE(layout.placeNextTo(QStringLiteral("below"), QStringLiteral("desk-win"), LayoutModel::Down));
+
+    // the server's two monitors, the second left of the primary (negative x):
+    // the desktop grows and the computer on its right moves along
+    DisplayConfig left{-1920, 0, 1920, 1080}, primary{0, 0, 3840, 2160};
+    EXPECT_TRUE(layout.reportDisplays(QStringLiteral("desk-win"), {primary, left}));
+    EXPECT_EQ(desktopOf(layout, QStringLiteral("desk-win")), QRect(0, 0, 5760, 2160));
+    EXPECT_EQ(desktopOf(layout, QStringLiteral("macbook")), QRect(5760, 0, W, H));
+    EXPECT_EQ(desktopOf(layout, QStringLiteral("below")), QRect(0, 2160, W, H));
+    const QVariantMap server = layout.screenSettings(0);
+    EXPECT_TRUE(server.value(QStringLiteral("displaysReported")).toBool());
+    EXPECT_FALSE(server.value(QStringLiteral("reportDiffers")).toBool());
+    EXPECT_EQ(server.value(QStringLiteral("displays")).toList().value(1).toMap().value(QStringLiteral("x")).toInt(), 0);
+
+    // the same report again changes nothing
+    EXPECT_FALSE(layout.reportDisplays(QStringLiteral("desk-win"), {primary, left}));
+
+    // typed by hand: a report is only offered
+    const int mac = layout.indexOf(QStringLiteral("macbook"));
+    QVariantMap typed;
+    typed.insert(QStringLiteral("displays"), QVariantList{displayMap(0, 0, 1440, 900)});
+    EXPECT_TRUE(layout.setScreenSettings(mac, typed));
+    EXPECT_FALSE(layout.reportDisplays(QStringLiteral("macbook"), {DisplayConfig{0, 0, 1512, 982}}));
+    EXPECT_EQ(desktopOf(layout, QStringLiteral("macbook")).size(), QSize(1440, 900));
+    EXPECT_TRUE(layout.screenSettings(mac).value(QStringLiteral("reportDiffers")).toBool());
+    EXPECT_TRUE(layout.useReportedDisplays(mac));
+    EXPECT_EQ(desktopOf(layout, QStringLiteral("macbook")), QRect(5760, 0, 1512, 982));
+    EXPECT_FALSE(layout.screenSettings(mac).value(QStringLiteral("reportDiffers")).toBool());
+
+    // a computer that reported before it was placed starts with its displays
+    EXPECT_FALSE(layout.reportDisplays(QStringLiteral("studio"), {DisplayConfig{0, 0, 2560, 1440}}));
+    EXPECT_TRUE(layout.placeNextTo(QStringLiteral("studio"), QStringLiteral("macbook"), LayoutModel::Right));
+    EXPECT_EQ(desktopOf(layout, QStringLiteral("studio")), QRect(5760 + 1512, 0, 2560, 1440));
+
+    // persisted: reopened, the server's displays still follow reports
+    LayoutModel reopened(&store.settings);
+    EXPECT_TRUE(reopened.screenSettings(reopened.indexOf(QStringLiteral("desk-win"))).value(QStringLiteral("displaysReported")).toBool());
+}
+
+TEST(LayoutModel, aShrinkingDesktopLeavesItsNeighboursWhenPullingThemWouldCollide)
+{
+    Store store;
+    LayoutModel layout(&store.settings);
+    layout.setServerName(QStringLiteral("desk-win"));
+    layout.ensureServerPlaced();
+    // a wide computer above-right of the server, and one beyond it that also
+    // reaches down beside the server: pulling that one left would hit the first
+    EXPECT_TRUE(layout.addScreen(QStringLiteral("above"), W / 2, -H));
+    QVariantMap wide;
+    wide.insert(QStringLiteral("displays"), QVariantList{displayMap(0, 0, 2 * W, H)});
+    EXPECT_TRUE(layout.setScreenSettings(1, wide));
+    EXPECT_TRUE(layout.addScreen(QStringLiteral("beyond"), W / 2 + 2 * W, -H / 2));
+    EXPECT_TRUE(layout.reportDisplays(QStringLiteral("desk-win"), {DisplayConfig{0, 0, W / 2, H}}));
+    EXPECT_EQ(desktopOf(layout, QStringLiteral("desk-win")), QRect(0, 0, W / 2, H));
+    EXPECT_EQ(desktopOf(layout, QStringLiteral("beyond")).topLeft(), QPoint(W / 2 + 2 * W, -H / 2));
+    EXPECT_EQ(desktopOf(layout, QStringLiteral("above")).topLeft(), QPoint(W / 2, -H));
+}
+
+TEST(LayoutModel, readsDisplayReportsDefensively)
+{
+    const QVector<DisplayConfig> two = {DisplayConfig{0, 0, 3024, 1964}, DisplayConfig{3024, -200, 2560, 1440}};
+    const QString text = LayoutModel::displaysToText(two);
+    EXPECT_EQ(text, QStringLiteral("0,0,3024x1964;3024,-200,2560x1440"));
+    // the bounding box moves to (0, 0)
+    const QVector<DisplayConfig> back = LayoutModel::displaysFromText(text);
+    ASSERT_EQ(back.size(), 2);
+    EXPECT_EQ(back[0], (DisplayConfig{0, 200, 3024, 1964}));
+    EXPECT_EQ(back[1], (DisplayConfig{3024, 0, 2560, 1440}));
+    EXPECT_EQ(LayoutModel::displaysFromJson(LayoutModel::displaysToJson(back)), back);
+
+    EXPECT_TRUE(LayoutModel::displaysFromText(QStringLiteral("garbage;1,2,0x5;")).isEmpty());
+    EXPECT_EQ(LayoutModel::displaysFromText(QStringLiteral("0,0,9999999x10")).size(), 0);   // too many digits
+    QStringList many;
+    for (int i = 0; i < 20; ++i) many << QStringLiteral("%1,0,10x10").arg(i * 10);
+    EXPECT_EQ(LayoutModel::displaysFromText(many.join(QLatin1Char(';'))).size(), LayoutModel::kMaxReportedDisplays);
+    QJsonArray huge;
+    QJsonObject big;
+    big.insert(QStringLiteral("width"), 5000000);
+    big.insert(QStringLiteral("height"), -1);
+    huge << big;
+    EXPECT_TRUE(LayoutModel::displaysFromJson(huge).isEmpty());
+    big.insert(QStringLiteral("height"), 10);
+    huge = QJsonArray{big};
+    EXPECT_EQ(LayoutModel::displaysFromJson(huge).value(0).width, 100000);
+}

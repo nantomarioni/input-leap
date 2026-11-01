@@ -86,7 +86,7 @@ Item {
                         Layout.fillWidth: true
                         text: page.fromFile
                               ? qsTr("As read from %1. Edit that file (it reloads here when saved), or choose \"Generate from the layout\" on the Server page to arrange it here.").arg(App.settings.configFile)
-                              : qsTr("Drag the computers to where they sit on your desk; edges that touch become links. Each computer is drawn to the size of its displays. Changes apply when the server restarts.")
+                              : qsTr("Drag the computers to where they sit on your desk; edges that touch become links. Each computer is drawn to the size of its displays, which it reports itself. Changes apply when the server restarts.")
                         color: Theme.muted
                         wrapMode: Text.WordWrap
                     }
