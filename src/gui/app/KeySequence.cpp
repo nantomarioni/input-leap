@@ -178,6 +178,30 @@ void KeySequence::saveSettings(QSettings& settings) const
     settings.endArray();
 }
 
+QJsonObject KeySequence::toJson() const
+{
+    QJsonArray keys;
+    for (int key : m_Sequence)
+        keys.append(key);
+    QJsonObject json;
+    json.insert(QStringLiteral("keys"), keys);
+    return json;
+}
+
+void KeySequence::loadJson(const QJsonObject& json)
+{
+    m_Sequence.clear();
+    const QJsonArray keys = json.value(QStringLiteral("keys")).toArray();
+    for (const QJsonValue& key : keys)
+    {
+        if (m_Sequence.size() == 16)
+            break;
+        m_Sequence.append(key.toInt());
+    }
+    setModifiers(0);
+    setValid(true);
+}
+
 QString KeySequence::keyToString(int key)
 {
     // nothing there?

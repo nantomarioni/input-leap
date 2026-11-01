@@ -59,6 +59,8 @@ class Action
 
         void loadSettings(QSettings& settings);
         void saveSettings(QSettings& settings) const;
+        QJsonObject toJson() const;          // the settings channel's form, the settings' keys
+        void loadJson(const QJsonObject& json);
 
         int type() const { return type_; }
         void setType(int t) { type_ = t; }

@@ -934,8 +934,8 @@ void LayoutModel::setDimmingPercentage(int percent) { setOption(m_dimmingPercent
 
 QVariantList LayoutModel::hotkeyList() const
 {
-    if (isMirror()) {
-        return m_mirrorHotkeys;
+    if (!m_mirrorHotkeys.isEmpty()) {
+        return m_mirrorHotkeys;   // read from a file, or shared by an older build: text only
     }
     QVariantList list;
     for (const Hotkey& hotkey : m_hotkeys) {
@@ -1163,8 +1163,17 @@ void LayoutModel::saveScreen(const ScreenConfig& screen)
     writeArray<bool>(s, QStringLiteral("fix"), screen.fixes);
 }
 
+void LayoutModel::setReadOnly(bool readOnly)
+{
+    if (m_readOnly != readOnly) {
+        m_readOnly = readOnly;
+        emit readOnlyChanged();
+    }
+}
+
 void LayoutModel::save()
 {
+    emit edited();
     if (m_store == nullptr) {
         return;
     }
@@ -1262,7 +1271,48 @@ QJsonObject LayoutModel::toJson() const
     json.insert(QStringLiteral("options"), options);
 
     json.insert(QStringLiteral("hotkeys"), QJsonArray::fromVariantList(hotkeyList()));
+    if (m_mirrorHotkeys.isEmpty()) {
+        QJsonArray hotkeyData;   // the whole hotkeys, so a client can edit them
+        for (const Hotkey& hotkey : m_hotkeys) {
+            hotkeyData << hotkey.toJson();
+        }
+        json.insert(QStringLiteral("hotkeyData"), hotkeyData);
+    }
     return json;
+}
+
+bool LayoutModel::replaceWith(const QJsonObject& json, QString* error)
+{
+    static const QRegularExpression namePattern(QStringLiteral("^[A-Za-z0-9._-]{1,255}$"));
+    auto refuse = [error](const QString& why) {
+        if (error != nullptr) *error = why;
+        return false;
+    };
+    const QJsonArray screens = json.value(QStringLiteral("screens")).toArray();
+    if (!json.value(QStringLiteral("screens")).isArray() || !json.value(QStringLiteral("options")).isObject()) {
+        return refuse(tr("not a server configuration"));
+    }
+    if (screens.size() > 64) {
+        return refuse(tr("%n computers is too many", "", int(screens.size())));
+    }
+    for (const QJsonValue& value : screens) {
+        const QString name = value.toObject().value(QStringLiteral("name")).toString();
+        if (!namePattern.match(name).hasMatch()) {
+            return refuse(tr("\"%1\" is not a valid screen name").arg(name.left(40)));
+        }
+        if (value.toObject().value(QStringLiteral("displays")).toArray().size() > 16) {
+            return refuse(tr("%1 has too many displays").arg(name));
+        }
+    }
+    if (json.value(QStringLiteral("hotkeyData")).toArray().size() > 256) {
+        return refuse(tr("too many hotkeys"));
+    }
+    const QString server = m_serverName;
+    loadJson(json);
+    m_serverName = server;
+    save();
+    changed(0, m_screens.size() - 1);
+    return true;
 }
 
 void LayoutModel::loadJson(const QJsonObject& json)
@@ -1322,7 +1372,19 @@ void LayoutModel::loadJson(const QJsonObject& json)
     m_dimmingEnabled = options.value(QStringLiteral("dimmingEnabled")).toBool(false);
     m_dimmingPercentage = qBound(0, options.value(QStringLiteral("dimmingPercentage")).toInt(30), 100);
 
-    m_mirrorHotkeys = json.value(QStringLiteral("hotkeys")).toArray().toVariantList();
+    m_hotkeys.clear();
+    m_mirrorHotkeys.clear();
+    if (json.value(QStringLiteral("hotkeyData")).isArray()) {
+        for (const QJsonValue& value : json.value(QStringLiteral("hotkeyData")).toArray()) {
+            Hotkey hotkey;
+            hotkey.loadJson(value.toObject());
+            if (hotkey.keySequence().valid() && !hotkey.keySequence().sequence().isEmpty()) {
+                m_hotkeys.push_back(hotkey);
+            }
+        }
+    } else {
+        m_mirrorHotkeys = json.value(QStringLiteral("hotkeys")).toArray().toVariantList();
+    }
     endResetModel();
     emit layoutChanged();
     emit optionsChanged();

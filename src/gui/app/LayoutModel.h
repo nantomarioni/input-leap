@@ -122,6 +122,9 @@ class LayoutModel : public QAbstractListModel
     Q_PROPERTY(int screenCount READ screenCount NOTIFY layoutChanged)
     Q_PROPERTY(QRect bounds READ bounds NOTIFY layoutChanged)
     Q_PROPERTY(bool isMirror READ isMirror CONSTANT)
+    // Nothing may be changed here: a configuration file, or a client's copy
+    // of the server's layout without the right to change it.
+    Q_PROPERTY(bool readOnly READ readOnly NOTIFY readOnlyChanged)
     Q_PROPERTY(QVariantList hotkeys READ hotkeyList NOTIFY hotkeysChanged)
 
     // options (section: options)
@@ -169,6 +172,8 @@ public:
     // (the server's layout as a client sees it, docs/ui-redesign.md §4.7).
     explicit LayoutModel(QSettings* store, QObject* parent = nullptr);
     bool isMirror() const { return m_store == nullptr; }
+    bool readOnly() const { return m_readOnly; }
+    void setReadOnly(bool readOnly);
 
     // QAbstractListModel
     int rowCount(const QModelIndex& parent = QModelIndex()) const override;
@@ -284,6 +289,10 @@ public:
     void save();
     QJsonObject toJson() const;                 // the whole server configuration
     void loadJson(const QJsonObject& json);     // replaces everything; a mirror's only input
+    // The server takes a whole configuration a client edited: screens,
+    // options and hotkeys, checked and saved; its own name stays. False (and
+    // nothing changed) when it is not a configuration.
+    bool replaceWith(const QJsonObject& json, QString* error = nullptr);
     // A configuration file in the core's format (section: screens / links /
     // aliases / options): screens, options and hotkeys as written, desktops
     // laid out from the links (sizes from their ranges). For a mirror.
@@ -292,6 +301,10 @@ public:
     Q_INVOKABLE bool writeConfig(const QString& path) const;
 
 signals:
+    // A change made here (by the window, not loaded from elsewhere): what the
+    // server applies and a client sends to the server.
+    void edited();
+    void readOnlyChanged();
     void layoutChanged();
     void optionsChanged();
     void hotkeysChanged();
@@ -308,6 +321,7 @@ private:
     template <class T> void setOption(T& member, const T& value);
 
     QSettings* m_store;
+    bool m_readOnly = false;
     QString m_serverName;
     QVector<ScreenConfig> m_screens;
     QHash<QString, QString> m_liveStates;

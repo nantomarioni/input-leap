@@ -14,6 +14,7 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include "Hotkey.h"
 #include "LayoutModel.h"
 #include "Utils.h"
 
@@ -511,4 +512,98 @@ TEST(LayoutModel, readsDisplayReportsDefensively)
     big.insert(QStringLiteral("height"), 10);
     huge = QJsonArray{big};
     EXPECT_EQ(LayoutModel::displaysFromJson(huge).value(0).width, 100000);
+}
+
+TEST(LayoutModel, aClientEditsTheServersConfigurationThroughJson)
+{
+    Store store;
+    LayoutModel server(&store.settings);
+    server.setServerName(QStringLiteral("desk-win"));
+    server.ensureServerPlaced();
+    EXPECT_TRUE(server.placeNextTo(QStringLiteral("macbook"), QStringLiteral("desk-win"), LayoutModel::Right));
+    KeySequence keys;
+    keys.appendKey(Qt::Key_F1, Qt::ControlModifier);
+    const int hotkey = server.addHotkey(keys);
+    ASSERT_EQ(hotkey, 0);
+    Action action;
+    action.setType(Action::switchToScreen);
+    action.setSwitchScreenName(QStringLiteral("macbook"));
+    EXPECT_TRUE(server.addAction(hotkey, action));
+
+    // the client's copy: loading never counts as an edit
+    LayoutModel mirror(nullptr);
+    int edits = 0;
+    QObject::connect(&mirror, &LayoutModel::edited, [&]() { ++edits; });
+    mirror.loadJson(server.toJson());
+    EXPECT_EQ(edits, 0);
+    ASSERT_EQ(mirror.hotkeys().size(), 1u);   // whole hotkeys, not just their text
+    EXPECT_EQ(mirror.hotkeys()[0].text(), server.hotkeys()[0].text());
+
+    // edited there: moved, an option, a hotkey removed
+    EXPECT_TRUE(mirror.moveTo(mirror.indexOf(QStringLiteral("macbook")), -W, 0));
+    mirror.setSwitchDelay(400);
+    mirror.removeHotkey(0);
+    EXPECT_EQ(edits, 3);
+
+    // and taken by the server, which keeps its own name and saves it
+    int serverEdits = 0;
+    QObject::connect(&server, &LayoutModel::edited, [&]() { ++serverEdits; });
+    QString error;
+    EXPECT_TRUE(server.replaceWith(mirror.toJson(), &error)) << error.toStdString();
+    EXPECT_EQ(serverEdits, 1);
+    EXPECT_EQ(server.serverName(), QStringLiteral("desk-win"));
+    EXPECT_EQ(desktopOf(server, QStringLiteral("macbook")).topLeft(), QPoint(-W, 0));
+    EXPECT_EQ(server.switchDelay(), 400);
+    EXPECT_TRUE(server.hotkeys().empty());
+    LayoutModel reopened(&store.settings);
+    EXPECT_EQ(reopened.switchDelay(), 400);
+    EXPECT_EQ(desktopOf(reopened, QStringLiteral("macbook")).topLeft(), QPoint(-W, 0));
+
+    // what is not a configuration changes nothing
+    QJsonObject bad = mirror.toJson();
+    QJsonArray screens = bad.value(QStringLiteral("screens")).toArray();
+    QJsonObject evil = screens[0].toObject();
+    evil.insert(QStringLiteral("name"), QStringLiteral("bad name; with spaces"));
+    screens[0] = evil;
+    bad.insert(QStringLiteral("screens"), screens);
+    EXPECT_FALSE(server.replaceWith(bad, &error));
+    EXPECT_FALSE(error.isEmpty());
+    EXPECT_FALSE(server.replaceWith(QJsonObject(), &error));
+    EXPECT_EQ(server.screenCount(), 2);
+    EXPECT_EQ(serverEdits, 1);
+}
+
+TEST(LayoutModel, hotkeysRoundTripThroughJson)
+{
+    KeySequence keys;
+    keys.appendKey(Qt::Key_L, Qt::ControlModifier | Qt::AltModifier);
+    Hotkey hotkey;
+    hotkey.setKeySequence(keys);
+    Action lock;
+    lock.setType(Action::lockCursorToScreen);
+    lock.setLockCursorMode(Action::lockCursonOn);
+    lock.setActiveOnRelease(true);
+    hotkey.appendAction(lock);
+    Action type;
+    type.setType(Action::keystroke);
+    type.setKeySequence(keys);
+    type.setHaveScreens(true);
+    type.appendTypeScreenName(QStringLiteral("macbook"));
+    hotkey.appendAction(type);
+
+    Hotkey back;
+    back.loadJson(hotkey.toJson());
+    EXPECT_EQ(back.text(), hotkey.text());
+    ASSERT_EQ(back.actions().size(), 2u);
+    EXPECT_EQ(back.actions()[0].text(), lock.text());
+    EXPECT_EQ(back.actions()[1].text(), type.text());
+    EXPECT_TRUE(back.actions()[0].activeOnRelease());
+    EXPECT_EQ(back.actions()[1].typeScreenNames(), QStringList{QStringLiteral("macbook")});
+
+    // out-of-range values from the wire are clamped
+    QJsonObject wild = lock.toJson();
+    wild.insert(QStringLiteral("type"), 999);
+    Action clamped;
+    clamped.loadJson(wild);
+    EXPECT_EQ(clamped.type(), int(Action::mousebutton));
 }

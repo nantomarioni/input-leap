@@ -64,6 +64,11 @@ class AppController : public QObject
     Q_PROPERTY(SyncService* sync READ sync CONSTANT)
     Q_PROPERTY(LayoutModel* mirrorLayout READ mirrorLayout CONSTANT)
     Q_PROPERTY(bool mirrorAvailable READ mirrorAvailable NOTIFY stateChanged)
+    // The server's configuration (layout, options, hotkeys, its settings) may
+    // be changed from this window; why not when it may not.
+    Q_PROPERTY(bool layoutEditable READ layoutEditable NOTIFY stateChanged)
+    Q_PROPERTY(QString layoutReadOnlyReason READ layoutReadOnlyReason NOTIFY stateChanged)
+    Q_PROPERTY(bool serverSettingsEditable READ serverSettingsEditable NOTIFY stateChanged)
 
     Q_PROPERTY(Role role READ role WRITE setRole NOTIFY roleChanged)
     Q_PROPERTY(RunState runState READ runState NOTIFY stateChanged)
@@ -114,8 +119,9 @@ public:
 
     AppSettings* settings() const { return m_settings; }
     // The layout the server runs: the editable one kept in the settings, or
-    // a read-only reading of the configuration file when one is used.
-    LayoutModel* layout() const { return m_externalActive ? m_external : m_layout; }
+    // a read-only reading of the configuration file when one is used. On a
+    // client, its copy of the server's (edits go back to the server).
+    LayoutModel* layout() const { return role() == Client ? m_mirror : m_externalActive ? m_external : m_layout; }
     QString layoutSource() const;
     TlsIdentity* identity() const { return m_identity; }
     Discovery* discovery() const { return m_discovery; }
@@ -126,6 +132,9 @@ public:
     // The server's configuration as it shares it with this client (phase C).
     LayoutModel* mirrorLayout() const { return m_mirror; }
     bool mirrorAvailable() const { return m_mirrorAvailable; }
+    bool layoutEditable() const;
+    QString layoutReadOnlyReason() const;
+    bool serverSettingsEditable() const;
 
     Role role() const;
     RunState runState() const { return m_runState; }
@@ -190,6 +199,15 @@ public slots:
     // act; the answer lands in remoteResult(computer, key).
     void setRemote(const QString& computer, const QString& key, const QVariant& value);
     void remoteAction(const QString& computer, const QString& action);
+    // One of the server's own settings (port, TLS, …): here on the server,
+    // over the channel on a client.
+    void setServerSetting(const QString& key, const QVariant& value);
+    // Restarts every computer's core: the clients that let this one (or the
+    // server) do it, then the server.
+    void restartFleet();
+    // What another computer shares: directly over the channel, or relayed by
+    // the server for the other clients (docs/ui-redesign.md §4.7).
+    Q_INVOKABLE QVariantMap peerInfo(const QString& name) const;
     Q_INVOKABLE QVariantMap remoteResult(const QString& computer, const QString& key) const;
     void refreshAccessibility();
     void requestAccessibility();
@@ -228,10 +246,19 @@ private:
     void publishSync();
     void publishDisplays();
     void onDisplaysReported(const QString& name, const QVector<DisplayConfig>& displays);
-    int syncTrusted(const QString& sha256, const QString& name, bool incoming) const;
+    int syncTrusted(const QString& sha256, const QString& name, bool incoming);
     QJsonObject handleSyncRequest(const QString& peer, const QString& kind, const QJsonObject& body, int access);
+    QJsonObject applySetting(const QString& by, const QString& key, const QJsonValue& value);
+    QJsonObject relayRequest(const QString& peer, const QJsonObject& body);
+    int restartClients(const QString& by);
+    void requestTo(const QString& computer, const QString& kind, const QJsonObject& body, SyncService::AckHandler handler);
+    void sendServerConfig();
+    void reloadMirror();
+    void updateMirrorAccess();
+    void applyIfChanged();
+    QString launchSignature();
+    bool buildLaunch(QString& program, QStringList& arguments, QString& error, bool prepare);
     int serverPort() const;
-    bool buildLaunch(QString& program, QStringList& arguments, QString& error);
     void resetLiveState();
     void addRequest(const QString& id, const QString& kind, const QVariantMap& fields);
     bool hasRequest(const QString& id) const;
@@ -261,7 +288,12 @@ private:
     inputleap::fork_gui::UpdateChecker* m_updates = nullptr;
     QTimer* m_restartTimer = nullptr;
     QTimer* m_displaysTimer = nullptr;        // monitors come and go in bursts: read them once it settles
-    QTimer* m_displaysApplyTimer = nullptr;   // one server restart for several reports
+    QTimer* m_applyTimer = nullptr;           // a change restarts the core once the edits settle
+    QTimer* m_configSendTimer = nullptr;      // a client's edits of the server's layout, batched
+    QString m_launchSignature;                // what the running core was started with
+    int m_configInFlight = 0;                 // edits sent to the server, not answered yet
+    bool m_mirrorStale = false;               // the server shared a newer one meanwhile
+    QSet<QString> m_rejectedSyncPeers;        // fingerprints refused write access this session
     QVector<DisplayConfig> m_localDisplays;
     QString m_advertisedDisplays;
 

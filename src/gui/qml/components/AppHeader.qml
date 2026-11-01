@@ -56,6 +56,19 @@ Rectangle {
             text: qsTr("Restart")
             enabled: App.runState === App.Running
             onClicked: App.restart()
+            ToolTip.visible: hovered
+            ToolTip.delay: 600
+            ToolTip.text: qsTr("Restart this computer's core")
+        }
+
+        // every computer's core: the server asks the clients that let it
+        Button {
+            text: qsTr("Restart all")
+            visible: App.computers.length > 1 && (App.role === App.Server || App.serverSettingsEditable)
+            onClicked: App.restartFleet()
+            ToolTip.visible: hovered
+            ToolTip.delay: 600
+            ToolTip.text: qsTr("Restart the core on every computer of the fleet")
         }
 
         Button {

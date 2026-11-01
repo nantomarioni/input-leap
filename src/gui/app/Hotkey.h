@@ -47,6 +47,8 @@ class Hotkey
 
         void loadSettings(QSettings& settings);
         void saveSettings(QSettings& settings) const;
+        QJsonObject toJson() const;          // {"keys": […], "actions": […]}
+        void loadJson(const QJsonObject& json);
 
 
     private:

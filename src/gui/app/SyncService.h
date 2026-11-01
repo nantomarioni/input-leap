@@ -44,7 +44,9 @@ class QTimer;
  *   "settings", "state", "server-config";
  * - "access": what the sender lets this peer do (Read or Write);
  * - requests, answered with an "ack" carrying the same id: "set" (one
- *   setting of the other computer) and "action" (restart its core, …).
+ *   setting of the other computer), "action" (restart its core, …),
+ *   "set-config" (the server's whole configuration) and "relay" (a request
+ *   for a third computer, which the server forwards).
  */
 class SyncService : public QObject
 {
@@ -77,7 +79,9 @@ public:
     // itself in its hello; incoming: it connected to us.
     using TrustCheck = std::function<int(const QString& sha256, const QString& name, bool incoming)>;
     // Answers a request from a verified peer; returns the ack body
-    // ({"ok": bool, "text": "…", …}). access: that peer's level here.
+    // ({"ok": bool, "text": "…", …}). access: that peer's level here. A body
+    // with "deferred": true sends nothing; answer() sends the ack later.
+    // The request's "id" is in `body`.
     using RequestHandler = std::function<QJsonObject(const QString& peer, const QString& kind, const QJsonObject& body, int access)>;
     using AckHandler = std::function<void(const QJsonObject& ack)>;
 
@@ -105,7 +109,9 @@ public:
 
     // A request to one peer ("set", "action"); the handler gets the ack, or
     // a failed one when the peer is away or silent. Returns the request id.
-    QString request(const QString& peerName, const QString& kind, const QJsonObject& body, AckHandler handler);
+    // timeoutMs: 0 for the default (a relayed request waits less, so the
+    // server's answer reaches the asker before its own wait ends).
+    QString request(const QString& peerName, const QString& kind, const QJsonObject& body, AckHandler handler, int timeoutMs = 0);
 
     // Client role: reach the server's GUI; retried until forget() or stop().
     // An empty name accepts whatever server answers there (an address typed
@@ -113,6 +119,11 @@ public:
     void connectTo(const QString& name, const QString& host, quint16 port);
     void forget(const QString& nameOrHostPort);
     Q_INVOKABLE void retryNow();   // the trust database changed: try the pending peers again
+    // The ack of a request the handler deferred (see RequestHandler).
+    void answer(const QString& peerName, const QJsonValue& id, QJsonObject ack);
+    // The trust database changed: recompute what each connected peer may do
+    // here and tell it.
+    void reevaluateAccess();
 
     QVariantList peers() const;
     int connectedCount() const;

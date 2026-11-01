@@ -19,6 +19,8 @@
 
 #include "Action.h"
 
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QSettings>
 #include <QTextStream>
 
@@ -145,6 +147,33 @@ void Action::saveSettings(QSettings& settings) const
     settings.setValue(SettingsKeys::LOCKTOSCREEN, lockCursorMode());
     settings.setValue(SettingsKeys::ACTIVEONRELEASE, activeOnRelease());
     settings.setValue(SettingsKeys::HASSCREENS, haveScreens());
+}
+
+QJsonObject Action::toJson() const
+{
+    QJsonObject json = key_sequence_.toJson();
+    json.insert(SettingsKeys::ACTION_TYPE, type());
+    json.insert(SettingsKeys::SCREEN_NAMES, QJsonArray::fromStringList(typeScreenNames()));
+    json.insert(SettingsKeys::SWITCH_TO_SCREEN, switchScreenName());
+    json.insert(SettingsKeys::SWITCH_DIRECTION, switchDirection());
+    json.insert(SettingsKeys::LOCKTOSCREEN, lockCursorMode());
+    json.insert(SettingsKeys::ACTIVEONRELEASE, activeOnRelease());
+    json.insert(SettingsKeys::HASSCREENS, haveScreens());
+    return json;
+}
+
+void Action::loadJson(const QJsonObject& json)
+{
+    key_sequence_.loadJson(json);
+    setType(qBound(int(keyDown), json.value(SettingsKeys::ACTION_TYPE).toInt(keyDown), int(mousebutton)));
+    type_screen_names_.clear();
+    for (const QJsonValue& name : json.value(SettingsKeys::SCREEN_NAMES).toArray())
+        type_screen_names_.append(name.toString());
+    setSwitchScreenName(json.value(SettingsKeys::SWITCH_TO_SCREEN).toString());
+    setSwitchDirection(qBound(int(switchLeft), json.value(SettingsKeys::SWITCH_DIRECTION).toInt(switchLeft), int(switchDown)));
+    setLockCursorMode(qBound(int(lockCursorToggle), json.value(SettingsKeys::LOCKTOSCREEN).toInt(lockCursorToggle), int(lockCursorOff)));
+    setActiveOnRelease(json.value(SettingsKeys::ACTIVEONRELEASE).toBool(false));
+    setHaveScreens(json.value(SettingsKeys::HASSCREENS).toBool(false));
 }
 
 QTextStream& operator<<(QTextStream& outStream, const Action& action)

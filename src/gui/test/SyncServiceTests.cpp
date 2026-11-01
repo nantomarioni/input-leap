@@ -209,3 +209,100 @@ TEST(SyncService, dropsPeersItDoesNotTrust)
     EXPECT_FALSE(rogue.serverConnected());
     EXPECT_TRUE(rogue.serverDocument(QStringLiteral("server-config")).isEmpty());
 }
+
+// The server relays a client's request to another client (a deferred ack),
+// and a change of trust reaches a connected peer without reconnecting.
+TEST(SyncService, relaysRequestsBetweenClientsThroughTheServer)
+{
+    if (!QSslSocket::supportsSsl()) {
+        GTEST_SKIP() << "no TLS backend in this Qt";
+    }
+    QTemporaryDir dir;
+    const QString serverPem = makeCertificate(dir, QStringLiteral("server"));
+    const QString clientPem = makeCertificate(dir, QStringLiteral("client"));
+    const QString serverFp = fingerprintOfFile(serverPem);
+    const QString clientFp = fingerprintOfFile(clientPem);
+
+    QString error;
+    SyncService server;
+    ASSERT_TRUE(server.setIdentity(serverPem, &error)) << error.toStdString();
+    server.setLocalInfo(QStringLiteral("desk-win"), QStringLiteral("server"), QStringLiteral("test"));
+    int clientAccess = SyncService::Read;
+    server.setTrustCheck([&](const QString& sha, const QString&, bool incoming) {
+        return incoming && sha == clientFp ? clientAccess : int(SyncService::None);
+    });
+    server.setRequestHandler([&](const QString& peer, const QString& kind, const QJsonObject& body, int access) {
+        if (kind != QLatin1String("relay") || access < SyncService::Write) {
+            QJsonObject ack;
+            ack.insert(QStringLiteral("ok"), false);
+            ack.insert(QStringLiteral("text"), QStringLiteral("refused"));
+            return ack;
+        }
+        const QJsonValue id = body.value(QStringLiteral("id"));
+        QJsonObject inner = body.value(QStringLiteral("body")).toObject();
+        inner.insert(QStringLiteral("by"), peer);
+        server.request(body.value(QStringLiteral("target")).toString(), body.value(QStringLiteral("kind")).toString(), inner,
+                       [&server, peer, id](const QJsonObject& ack) { server.answer(peer, id, ack); }, 3000);
+        QJsonObject deferred;
+        deferred.insert(QStringLiteral("deferred"), true);
+        return deferred;
+    });
+    ASSERT_TRUE(server.start()) << server.error().toStdString();
+
+    auto makeClient = [&](SyncService& client, const QString& name) {
+        ASSERT_TRUE(client.setIdentity(clientPem, &error)) << error.toStdString();
+        client.setLocalInfo(name, QStringLiteral("client"), QStringLiteral("test"));
+        client.setTrustCheck([&](const QString& sha, const QString&, bool incoming) {
+            return !incoming && sha == serverFp ? SyncService::Write : SyncService::None;
+        });
+        client.setRequestHandler([name](const QString&, const QString& kind, const QJsonObject& body, int access) {
+            QJsonObject ack;
+            ack.insert(QStringLiteral("ok"), access >= SyncService::Write && kind == QLatin1String("set"));
+            ack.insert(QStringLiteral("text"), QStringLiteral("applied on %1 for %2").arg(name, body.value(QStringLiteral("by")).toString()));
+            return ack;
+        });
+        ASSERT_TRUE(client.start()) << client.error().toStdString();
+        client.connectTo(QStringLiteral("desk-win"), QStringLiteral("127.0.0.1"), quint16(server.port()));
+    };
+    SyncService macbook, mini;
+    makeClient(macbook, QStringLiteral("macbook"));
+    makeClient(mini, QStringLiteral("mini"));
+    ASSERT_TRUE(waitFor([&]() { return macbook.serverConnected() && mini.serverConnected() && server.connectedCount() == 2; }));
+    ASSERT_TRUE(waitFor([&]() { return macbook.accessAt(QStringLiteral("desk-win")) == SyncService::Read; }));
+
+    QJsonObject set;
+    set.insert(QStringLiteral("key"), QStringLiteral("logLevel"));
+    set.insert(QStringLiteral("value"), 4);
+    QJsonObject relay;
+    relay.insert(QStringLiteral("target"), QStringLiteral("mini"));
+    relay.insert(QStringLiteral("kind"), QStringLiteral("set"));
+    relay.insert(QStringLiteral("body"), set);
+
+    // read-only on the server: nothing relayed
+    QJsonObject gotAck;
+    macbook.request(QStringLiteral("desk-win"), QStringLiteral("relay"), relay, [&](const QJsonObject& ack) { gotAck = ack; });
+    ASSERT_TRUE(waitFor([&]() { return !gotAck.isEmpty(); }));
+    EXPECT_FALSE(gotAck.value(QStringLiteral("ok")).toBool());
+
+    // the server now trusts it: told at once, and the relay goes through
+    clientAccess = SyncService::Write;
+    server.reevaluateAccess();
+    ASSERT_TRUE(waitFor([&]() { return macbook.accessAt(QStringLiteral("desk-win")) == SyncService::Write; }));
+    gotAck = QJsonObject();
+    macbook.request(QStringLiteral("desk-win"), QStringLiteral("relay"), relay, [&](const QJsonObject& ack) { gotAck = ack; });
+    ASSERT_TRUE(waitFor([&]() { return !gotAck.isEmpty(); }));
+    EXPECT_TRUE(gotAck.value(QStringLiteral("ok")).toBool());
+    EXPECT_EQ(gotAck.value(QStringLiteral("text")).toString(), QStringLiteral("applied on mini for macbook"));
+
+    // a target that is not there: the server's own failure comes back
+    relay.insert(QStringLiteral("target"), QStringLiteral("nobody"));
+    gotAck = QJsonObject();
+    macbook.request(QStringLiteral("desk-win"), QStringLiteral("relay"), relay, [&](const QJsonObject& ack) { gotAck = ack; });
+    ASSERT_TRUE(waitFor([&]() { return !gotAck.isEmpty(); }));
+    EXPECT_FALSE(gotAck.value(QStringLiteral("ok")).toBool());
+
+    // trust withdrawn: dropped
+    clientAccess = SyncService::None;
+    server.reevaluateAccess();
+    ASSERT_TRUE(waitFor([&]() { return server.connectedCount() == 0; }));
+}

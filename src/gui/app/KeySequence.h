@@ -18,6 +18,7 @@
 
 #pragma once
 
+#include <QJsonObject>
 #include <QList>
 #include <QString>
 
@@ -37,6 +38,9 @@ class KeySequence
         int modifiers() const { return m_Modifiers; }
         void saveSettings(QSettings& settings) const;
         void loadSettings(QSettings& settings);
+        // The settings channel's form: {"keys": [int, …]}.
+        QJsonObject toJson() const;
+        void loadJson(const QJsonObject& json);
         const QList<int>& sequence() const { return m_Sequence; }
 
     private:

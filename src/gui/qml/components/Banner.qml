@@ -55,6 +55,8 @@ Card {
         Label {
             text: banner.request.peerRole === "server"
                   ? qsTr("The server %1 presents a fingerprint you have not seen before").arg(banner.request.name)
+                  : banner.request.reason === "settings"
+                    ? qsTr("%1 wants to change settings from its window").arg(banner.request.name)
                   : qsTr("A client presents a fingerprint you have not seen before")
             font.weight: Font.DemiBold
             color: Theme.text
@@ -94,7 +96,7 @@ Card {
             Layout.alignment: Qt.AlignRight
             spacing: 8
             Button { text: qsTr("Reject"); onClicked: App.rejectTrust(banner.request.id) }
-            Button { text: qsTr("Trust and connect"); highlighted: true; onClicked: App.acceptTrust(banner.request.id) }
+            Button { text: banner.request.reason === "settings" ? qsTr("Trust it") : qsTr("Trust and connect"); highlighted: true; onClicked: App.acceptTrust(banner.request.id) }
         }
     }
 

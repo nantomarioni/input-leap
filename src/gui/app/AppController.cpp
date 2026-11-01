@@ -95,9 +95,14 @@ AppController::AppController(QObject* parent) :
     m_displaysTimer = new QTimer(this);
     m_displaysTimer->setSingleShot(true);
     m_displaysTimer->setInterval(1000);
-    m_displaysApplyTimer = new QTimer(this);
-    m_displaysApplyTimer->setSingleShot(true);
-    m_displaysApplyTimer->setInterval(2000);
+    m_applyTimer = new QTimer(this);
+    m_applyTimer->setSingleShot(true);
+    m_applyTimer->setInterval(1500);
+    m_configSendTimer = new QTimer(this);
+    m_configSendTimer->setSingleShot(true);
+    m_configSendTimer->setInterval(300);
+    m_external->setReadOnly(true);
+    m_mirror->setReadOnly(true);
 
     const auto all = QNetworkInterface::allAddresses();
     for (const QHostAddress& address : all) {
@@ -141,7 +146,14 @@ AppController::AppController(QObject* parent) :
     connect(m_layout, &LayoutModel::layoutChanged, this, &AppController::stateChanged);
     // this computer's monitors, sent to the server (docs/ui-redesign.md §4.4)
     connect(m_displaysTimer, &QTimer::timeout, this, &AppController::publishDisplays);
-    connect(m_displaysApplyTimer, &QTimer::timeout, this, &AppController::applyLayout);
+    // every change takes effect at once: the core restarts when what it was
+    // started with no longer matches (settings, the generated configuration)
+    connect(m_applyTimer, &QTimer::timeout, this, &AppController::applyIfChanged);
+    connect(m_settings, &AppSettings::changed, m_applyTimer, qOverload<>(&QTimer::start));
+    connect(m_layout, &LayoutModel::edited, m_applyTimer, qOverload<>(&QTimer::start));
+    // a client's edits of the server's configuration go to the server
+    connect(m_mirror, &LayoutModel::edited, m_configSendTimer, qOverload<>(&QTimer::start));
+    connect(m_configSendTimer, &QTimer::timeout, this, &AppController::sendServerConfig);
     if (auto* gui = qobject_cast<QGuiApplication*>(QCoreApplication::instance())) {
         auto watch = [this](QScreen* screen) {
             connect(screen, &QScreen::geometryChanged, m_displaysTimer, qOverload<>(&QTimer::start));
@@ -176,17 +188,8 @@ AppController::AppController(QObject* parent) :
         log(text, isError ? QStringLiteral("WARNING") : QStringLiteral("INFO"));
     });
     connect(m_sync, &SyncService::changed, this, &AppController::stateChanged);
-    connect(m_sync, &SyncService::serverConfigChanged, this, [this]() {
-        const QJsonObject config = m_sync->serverDocument(QStringLiteral("server-config"));
-        const bool available = !config.isEmpty();
-        if (available) {
-            m_mirror->loadJson(config.value(QStringLiteral("layout")).toObject());
-        } else if (m_mirrorAvailable) {
-            m_mirror->loadJson(QJsonObject());
-        }
-        m_mirrorAvailable = available;
-        emit stateChanged();
-    });
+    connect(m_sync, &SyncService::serverConfigChanged, this, &AppController::reloadMirror);
+    connect(m_sync, &SyncService::changed, this, &AppController::updateMirrorAccess);
     connect(m_core, &CoreProcess::lineReceived, this, &AppController::handleCoreLine);
     connect(m_core, &CoreProcess::stateChanged, this, &AppController::onCoreStateChanged);
     connect(m_core, &CoreProcess::exited, this, &AppController::onCoreExited);
@@ -200,7 +203,10 @@ AppController::AppController(QObject* parent) :
         log(text, isError ? QStringLiteral("ERROR") : QStringLiteral("INFO"));
     });
     connect(m_identity, &TlsIdentity::changed, this, &AppController::stateChanged);
-    connect(m_identity, &TlsIdentity::changed, this, [this]() { m_sync->retryNow(); });
+    connect(m_identity, &TlsIdentity::changed, this, [this]() {
+        m_sync->retryNow();
+        m_sync->reevaluateAccess();
+    });
     connect(m_restartTimer, &QTimer::timeout, this, [this]() {
         if (m_wantRunning && m_core->state() == CoreProcess::Stopped) {
             start();
@@ -262,7 +268,118 @@ void AppController::reloadExternalLayout()
 
 QString AppController::layoutSource() const
 {
+    if (role() == Client) {
+        return tr("held by %1").arg(m_sync->serverConnected() ? m_sync->serverName() : tr("the server"));
+    }
     return m_externalActive ? tr("the file %1").arg(m_externalPath) : tr("generated from the layout");
+}
+
+// ---- the server's configuration, edited from any window ---------------------------
+
+bool AppController::serverSettingsEditable() const
+{
+    if (role() == Server) {
+        return true;
+    }
+    if (!m_sync->serverConnected()) {
+        return false;
+    }
+    const QVariantMap server = m_sync->peer(m_sync->serverName());
+    return server.value(QStringLiteral("accessThere")).toInt() >= SyncService::Write
+           && server.value(QStringLiteral("protocol")).toInt() >= 3;
+}
+
+bool AppController::layoutEditable() const
+{
+    if (role() == Server) {
+        return !m_externalActive;
+    }
+    return m_mirrorAvailable && serverSettingsEditable()
+           && !m_sync->serverSettings().value(QStringLiteral("useExternalConfig")).toBool();
+}
+
+QString AppController::layoutReadOnlyReason() const
+{
+    if (layoutEditable()) {
+        return QString();
+    }
+    if (role() == Server) {
+        return tr("As read from %1. Edit that file (it reloads here when saved), or choose \"Generate from the layout\" on the Server page to arrange it here.").arg(m_externalPath);
+    }
+    if (!m_mirrorAvailable) {
+        return tr("Waiting for the server to share its configuration.");
+    }
+    const QString server = m_sync->serverName();
+    if (m_sync->serverSettings().value(QStringLiteral("useExternalConfig")).toBool()) {
+        return tr("%1 runs a configuration file: edit it there.").arg(server);
+    }
+    if (m_sync->peer(server).value(QStringLiteral("protocol")).toInt() < 3) {
+        return tr("%1 runs an older build: update it to edit its configuration from here.").arg(server);
+    }
+    return tr("Read-only: %1 does not trust this computer's certificate. Trust it on %1 (it asks when this computer connects) to edit from here.").arg(server);
+}
+
+void AppController::updateMirrorAccess()
+{
+    m_mirror->setReadOnly(!layoutEditable());
+}
+
+// The server shared its configuration: the copy here follows, unless edits
+// made here are still on their way (the answer to them brings it back).
+void AppController::reloadMirror()
+{
+    if (m_configInFlight > 0 || m_configSendTimer->isActive()) {
+        m_mirrorStale = true;
+        return;
+    }
+    m_mirrorStale = false;
+    const QJsonObject config = m_sync->serverDocument(QStringLiteral("server-config"));
+    const bool available = !config.isEmpty();
+    if (available) {
+        m_mirror->loadJson(config.value(QStringLiteral("layout")).toObject());
+    } else if (m_mirrorAvailable) {
+        m_mirror->loadJson(QJsonObject());
+    }
+    m_mirrorAvailable = available;
+    updateMirrorAccess();
+    emit layoutSourceChanged();
+    emit stateChanged();
+}
+
+// A client edited its copy of the server's configuration: the whole of it
+// goes to the server, which checks it, saves it and shares it with everyone.
+void AppController::sendServerConfig()
+{
+    if (role() != Client || !m_sync->serverConnected()) {
+        return;
+    }
+    QJsonObject body;
+    body.insert(QStringLiteral("layout"), m_mirror->toJson());
+    ++m_configInFlight;
+    m_sync->request(m_sync->serverName(), QStringLiteral("set-config"), body, [this](const QJsonObject& ack) {
+        m_configInFlight = qMax(0, m_configInFlight - 1);
+        const bool ok = ack.value(QStringLiteral("ok")).toBool();
+        log(tr("layout · %1").arg(ack.value(QStringLiteral("text")).toString()), ok ? QStringLiteral("INFO") : QStringLiteral("WARNING"));
+        if (!ok) {
+            m_mirrorStale = true;   // show what the server really holds
+            emit notify(tr("Layout not changed"), ack.value(QStringLiteral("text")).toString());
+        }
+        if (m_configInFlight == 0 && m_mirrorStale) {
+            reloadMirror();
+        }
+    });
+}
+
+void AppController::setServerSetting(const QString& key, const QVariant& value)
+{
+    if (role() == Server) {
+        const QJsonObject ack = applySetting(QString(), key, QJsonValue::fromVariant(value));
+        if (!ack.value(QStringLiteral("ok")).toBool()) {
+            log(ack.value(QStringLiteral("text")).toString(), QStringLiteral("WARNING"));
+        }
+        return;
+    }
+    setRemote(m_sync->serverName(), key, value);
 }
 
 // ---- derived state -----------------------------------------------------------
@@ -444,16 +561,24 @@ QVariantList AppController::computers() const
                           m_connectedToServer ? tr("Connected") : tr("Server"),
                           m_connectedToServer ? QStringLiteral("success") : QStringLiteral("neutral"), address, m_since);
         }
-        // the other computers of the server's layout, as the mirror shows them
-        if (m_mirrorAvailable) {
-            const QStringList others = m_mirror->screenNames();
-            for (const QString& name : others) {
-                if (name == self || name == server) continue;
-                const QVariantMap peer = m_sync->peer(name);
-                list << entry(name, m_mirror->positionText(m_mirror->indexOf(name)),
-                              peer.isEmpty() ? tr("via the server") : tr("Sharing"),
-                              peer.isEmpty() ? QStringLiteral("neutral") : QStringLiteral("success"), QString(), QDateTime());
-            }
+        // the other clients: those of the server's layout, and any the server
+        // talks to that are not placed yet
+        QStringList others = m_mirrorAvailable ? m_mirror->screenNames() : QStringList();
+        const QJsonArray fleet = m_sync->serverDocument(QStringLiteral("fleet")).value(QStringLiteral("computers")).toArray();
+        for (const QJsonValue& value : fleet) {
+            const QString name = value.toObject().value(QStringLiteral("name")).toString();
+            if (!others.contains(name)) others << name;
+        }
+        for (const QString& name : std::as_const(others)) {
+            if (name == self || name == server) continue;
+            const QVariantMap peer = peerInfo(name);
+            const bool sharing = peer.value(QStringLiteral("connected")).toBool();
+            const bool on = peer.value(QStringLiteral("state")).toMap().value(QStringLiteral("connected")).toBool();
+            const int cell = m_mirror->indexOf(name);
+            list << entry(name, cell >= 0 ? m_mirror->positionText(cell) : tr("not placed"),
+                          on ? tr("Connected") : sharing ? tr("Sharing") : tr("Not shared"),
+                          on ? QStringLiteral("success") : QStringLiteral("neutral"),
+                          peer.value(QStringLiteral("settings")).toMap().value(QStringLiteral("addresses")).toList().value(0).toString(), QDateTime());
         }
     }
     return list;
@@ -599,6 +724,7 @@ void AppController::setRole(int role)
     m_pausedForTrust = false;
     resetLiveState();
     log(tr("role is now %1").arg(wanted == Server ? tr("server") : tr("client")));
+    emit layoutSourceChanged();   // layout() is the server's copy on a client
     if (!m_dryRun) {
         startSync();
         startDiscovery();
@@ -607,7 +733,9 @@ void AppController::setRole(int role)
     emit stateChanged();
 }
 
-bool AppController::buildLaunch(QString& program, QStringList& arguments, QString& error)
+// prepare = false only builds the command line (to compare it with the
+// running core's): no folder made, no configuration written.
+bool AppController::buildLaunch(QString& program, QStringList& arguments, QString& error, bool prepare)
 {
     const bool server = role() == Server;
     program = QCoreApplication::applicationDirPath() + QLatin1Char('/')
@@ -647,7 +775,7 @@ bool AppController::buildLaunch(QString& program, QStringList& arguments, QStrin
               << QDir::toNativeSeparators(QString::fromStdString(inputleap::DataDirectories::profile().u8string()));
 #endif
     if (m_settings->logToFile()) {
-        QDir().mkpath(QFileInfo(m_settings->logFilename()).path());
+        if (prepare) QDir().mkpath(QFileInfo(m_settings->logFilename()).path());
         arguments << QStringLiteral("--log") << m_settings->logFilename();
     }
 
@@ -663,10 +791,12 @@ bool AppController::buildLaunch(QString& program, QStringList& arguments, QStrin
                 return false;
             }
         } else {
+            configPath = generatedConfigPath();
+        }
+        if (prepare && !m_settings->useExternalConfig()) {
             m_layout->setServerName(screenName());
             m_layout->ensureServerPlaced();
             QDir().mkpath(dataFolder());
-            configPath = generatedConfigPath();
             if (!m_layout->writeConfig(configPath)) {
                 error = tr("Could not write the generated configuration to %1").arg(configPath);
                 return false;
@@ -716,7 +846,7 @@ void AppController::start()
 
     QString program, error;
     QStringList arguments;
-    if (!buildLaunch(program, arguments, error)) {
+    if (!buildLaunch(program, arguments, error, true)) {
         m_wantRunning = false;
         m_lastError = error;
         log(error, QStringLiteral("ERROR"));
@@ -728,6 +858,7 @@ void AppController::start()
     }
 
     setRunState(Starting);
+    m_launchSignature = launchSignature();
     m_lastStart = QDateTime::currentDateTime();
     log(tr("starting %1").arg(role() == Server ? tr("the server") : tr("the client")));
     m_logModel->append(LogModel::App, QStringLiteral("DEBUG"), tr("command: %1 %2").arg(program, arguments.join(QLatin1Char(' '))));
@@ -773,6 +904,43 @@ void AppController::restart()
     stop();
     m_wantRunning = wanted;
     m_restartTimer->start(300);
+}
+
+// What the core is started with: its command line and, on a server, the
+// configuration it reads.
+QString AppController::launchSignature()
+{
+    QString program, error;
+    QStringList arguments;
+    if (!buildLaunch(program, arguments, error, false)) {
+        return QString();   // cannot tell: leave the core alone
+    }
+    if (role() == Client && !arguments.isEmpty()) {
+        // the server's address as set, not as discovery resolved it this time
+        arguments.removeLast();
+        arguments << m_settings->serverHostname() << QString::number(m_settings->port());
+    }
+    QString signature = program + QLatin1Char('\n') + arguments.join(QLatin1Char('\n'));
+    if (role() == Server && !m_settings->useExternalConfig()) {
+        signature += QLatin1Char('\n') + m_layout->configText();
+    }
+    return signature;
+}
+
+// A setting or the layout changed (here or from another window): a running
+// core that was started with something else restarts, so the change takes
+// effect now.
+void AppController::applyIfChanged()
+{
+    if (m_runState != Running || m_dryRun) {
+        return;
+    }
+    const QString now = launchSignature();
+    if (now.isEmpty() || m_launchSignature.isEmpty() || now == m_launchSignature) {
+        return;
+    }
+    log(tr("settings changed: restarting the %1").arg(role() == Server ? tr("server") : tr("client")));
+    restart();
 }
 
 void AppController::applyLayout()
@@ -1071,7 +1239,7 @@ void AppController::restartSync()
 // them. A server also lets any computer of its layout read them when it
 // does not check client certificates; a client lets the server it found
 // read them when TLS is off altogether. Nobody else gets in.
-int AppController::syncTrusted(const QString& sha256, const QString& name, bool incoming) const
+int AppController::syncTrusted(const QString& sha256, const QString& name, bool incoming)
 {
     if (role() == Server) {
         if (!incoming) {
@@ -1079,6 +1247,23 @@ int AppController::syncTrusted(const QString& sha256, const QString& name, bool 
         }
         if (m_identity->isTrusted(true, sha256)) {
             return SyncService::Write;
+        }
+        // a computer of the layout, or one asking to join: offer to trust it,
+        // which lets it change settings from its own window
+        if (!name.isEmpty() && !sha256.isEmpty() && (layout()->hasScreen(name) || m_discovery->clients().contains(name))) {
+            const QString id = QStringLiteral("trust:") + sha256;
+            QTimer::singleShot(0, this, [this, id, sha256, name]() {
+                if (hasRequest(id) || m_rejectedSyncPeers.contains(sha256) || m_identity->isTrusted(true, sha256)) return;
+                QVariantMap fields;
+                fields.insert(QStringLiteral("sha256"), sha256);
+                fields.insert(QStringLiteral("columns"), TlsIdentity::columnsFor(sha256));
+                fields.insert(QStringLiteral("randomart"), TlsIdentity::randomartFor(sha256));
+                fields.insert(QStringLiteral("peerRole"), QStringLiteral("client"));
+                fields.insert(QStringLiteral("name"), name);
+                fields.insert(QStringLiteral("reason"), QStringLiteral("settings"));
+                addRequest(id, QStringLiteral("trust"), fields);
+                emit notify(tr("%1 wants to change settings").arg(name), tr("Open Input Leap to check its fingerprint and trust it"));
+            });
         }
         return !m_settings->requireClientCertificate() && layout()->hasScreen(name) ? SyncService::Read : SyncService::None;
     }
@@ -1107,15 +1292,37 @@ QJsonObject AppController::handleSyncRequest(const QString& peer, const QString&
     if (access < SyncService::Write) {
         return answer(false, tr("%1 may read %2's settings but not change them: its certificate is not trusted here").arg(peer, me));
     }
+    // a request the server relayed names who asked
+    const QString relayedBy = body.value(QStringLiteral("by")).toString();
+    const QString by = relayedBy.isEmpty() || relayedBy == peer ? peer : tr("%1 (via %2)").arg(relayedBy, peer);
     const QString coreWord = role() == Server ? tr("server") : tr("client");
 
+    if (kind == QLatin1String("relay")) {
+        return relayRequest(peer, body);
+    }
+    if (kind == QLatin1String("set-config")) {
+        if (role() != Server) return answer(false, tr("%1 is not the server").arg(me));
+        if (m_externalActive) return answer(false, tr("%1 runs the configuration file %2: edit it there").arg(me, m_externalPath));
+        QString error;
+        if (!m_layout->replaceWith(body.value(QStringLiteral("layout")).toObject(), &error)) {
+            return answer(false, tr("%1 refused the layout: %2").arg(me, error));
+        }
+        log(tr("%1 changed the layout").arg(by));
+        return answer(true, running() ? tr("applied on %1; the server restarts").arg(me) : tr("saved on %1").arg(me));
+    }
     if (kind == QLatin1String("action")) {
         const QString action = body.value(QStringLiteral("action")).toString();
-        log(tr("%1 asked for %2").arg(peer, action));
+        log(tr("%1 asked for %2").arg(by, action));
         if (action == QLatin1String("restart")) {
             if (!running()) return answer(false, tr("%1 is not running its %2").arg(me, coreWord));
             restart();
             return answer(true, tr("%1 is restarting its %2").arg(me, coreWord));
+        }
+        if (action == QLatin1String("restartFleet")) {
+            if (role() != Server) return answer(false, tr("%1 is not the server").arg(me));
+            const int clients = restartClients(relayedBy.isEmpty() ? peer : relayedBy);
+            restart();
+            return answer(true, tr("%1 is restarting with %n client(s)", "", clients).arg(me));
         }
         if (action == QLatin1String("start")) {
             if (running()) return answer(true, tr("%1 is already running").arg(me));
@@ -1139,9 +1346,23 @@ QJsonObject AppController::handleSyncRequest(const QString& peer, const QString&
     if (kind != QLatin1String("set")) {
         return answer(false, tr("%1 does not understand %2").arg(me, kind));
     }
+    return applySetting(by, body.value(QStringLiteral("key")).toString(), body.value(QStringLiteral("value")));
+}
 
-    const QString key = body.value(QStringLiteral("key")).toString();
-    const QJsonValue value = body.value(QStringLiteral("value"));
+// One of this computer's settings, from another window (by) or, on the
+// server, from its own Server page (by empty). Changes that the core reads
+// take effect when it restarts, which happens by itself (applyIfChanged).
+QJsonObject AppController::applySetting(const QString& by, const QString& key, const QJsonValue& value)
+{
+    auto answer = [](bool ok, const QString& text) {
+        QJsonObject ack;
+        ack.insert(QStringLiteral("ok"), ok);
+        ack.insert(QStringLiteral("text"), text);
+        return ack;
+    };
+    const QString me = screenName();
+    const QString coreWord = role() == Server ? tr("server") : tr("client");
+    const bool server = role() == Server;
     enum When { Now, CoreRestart, NextLaunch } when = Now;
     static const QRegularExpression namePattern(QStringLiteral("^[A-Za-z0-9._-]{1,255}$"));
     if (key == QLatin1String("screenName")) {
@@ -1180,22 +1401,82 @@ QJsonObject AppController::handleSyncRequest(const QString& peer, const QString&
     } else if (key == QLatin1String("openHidden")) {
         m_settings->setOpenHidden(value.toBool());
         when = NextLaunch;
+    } else if (key == QLatin1String("cryptoEnabled")) {
+        m_settings->setCryptoEnabled(value.toBool());
+        when = CoreRestart;
+    } else if (server && key == QLatin1String("networkInterface")) {
+        const QString address = value.toString().trimmed();
+        if (!address.isEmpty() && QHostAddress(address).isNull()) return answer(false, tr("%1 is not an address").arg(address));
+        m_settings->setNetworkInterface(address);
+        when = CoreRestart;
+    } else if (server && key == QLatin1String("requireClientCertificate")) {
+        m_settings->setRequireClientCertificate(value.toBool());
+        when = CoreRestart;
+    } else if (server && key == QLatin1String("useExternalConfig")) {
+        m_settings->setUseExternalConfig(value.toBool());
+        when = CoreRestart;
+    } else if (server && key == QLatin1String("configFile")) {
+        m_settings->setConfigFile(value.toString());
+        when = CoreRestart;
     } else {
         return answer(false, tr("%1 cannot be changed from another computer").arg(key));
     }
 
     const QString shown = value.isBool() ? (value.toBool() ? tr("on") : tr("off")) : value.toVariant().toString();
-    log(tr("%1 set %2 to %3").arg(peer, key, shown));
-    emit notify(tr("%1 changed a setting").arg(peer), tr("%1 is now %2").arg(key, shown));
+    if (!by.isEmpty()) {
+        log(tr("%1 set %2 to %3").arg(by, key, shown));
+        emit notify(tr("%1 changed a setting").arg(by), tr("%1 is now %2").arg(key, shown));
+    }
     QString text;
     switch (when) {
     case Now: text = tr("applied on %1").arg(me); break;
-    case CoreRestart: text = running() ? tr("on %1, after its %2 restarts").arg(me, coreWord) : tr("on %1, at its next start").arg(me); break;
+    case CoreRestart: text = running() ? tr("applied on %1; its %2 restarts").arg(me, coreWord) : tr("on %1, at its next start").arg(me); break;
     case NextLaunch: text = tr("on %1, at its next launch").arg(me); break;
     }
     QJsonObject ack = answer(true, text);
     ack.insert(QStringLiteral("applied"), when == Now ? QStringLiteral("now") : when == CoreRestart ? QStringLiteral("restart") : QStringLiteral("launch"));
     return ack;
+}
+
+// Server: a client's request for another client (or this server). It goes on
+// as this server's request, so it lands only where both let it: the asker may
+// change things here, and the target lets this server change things there.
+QJsonObject AppController::relayRequest(const QString& peer, const QJsonObject& body)
+{
+    auto answer = [](bool ok, const QString& text) {
+        QJsonObject ack;
+        ack.insert(QStringLiteral("ok"), ok);
+        ack.insert(QStringLiteral("text"), text);
+        return ack;
+    };
+    if (role() != Server) {
+        return answer(false, tr("%1 is not the server: it relays nothing").arg(screenName()));
+    }
+    const QString target = body.value(QStringLiteral("target")).toString();
+    const QString kind = body.value(QStringLiteral("kind")).toString();
+    QJsonObject inner = body.value(QStringLiteral("body")).toObject();
+    inner.remove(QStringLiteral("id"));
+    inner.insert(QStringLiteral("by"), peer);
+    if (kind != QLatin1String("set") && kind != QLatin1String("action")) {
+        return answer(false, tr("%1 does not relay %2").arg(screenName(), kind));
+    }
+    if (target == screenName()) {
+        return handleSyncRequest(peer, kind, inner, SyncService::Write);
+    }
+    const QVariantMap there = m_sync->peer(target);
+    if (!there.value(QStringLiteral("connected")).toBool()) {
+        return answer(false, tr("%1 is not connected to %2").arg(target, screenName()));
+    }
+    if (there.value(QStringLiteral("accessThere")).toInt() < SyncService::Write) {
+        return answer(false, tr("%1 does not let %2 change its settings: it does not trust the server's certificate").arg(target, screenName()));
+    }
+    const QJsonValue id = body.value(QStringLiteral("id"));
+    m_sync->request(target, kind, inner, [this, peer, id](const QJsonObject& ack) {
+        m_sync->answer(peer, id, ack);
+    }, 7000);
+    QJsonObject deferred;
+    deferred.insert(QStringLiteral("deferred"), true);
+    return deferred;
 }
 
 void AppController::setRemote(const QString& computer, const QString& key, const QVariant& value)
@@ -1208,7 +1489,7 @@ void AppController::setRemote(const QString& computer, const QString& key, const
     pending.insert(QStringLiteral("text"), tr("sending to %1…").arg(computer));
     m_remoteResults[computer][key] = pending;
     emit stateChanged();
-    m_sync->request(computer, QStringLiteral("set"), body, [this, computer, key](const QJsonObject& ack) {
+    requestTo(computer, QStringLiteral("set"), body, [this, computer, key](const QJsonObject& ack) {
         QVariantMap result;
         result.insert(QStringLiteral("pending"), false);
         result.insert(QStringLiteral("ok"), ack.value(QStringLiteral("ok")).toBool());
@@ -1230,7 +1511,7 @@ void AppController::remoteAction(const QString& computer, const QString& action)
     pending.insert(QStringLiteral("text"), tr("asking %1…").arg(computer));
     m_remoteResults[computer][key] = pending;
     emit stateChanged();
-    m_sync->request(computer, QStringLiteral("action"), body, [this, computer, key](const QJsonObject& ack) {
+    requestTo(computer, QStringLiteral("action"), body, [this, computer, key](const QJsonObject& ack) {
         QVariantMap result;
         result.insert(QStringLiteral("pending"), false);
         result.insert(QStringLiteral("ok"), ack.value(QStringLiteral("ok")).toBool());
@@ -1245,6 +1526,84 @@ void AppController::remoteAction(const QString& computer, const QString& action)
 QVariantMap AppController::remoteResult(const QString& computer, const QString& key) const
 {
     return m_remoteResults.value(computer).value(key);
+}
+
+// To a computer this window talks to, or, for another client, through the
+// server, which forwards it when both let it.
+void AppController::requestTo(const QString& computer, const QString& kind, const QJsonObject& body, SyncService::AckHandler handler)
+{
+    if (m_sync->peer(computer).value(QStringLiteral("connected")).toBool() || role() == Server || !m_sync->serverConnected()) {
+        m_sync->request(computer, kind, body, std::move(handler));
+        return;
+    }
+    QJsonObject relay;
+    relay.insert(QStringLiteral("target"), computer);
+    relay.insert(QStringLiteral("kind"), kind);
+    relay.insert(QStringLiteral("body"), body);
+    m_sync->request(m_sync->serverName(), QStringLiteral("relay"), relay, std::move(handler));
+}
+
+void AppController::restartFleet()
+{
+    if (role() == Server) {
+        const int clients = restartClients(screenName());
+        log(tr("restarting the fleet: %n client(s) and this server", "", clients));
+        restart();
+        return;
+    }
+    remoteAction(m_sync->serverName(), QStringLiteral("restartFleet"));
+}
+
+// Server: asks every client that lets it to restart its core.
+int AppController::restartClients(const QString& by)
+{
+    int count = 0;
+    const QVariantList peers = m_sync->peers();
+    for (const QVariant& p : peers) {
+        const QVariantMap peer = p.toMap();
+        if (!peer.value(QStringLiteral("connected")).toBool() || peer.value(QStringLiteral("accessThere")).toInt() < SyncService::Write) {
+            continue;
+        }
+        const QString name = peer.value(QStringLiteral("name")).toString();
+        QJsonObject body;
+        body.insert(QStringLiteral("action"), QStringLiteral("restart"));
+        body.insert(QStringLiteral("by"), by);
+        m_sync->request(name, QStringLiteral("action"), body, [this, name](const QJsonObject& ack) {
+            log(tr("%1: %2").arg(name, ack.value(QStringLiteral("text")).toString()),
+                ack.value(QStringLiteral("ok")).toBool() ? QStringLiteral("INFO") : QStringLiteral("WARNING"));
+        });
+        ++count;
+    }
+    return count;
+}
+
+QVariantMap AppController::peerInfo(const QString& name) const
+{
+    QVariantMap direct = m_sync->peer(name);
+    if (direct.value(QStringLiteral("connected")).toBool() || role() == Server) {
+        return direct;
+    }
+    // another client: as the server shares it
+    const QJsonArray fleet = m_sync->serverDocument(QStringLiteral("fleet")).value(QStringLiteral("computers")).toArray();
+    for (const QJsonValue& value : fleet) {
+        const QJsonObject entry = value.toObject();
+        if (entry.value(QStringLiteral("name")).toString() != name) continue;
+        const QJsonObject state = entry.value(QStringLiteral("state")).toObject();
+        QVariantMap map;
+        map.insert(QStringLiteral("name"), name);
+        map.insert(QStringLiteral("role"), entry.value(QStringLiteral("role")).toString());
+        map.insert(QStringLiteral("version"), entry.value(QStringLiteral("version")).toString());
+        map.insert(QStringLiteral("connected"), true);
+        map.insert(QStringLiteral("relayed"), true);
+        map.insert(QStringLiteral("settings"), entry.value(QStringLiteral("settings")).toObject().toVariantMap());
+        map.insert(QStringLiteral("state"), state.toVariantMap());
+        map.insert(QStringLiteral("processes"), state.value(QStringLiteral("processes")).toArray().toVariantList());
+        // changes reach it when the server lets this computer and it lets the server
+        const bool writable = serverSettingsEditable() && entry.value(QStringLiteral("accessThere")).toInt() >= SyncService::Write;
+        map.insert(QStringLiteral("accessThere"), writable ? int(SyncService::Write) : int(SyncService::Read));
+        return map;
+    }
+    return direct;
 }
 
 // This computer's monitors: to the server over the settings channel, in the
@@ -1284,9 +1643,6 @@ void AppController::onDisplaysReported(const QString& name, const QVector<Displa
     }
     if (m_layout->reportDisplays(name, displays)) {
         log(tr("%1 reports its displays: %2").arg(name, LayoutModel::displaysToText(displays)));
-        if (!m_externalActive) {
-            m_displaysApplyTimer->start();
-        }
     }
 }
 
@@ -1343,6 +1699,25 @@ void AppController::publishSync()
         config.insert(QStringLiteral("layout"), layout()->toJson());
         config.insert(QStringLiteral("conf"), layout()->configText());
         m_sync->setDocument(QStringLiteral("server-config"), config);
+
+        // every client this server talks to, so each client sees the others
+        QJsonArray computers;
+        const QVariantList peers = m_sync->peers();
+        for (const QVariant& p : peers) {
+            const QVariantMap peer = p.toMap();
+            if (!peer.value(QStringLiteral("connected")).toBool()) continue;
+            QJsonObject entry;
+            entry.insert(QStringLiteral("name"), peer.value(QStringLiteral("name")).toString());
+            entry.insert(QStringLiteral("role"), peer.value(QStringLiteral("role")).toString());
+            entry.insert(QStringLiteral("version"), peer.value(QStringLiteral("version")).toString());
+            entry.insert(QStringLiteral("accessThere"), peer.value(QStringLiteral("accessThere")).toInt());
+            entry.insert(QStringLiteral("settings"), QJsonObject::fromVariantMap(peer.value(QStringLiteral("settings")).toMap()));
+            entry.insert(QStringLiteral("state"), QJsonObject::fromVariantMap(peer.value(QStringLiteral("state")).toMap()));
+            computers << entry;
+        }
+        QJsonObject fleet;
+        fleet.insert(QStringLiteral("computers"), computers);
+        m_sync->setDocument(QStringLiteral("fleet"), fleet);
     }
 }
 
@@ -1443,6 +1818,12 @@ void AppController::acceptTrust(const QString& id)
 
 void AppController::rejectTrust(const QString& id)
 {
+    for (const QVariant& r : std::as_const(m_requests)) {
+        const QVariantMap map = r.toMap();
+        if (map.value(QStringLiteral("id")).toString() == id && map.value(QStringLiteral("reason")).toString() == QLatin1String("settings")) {
+            m_rejectedSyncPeers.insert(map.value(QStringLiteral("sha256")).toString());   // its window reconnects often: ask once a session
+        }
+    }
     removeRequest(id);
     m_pausedForTrust = false;
     log(tr("rejected a fingerprint; it will be asked again on the next connection"));
@@ -1545,7 +1926,7 @@ int AppController::addHotkey(QObject* capture)
     if (keys == nullptr || !keys->valid()) {
         return -1;
     }
-    const int index = m_layout->addHotkey(keys->sequence());
+    const int index = layout()->addHotkey(keys->sequence());
     if (index < 0) {
         log(tr("that hotkey already exists"), QStringLiteral("WARNING"));
     }
@@ -1582,7 +1963,7 @@ bool AppController::addHotkeyAction(int hotkeyIndex, const QVariantMap& map, QOb
     action.setSwitchDirection(map.value(QStringLiteral("direction"), Action::switchLeft).toInt());
     action.setLockCursorMode(map.value(QStringLiteral("lockMode"), Action::lockCursorToggle).toInt());
     action.setActiveOnRelease(map.value(QStringLiteral("onRelease"), false).toBool());
-    if (!m_layout->addAction(hotkeyIndex, action)) {
+    if (!layout()->addAction(hotkeyIndex, action)) {
         return false;
     }
     applyLayout();

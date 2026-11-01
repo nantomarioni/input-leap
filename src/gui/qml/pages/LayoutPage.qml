@@ -10,64 +10,22 @@ Item {
 
     property int selectedIndex: App.layout.indexOf(App.screenName)
     readonly property int panelWidth: 300
-    // the server runs a configuration file: shown as the core reads it, edited there
-    readonly property bool fromFile: App.role === App.Server && App.layout.isMirror
+    // read-only: the server runs a configuration file, or this client may not
+    // change the server's configuration (App.layoutReadOnlyReason says which)
+    readonly property bool fromFile: !App.layoutEditable
 
     EmptyState {
         anchors.fill: parent
         visible: App.role === App.Client && !App.mirrorAvailable
         title: qsTr("The layout lives on the server")
-        description: qsTr("This computer is a client: the server decides where every screen sits. It shows here, read-only, once the server shares its settings (Settings → Share settings) and this computer trusts it. Switch to the server role to edit a layout of this computer's own.")
-    }
-
-    // ---- the mirror: the server's layout as it shares it ---------------------
-    ColumnLayout {
-        anchors.fill: parent
-        anchors.margins: 24
-        anchors.topMargin: 20
-        visible: App.role === App.Client && App.mirrorAvailable
-        spacing: 12
-
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: 12
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: 2
-                Label { text: qsTr("Screen layout"); font.pixelSize: Theme.titleFontSize; font.weight: Font.DemiBold; color: Theme.text }
-                Label {
-                    Layout.fillWidth: true
-                    text: qsTr("As the server %1 holds it. Edit it there; it refreshes here as it changes.").arg(App.sync.serverName)
-                    color: Theme.muted
-                    wrapMode: Text.WordWrap
-                }
-            }
-            StatusPill { text: qsTr("mirrored from %1 · read-only").arg(App.sync.serverName); tone: "info"; showDot: false }
-        }
-
-        Rectangle {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            radius: Theme.radius
-            color: Theme.surface
-            border.color: Theme.border
-            border.width: 1
-            clip: true
-            LayoutCanvas {
-                anchors.fill: parent
-                anchors.margins: 8
-                model: App.mirrorLayout
-                interactive: false
-                selectedIndex: App.mirrorLayout.indexOf(App.screenName)
-            }
-        }
+        description: qsTr("It shows here once the server shares its settings (Settings → Share settings on both computers), and can be edited from here once the server trusts this computer's certificate.")
     }
 
     RowLayout {
         anchors.fill: parent
         anchors.margins: 24
         anchors.topMargin: 20
-        visible: App.role === App.Server
+        visible: App.role === App.Server || App.mirrorAvailable
         spacing: 16
 
         ColumnLayout {
@@ -81,19 +39,27 @@ Item {
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 2
-                    Label { text: qsTr("Screen layout"); font.pixelSize: Theme.titleFontSize; font.weight: Font.DemiBold; color: Theme.text }
+                    RowLayout {
+                        spacing: 10
+                        Label { text: qsTr("Screen layout"); font.pixelSize: Theme.titleFontSize; font.weight: Font.DemiBold; color: Theme.text }
+                        StatusPill {
+                            visible: App.role === App.Client || page.fromFile
+                            text: App.role === App.Client ? (page.fromFile ? qsTr("held by %1 · read-only") : qsTr("held by %1 · editable here")).arg(App.sync.serverName)
+                                                          : qsTr("from a file · read-only")
+                            tone: page.fromFile ? "info" : "success"
+                            showDot: false
+                        }
+                    }
                     Label {
                         Layout.fillWidth: true
                         text: page.fromFile
-                              ? qsTr("As read from %1. Edit that file (it reloads here when saved), or choose \"Generate from the layout\" on the Server page to arrange it here.").arg(App.settings.configFile)
-                              : qsTr("Drag the computers to where they sit on your desk; edges that touch become links. Each computer is drawn to the size of its displays, which it reports itself. Changes apply when the server restarts.")
+                              ? App.layoutReadOnlyReason
+                              : qsTr("Drag the computers to where they sit on your desk; edges that touch become links. Each computer is drawn to the size of its displays, which it reports itself. Changes apply right away, on every computer.")
                         color: Theme.muted
                         wrapMode: Text.WordWrap
                     }
                 }
-                StatusPill { visible: page.fromFile; text: qsTr("from a file · read-only"); tone: "info"; showDot: false }
                 Button { text: qsTr("Add computer"); visible: !addRow.visible && !page.fromFile; onClicked: { addRow.visible = true; addField.forceActiveFocus() } }
-                Button { text: qsTr("Apply and restart"); visible: !page.fromFile; highlighted: true; enabled: App.runState === App.Running; onClicked: App.restart() }
             }
 
             RowLayout {
@@ -177,7 +143,7 @@ Item {
 
             // ---- found on the network, not placed yet ----------------------------
             Repeater {
-                model: App.discovery.clients.filter(function(n) { return !App.layout.hasScreen(n) })
+                model: App.role === App.Server && !page.fromFile ? App.discovery.clients.filter(function(n) { return !App.layout.hasScreen(n) }) : []
                 delegate: Card {
                     required property string modelData
                     Layout.fillWidth: true

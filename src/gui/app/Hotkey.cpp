@@ -18,6 +18,8 @@
 
 #include "Hotkey.h"
 
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QSettings>
 
 Hotkey::Hotkey() :
@@ -84,4 +86,28 @@ QTextStream& operator<<(QTextStream& outStream, const Hotkey& hotkey)
     outStream << "\n";
 
     return outStream;
+}
+
+QJsonObject Hotkey::toJson() const
+{
+    QJsonObject json = m_KeySequence.toJson();
+    QJsonArray actions;
+    for (const Action& action : m_Actions)
+        actions.append(action.toJson());
+    json.insert(QStringLiteral("actions"), actions);
+    return json;
+}
+
+void Hotkey::loadJson(const QJsonObject& json)
+{
+    m_KeySequence.loadJson(json);
+    m_Actions.clear();
+    for (const QJsonValue& value : json.value(QStringLiteral("actions")).toArray())
+    {
+        if (m_Actions.size() == 64)
+            break;
+        Action action;
+        action.loadJson(value.toObject());
+        m_Actions.push_back(action);
+    }
 }

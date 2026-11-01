@@ -36,7 +36,7 @@ const int kFirstRetryMs = 3000;
 const int kMaxRetryMs = 60000;
 const int kBroadcastDelayMs = 150;
 const int kAckTimeoutMs = 10000;
-const int kProtocol = 2;   // 1: snapshots; 2: access, set, action, ack
+const int kProtocol = 3;   // 1: snapshots; 2: access, set, action, ack; 3: relay, set-config
 
 QJsonObject failedAck(const QString& text)
 {
@@ -323,7 +323,7 @@ QJsonObject SyncService::hello() const
 
 // ---- requests --------------------------------------------------------------
 
-QString SyncService::request(const QString& peerName, const QString& kind, const QJsonObject& body, AckHandler handler)
+QString SyncService::request(const QString& peerName, const QString& kind, const QJsonObject& body, AckHandler handler, int timeoutMs)
 {
     Peer* peer = mutablePeerNamed(peerName);
     if (peer == nullptr) {
@@ -332,6 +332,10 @@ QString SyncService::request(const QString& peerName, const QString& kind, const
     }
     if (peer->protocol < 2) {
         if (handler) handler(failedAck(tr("%1 runs an older build that only shares, it does not accept changes").arg(peerName)));
+        return QString();
+    }
+    if (peer->protocol < 3 && (kind == QLatin1String("relay") || kind == QLatin1String("set-config"))) {
+        if (handler) handler(failedAck(tr("%1 runs an older build: update it to edit the whole fleet from here").arg(peerName)));
         return QString();
     }
     const QString id = QUuid::createUuid().toString(QUuid::WithoutBraces);
@@ -347,7 +351,7 @@ QString SyncService::request(const QString& peerName, const QString& kind, const
     connect(pending.timer, &QTimer::timeout, this, [this, id, peerName]() {
         finishPending(id, failedAck(tr("no answer from %1").arg(peerName)));
     });
-    pending.timer->start(kAckTimeoutMs);
+    pending.timer->start(timeoutMs > 0 ? timeoutMs : kAckTimeoutMs);
     m_pending.insert(id, pending);
     return id;
 }
@@ -433,6 +437,41 @@ void SyncService::forget(const QString& nameOrHostPort)
             break;
         }
     }
+}
+
+void SyncService::answer(const QString& peerName, const QJsonValue& id, QJsonObject ack)
+{
+    Peer* peer = mutablePeerNamed(peerName);
+    if (peer == nullptr) {
+        return;   // it went away meanwhile
+    }
+    ack.remove(QStringLiteral("deferred"));
+    ack.insert(QStringLiteral("id"), id);
+    sendDocument(peer, QStringLiteral("ack"), ack);
+}
+
+void SyncService::reevaluateAccess()
+{
+    if (!m_trust) {
+        return;
+    }
+    const QList<Peer*> peers = m_peers;
+    for (Peer* peer : peers) {
+        if (!peer->verified) continue;
+        const int access = qBound(int(None), m_trust(peer->fingerprint, peer->name, peer->incoming), int(Write));
+        if (access == peer->access) continue;
+        if (access <= int(None)) {
+            dropPeer(peer, tr("%1 is no longer trusted: nothing shared with it").arg(peer->name));
+            continue;
+        }
+        peer->access = access;
+        QJsonObject level;
+        level.insert(QStringLiteral("level"), access);
+        sendDocument(peer, QStringLiteral("access"), level);
+        emit message(tr("settings channel: %1 %2").arg(peer->name, access >= Write ? tr("may now change this computer's settings")
+                                                                                   : tr("is now read-only")), false);
+    }
+    emit changed();
 }
 
 void SyncService::retryNow()
@@ -617,9 +656,13 @@ void SyncService::handleLine(Peer* peer, const QByteArray& line)
         finishPending(object.value(QStringLiteral("id")).toString(), object);
         return;
     }
-    if (kind == QLatin1String("set") || kind == QLatin1String("action")) {
+    if (kind == QLatin1String("set") || kind == QLatin1String("action") || kind == QLatin1String("relay")
+        || kind == QLatin1String("set-config")) {
         QJsonObject ack = m_handler ? m_handler(peer->name, kind, object, peer->access)
                                     : failedAck(tr("%1 does not take changes").arg(m_name));
+        if (ack.value(QStringLiteral("deferred")).toBool()) {
+            return;   // the handler answers later, through answer()
+        }
         ack.insert(QStringLiteral("id"), object.value(QStringLiteral("id")));
         sendDocument(peer, QStringLiteral("ack"), ack);
         return;
@@ -770,7 +813,7 @@ void SyncService::addDemoPeer(const QString& name, const QString& role, const QJ
     peer->verified = true;
     peer->access = Write;
     peer->accessThere = accessThere;
-    peer->protocol = 2;
+    peer->protocol = kProtocol;
     peer->name = name;
     peer->role = role;
     peer->version = QStringLiteral("demo");

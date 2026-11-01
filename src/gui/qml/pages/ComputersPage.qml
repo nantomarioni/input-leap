@@ -13,9 +13,10 @@ ScrollView {
     readonly property var computer: App.computers.length > selected ? App.computers[selected] : null
     readonly property int screenIndex: computer ? App.layout.indexOf(computer.name) : -1
 
-    // what that computer shares over the settings channel (phase C)
+    // what that computer shares: over the settings channel, or relayed by the
+    // server for the other clients
     property int syncRevision: 0
-    readonly property var peer: (syncRevision, computer && !computer.isSelf ? App.sync.peer(computer.name) : ({}))
+    readonly property var peer: (syncRevision, computer && !computer.isSelf ? App.peerInfo(computer.name) : ({}))
     readonly property bool peerConnected: peer !== undefined && peer.connected === true
     Connections {
         target: App.sync
@@ -37,7 +38,7 @@ ScrollView {
             Label { text: qsTr("Computers"); font.pixelSize: Theme.titleFontSize; font.weight: Font.DemiBold; color: Theme.text }
             Label {
                 Layout.fillWidth: true
-                text: qsTr("Every computer in the layout, this one included. What the server holds is editable here; what a computer holds itself is editable on that computer.")
+                text: qsTr("Every computer of the fleet, this one included, the same on every computer. What the server holds and what each computer holds itself are both editable here when the computers trust each other.")
                 color: Theme.muted
                 wrapMode: Text.WordWrap
             }
@@ -92,7 +93,12 @@ ScrollView {
                 Layout.fillWidth: true
                 spacing: 12
                 Label { text: page.computer ? page.computer.name : ""; font.pixelSize: 16; font.weight: Font.DemiBold; color: Theme.text }
-                StatusPill { text: page.computer && page.computer.isSelf ? (App.role === App.Server ? qsTr("this computer · server") : qsTr("this computer · client")) : (App.role === App.Server ? qsTr("client") : qsTr("server")); tone: "neutral"; showDot: false }
+                StatusPill {
+                    readonly property bool isServer: page.computer !== null && (page.computer.isSelf ? App.role === App.Server : page.peer.role === "server" || page.computer.name === App.layout.serverName)
+                    text: page.computer && page.computer.isSelf ? (isServer ? qsTr("this computer · server") : qsTr("this computer · client")) : (isServer ? qsTr("server") : qsTr("client"))
+                    tone: "neutral"
+                    showDot: false
+                }
                 StatusPill { text: page.computer ? page.computer.state : ""; tone: page.computer ? page.computer.stateTone : "neutral" }
                 Item { Layout.fillWidth: true }
                 Label { text: page.computer && page.computer.position.length > 0 ? page.computer.position : ""; color: Theme.muted }
@@ -109,7 +115,7 @@ ScrollView {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     Layout.preferredWidth: 1
-                    visible: App.role === App.Server
+                    visible: App.role === App.Server || App.mirrorAvailable
                     padding: 14
                     color: Theme.surface
                     RowLayout {
@@ -117,14 +123,14 @@ ScrollView {
                         SectionTitle { text: qsTr("Held by the server") }
                         Item { Layout.fillWidth: true }
                         StatusPill {
-                            text: App.layout.isMirror ? qsTr("from the configuration file") : qsTr("editable here")
-                            tone: App.layout.isMirror ? "info" : "success"
+                            text: App.layoutEditable ? qsTr("editable here") : App.role === App.Server ? qsTr("from the configuration file") : qsTr("read-only")
+                            tone: App.layoutEditable ? "success" : "info"
                             showDot: false
                         }
                     }
                     ScreenSettingsPanel {
                         Layout.fillWidth: true
-                        enabled: !App.layout.isMirror
+                        enabled: App.layoutEditable
                         visible: page.screenIndex >= 0
                         screenIndex: page.screenIndex
                         compact: true
@@ -250,7 +256,9 @@ ScrollView {
                             Layout.fillWidth: true
                             Layout.topMargin: 8
                             visible: !remote.writable
-                            text: qsTr("Read-only here: %1 does not trust this computer's certificate, so these can only be changed on it.").arg(remote.target)
+                            text: page.peer.relayed
+                                  ? qsTr("Read-only here: changes to %1 go through the server %2, which needs to trust this computer's certificate, and %1 needs to trust the server's.").arg(remote.target).arg(App.sync.serverName)
+                                  : qsTr("Read-only here: %1 does not trust this computer's certificate, so these can only be changed on it.").arg(remote.target)
                             color: Theme.muted
                             font.pixelSize: Theme.smallFontSize
                             wrapMode: Text.WordWrap
@@ -366,7 +374,7 @@ ScrollView {
                     Label {
                         visible: page.computer && !page.computer.isSelf && !page.peerConnected
                         Layout.fillWidth: true
-                        text: qsTr("Its own settings (name, server address, discovery, overlay hints, log level, its pieces) are edited on that computer. They show here once it shares them: both computers with Share settings on, each trusting the other's certificate.")
+                        text: qsTr("Its own settings (name, server address, discovery, overlay hints, log level, its pieces) show here once it shares them with the server: Share settings on, and the server trusting its certificate. Clients see each other through the server.")
                         color: Theme.muted
                         wrapMode: Text.WordWrap
                     }

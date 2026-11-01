@@ -10,7 +10,7 @@ import InputLeap.Ui
 Item {
     id: canvas
 
-    property var model: App.layout       // App.mirrorLayout on a client
+    property var model: App.layout       // on a client, its copy of the server's
     property bool interactive: false
     property bool showDetails: true      // state/position under the name, display outlines
     property int selectedIndex: -1

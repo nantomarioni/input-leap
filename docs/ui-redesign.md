@@ -302,6 +302,46 @@ messages on the core connection; rejected because the GUI has no command
 channel to its own core beyond the Windows IPC, so every message would need
 core plumbing on both ends.
 
+### 4.8 One fleet, edited from any window (built 2026-11-01)
+
+The server is the hub. Every window shows the same pages, and anything can
+be changed from any of them; a change takes effect at once everywhere.
+
+- **The server's configuration** (layout, options, hotkeys): on a client,
+  `App.layout` is its copy of the server's (`m_mirror`, loaded from the
+  `server-config` snapshot), editable when the server grants Write. Every
+  edit (`LayoutModel::edited`, emitted from `save()`, never from a load)
+  sends the whole configuration as `set-config`, batched over 300 ms; the
+  server checks it (`LayoutModel::replaceWith`: names, counts), saves it and
+  shares it again. Hotkeys travel whole (`hotkeyData`, `Hotkey::toJson`).
+  While edits are in flight the copy ignores the server's snapshots and
+  reloads after the answer; a refused edit reloads what the server holds.
+- **The server's own settings** (port, address, TLS, client certificates,
+  configuration source): `set` requests to the server
+  (`App.setServerSetting`), the same path as any other computer's settings.
+- **Other clients**: the server publishes a `fleet` snapshot (each client's
+  settings, state and whether it lets the server write); a client lists
+  those computers and reads them from it (`App.peerInfo`). Its requests for
+  them go to the server as `relay`; the server forwards them as its own
+  request (a deferred ack, `SyncService::answer`), so a change lands only
+  where the server trusts the asker and the target trusts the server.
+- **Taking effect**: a running core restarts by itself 1.5 s after the
+  last change when what it was started with differs (`applyIfChanged`: the
+  command line, with the client's server address as set rather than as
+  discovery resolved it, and the generated configuration). No more "Apply
+  and restart". **Restart all** asks every client that lets the server do
+  it, then restarts the server.
+- **Trust**: unchanged rules (Write needs the peer's certificate in the
+  trusted database). New: a computer of the layout whose window connects
+  untrusted raises an inline "wants to change settings" request on the
+  server; trusting it upgrades the open connection
+  (`SyncService::reevaluateAccess`), no reconnect. Refused once, it is not
+  asked again that session.
+- Protocol 3 (`relay`, `set-config`); a protocol-2 peer still shares and
+  takes `set`/`action`, and the pages say it needs an update to edit the
+  fleet. The core still restarts on Windows to pick up a configuration
+  (no SIGHUP there); a core-side reload would keep clients connected.
+
 ## 5. Milestones
 
 | # | Scope | Done when |
