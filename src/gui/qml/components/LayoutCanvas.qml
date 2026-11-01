@@ -23,6 +23,7 @@ Item {
     readonly property rect bounds: model.bounds
     property int revision: 0
     readonly property var crossings: (revision, model.crossings())
+    readonly property var gapCrossings: (revision, model.gapCrossings())
 
     Connections {
         target: canvas.model
@@ -227,6 +228,26 @@ Item {
             height: upright ? Math.max(2, (modelData.y2 - modelData.y1) * canvas.pxScale) : 4
             radius: 2
             color: Theme.success
+            z: 20
+        }
+    }
+
+    // links made by hand across a gap: edge to edge
+    Repeater {
+        model: canvas.gapCrossings
+        delegate: Rectangle {
+            required property var modelData
+            readonly property real dx: (modelData.x2 - modelData.x1) * canvas.pxScale
+            readonly property real dy: (modelData.y2 - modelData.y1) * canvas.pxScale
+            x: canvas.originX + modelData.x1 * canvas.pxScale
+            y: canvas.originY + modelData.y1 * canvas.pxScale - height / 2
+            width: Math.max(4, Math.sqrt(dx * dx + dy * dy))
+            height: 3
+            radius: 1.5
+            transformOrigin: Item.Left
+            rotation: Math.atan2(dy, dx) * 180 / Math.PI
+            color: Theme.success
+            opacity: 0.7
             z: 20
         }
     }

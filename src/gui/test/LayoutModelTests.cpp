@@ -514,6 +514,43 @@ TEST(LayoutModel, keepsOneArrangementPerSetupOfMonitors)
     EXPECT_EQ(desktopOf(reloaded, QStringLiteral("mac")).topLeft(), QPoint(0, 1080));
 }
 
+// Two laptops each centred under one monitor of the PC: a gap between them,
+// bridged by hand, both ways; only the free part of an edge is used.
+TEST(LayoutModel, linksAcrossAGap)
+{
+    Store store;
+    {
+        LayoutModel layout(&store.settings);
+        layout.setServerName(QStringLiteral("pc"));
+        layout.reportDisplays(QStringLiteral("pc"), {DisplayConfig{0, 0, 1920, 1080}, DisplayConfig{1920, 0, 1920, 1080}});
+        layout.reportDisplays(QStringLiteral("mac1"), {DisplayConfig{0, 0, 1512, 982}});
+        layout.reportDisplays(QStringLiteral("mac2"), {DisplayConfig{0, 0, 1512, 982}});
+        ASSERT_TRUE(layout.addScreen(QStringLiteral("pc"), 0, 0));
+        ASSERT_TRUE(layout.addScreen(QStringLiteral("mac1"), 204, 1080));
+        ASSERT_TRUE(layout.addScreen(QStringLiteral("mac2"), 1920 + 204, 1080));
+        const int mac1 = layout.indexOf(QStringLiteral("mac1")), mac2 = layout.indexOf(QStringLiteral("mac2"));
+
+        EXPECT_FALSE(layout.configText().contains(QStringLiteral("= mac2\n"))
+                     && layout.configText().contains(QStringLiteral("right = mac2")));
+        EXPECT_TRUE(layout.addGapLink(mac1, LayoutModel::Right, mac2));
+        EXPECT_FALSE(layout.addGapLink(mac2, LayoutModel::Left, mac1));   // the same link, seen from the other side
+        const QString conf = layout.configText();
+        EXPECT_TRUE(conf.contains(QStringLiteral("\t\tright = mac2\n"))) << conf.toStdString();
+        EXPECT_TRUE(conf.contains(QStringLiteral("\t\tleft = mac1\n"))) << conf.toStdString();
+        EXPECT_EQ(layout.gapLinksOf(mac2).size(), 1);
+        EXPECT_EQ(layout.gapLinksOf(mac2).first().toMap().value(QStringLiteral("side")).toInt(), int(LayoutModel::Left));
+        EXPECT_EQ(layout.gapCrossings().size(), 1);
+        EXPECT_EQ(layout.crossings().size(), 2);   // the touching ones only: each laptop under the PC
+    }
+    LayoutModel reloaded(&store.settings);
+    reloaded.load();
+    EXPECT_TRUE(reloaded.configText().contains(QStringLiteral("\t\tright = mac2\n")));
+    EXPECT_TRUE(reloaded.renameScreen(reloaded.indexOf(QStringLiteral("mac2")), QStringLiteral("studio")));
+    EXPECT_TRUE(reloaded.configText().contains(QStringLiteral("\t\tright = studio\n")));
+    reloaded.removeScreen(reloaded.indexOf(QStringLiteral("studio")));
+    EXPECT_TRUE(reloaded.gapLinksOf(reloaded.indexOf(QStringLiteral("mac1"))).isEmpty());
+}
+
 TEST(LayoutModel, renamesAndRemoves)
 {
     Store store;

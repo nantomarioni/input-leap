@@ -544,6 +544,10 @@ void LayoutModel::removeScreen(int index)
     if (index < 0 || index >= m_screens.size()) {
         return;
     }
+    const QString gone = m_screens[index].name;
+    m_gapLinks.erase(std::remove_if(m_gapLinks.begin(), m_gapLinks.end(), [&gone](const GapLink& g) {
+        return g.from.compare(gone, Qt::CaseInsensitive) == 0 || g.to.compare(gone, Qt::CaseInsensitive) == 0;
+    }), m_gapLinks.end());
     beginRemoveRows(QModelIndex(), index, index);
     m_screens.removeAt(index);
     endRemoveRows();
@@ -563,6 +567,10 @@ bool LayoutModel::renameScreen(int index, const QString& name)
     }
     if (m_screens[index].name == m_serverName) {
         m_serverName = trimmed;
+    }
+    for (GapLink& g : m_gapLinks) {
+        if (g.from.compare(m_screens[index].name, Qt::CaseInsensitive) == 0) g.from = trimmed;
+        if (g.to.compare(m_screens[index].name, Qt::CaseInsensitive) == 0) g.to = trimmed;
     }
     m_screens[index].name = trimmed;
     save();
@@ -985,6 +993,173 @@ QVector<DisplayConfig> LayoutModel::displaysFromText(const QString& text)
 // both desktops are drawn to scale.
 QVector<ScreenLink> LayoutModel::links() const
 {
+    const QVector<ScreenLink> touching = touchingLinks();
+    QVector<ScreenLink> links = touching;
+    for (const GapLink& g : m_gapLinks) {
+        const int a = indexOf(g.from), b = indexOf(g.to);
+        if (a < 0 || b < 0 || a == b) continue;
+        const int back = opposite(g.side);
+        const QVector<QPair<int, int>> mine = freeSpans(a, g.side, touching);
+        const QVector<QPair<int, int>> theirs = freeSpans(b, back, touching);
+        if (mine.isEmpty() || theirs.isEmpty()) continue;
+        const bool upright = g.side == Left || g.side == Right;
+        const QRect ra = m_screens[a].desktop(), rb = m_screens[b].desktop();
+        const int aStart = upright ? ra.y() : ra.x(), aLength = upright ? ra.height() : ra.width();
+        const int bStart = upright ? rb.y() : rb.x(), bLength = upright ? rb.height() : rb.width();
+        // the free stretch of each edge, end to end
+        const int af = mine.first().first, at = mine.last().second;
+        const int bf = theirs.first().first, bt = theirs.last().second;
+        ScreenLink there;
+        there.from = a;
+        there.to = b;
+        there.side = g.side;
+        there.fromStart = percent(af - aStart, aLength);
+        there.fromEnd = percent(at - aStart, aLength);
+        there.toStart = percent(bf - bStart, bLength);
+        there.toEnd = percent(bt - bStart, bLength);
+        there.gap = true;
+        if (there.fromStart >= there.fromEnd || there.toStart >= there.toEnd) continue;
+        ScreenLink returning = there;
+        returning.from = b;
+        returning.to = a;
+        returning.side = back;
+        std::swap(returning.fromStart, returning.toStart);
+        std::swap(returning.fromEnd, returning.toEnd);
+        links << there << returning;
+    }
+    return links;
+}
+
+// The parts of an edge where a display reaches it and no touching neighbour
+// is linked: what a link across a gap may use.
+QVector<QPair<int, int>> LayoutModel::freeSpans(int index, int side, const QVector<ScreenLink>& touching) const
+{
+    QVector<QPair<int, int>> open = edgeSpans(m_screens[index], side);
+    const bool upright = side == Left || side == Right;
+    for (const ScreenLink& link : touching) {
+        if (link.from != index || link.side != side) continue;
+        const int from = upright ? qMin(link.line.y1(), link.line.y2()) : qMin(link.line.x1(), link.line.x2());
+        const int to = upright ? qMax(link.line.y1(), link.line.y2()) : qMax(link.line.x1(), link.line.x2());
+        QVector<QPair<int, int>> rest;
+        for (const auto& span : std::as_const(open)) {
+            if (to <= span.first || from >= span.second) {
+                rest << span;
+                continue;
+            }
+            if (span.first < from) rest << qMakePair(span.first, from);
+            if (to < span.second) rest << qMakePair(to, span.second);
+        }
+        open = rest;
+    }
+    return open;
+}
+
+bool LayoutModel::addGapLink(int index, int side, int other)
+{
+    if (index < 0 || other < 0 || index >= m_screens.size() || other >= m_screens.size() || index == other
+        || side < Left || side > Down) {
+        return false;
+    }
+    const QString from = m_screens[index].name, to = m_screens[other].name;
+    for (const GapLink& g : std::as_const(m_gapLinks)) {
+        const bool same = g.from.compare(from, Qt::CaseInsensitive) == 0 && g.side == side && g.to.compare(to, Qt::CaseInsensitive) == 0;
+        const bool reverse = g.from.compare(to, Qt::CaseInsensitive) == 0 && g.side == opposite(side) && g.to.compare(from, Qt::CaseInsensitive) == 0;
+        if (same || reverse) {
+            return false;
+        }
+    }
+    m_gapLinks << GapLink{from, side, to};
+    save();
+    changed(0, m_screens.size() - 1);
+    return true;
+}
+
+void LayoutModel::removeGapLink(int index, int side, int other)
+{
+    if (index < 0 || other < 0 || index >= m_screens.size() || other >= m_screens.size()) {
+        return;
+    }
+    const QString from = m_screens[index].name, to = m_screens[other].name;
+    const int before = m_gapLinks.size();
+    m_gapLinks.erase(std::remove_if(m_gapLinks.begin(), m_gapLinks.end(), [&](const GapLink& g) {
+        const bool same = g.from.compare(from, Qt::CaseInsensitive) == 0 && g.side == side && g.to.compare(to, Qt::CaseInsensitive) == 0;
+        const bool reverse = g.from.compare(to, Qt::CaseInsensitive) == 0 && g.side == opposite(side) && g.to.compare(from, Qt::CaseInsensitive) == 0;
+        return same || reverse;
+    }), m_gapLinks.end());
+    if (m_gapLinks.size() != before) {
+        save();
+        changed(0, m_screens.size() - 1);
+    }
+}
+
+QVariantList LayoutModel::gapLinksOf(int index) const
+{
+    QVariantList list;
+    if (index < 0 || index >= m_screens.size()) {
+        return list;
+    }
+    const QString name = m_screens[index].name;
+    for (const GapLink& g : m_gapLinks) {
+        int side = -1;
+        QString other;
+        if (g.from.compare(name, Qt::CaseInsensitive) == 0) { side = g.side; other = g.to; }
+        else if (g.to.compare(name, Qt::CaseInsensitive) == 0) { side = opposite(g.side); other = g.from; }
+        const int otherIndex = indexOf(other);
+        if (side < 0 || otherIndex < 0) continue;
+        list << QVariantMap{{QStringLiteral("side"), side}, {QStringLiteral("name"), m_screens[otherIndex].name}, {QStringLiteral("other"), otherIndex}};
+    }
+    return list;
+}
+
+QVariantList LayoutModel::gapCrossings() const
+{
+    QVariantList list;
+    for (const ScreenLink& link : links()) {
+        if (!link.gap || link.from > link.to) continue;   // once per link
+        auto point = [this](int index, int side, double start, double end) {
+            const QRect r = m_screens[index].desktop();
+            const double mid = (start + end) / 200.0;
+            switch (side) {
+            case Left: return QPoint(r.x(), r.y() + int(r.height() * mid));
+            case Right: return QPoint(rightOf(r), r.y() + int(r.height() * mid));
+            case Up: return QPoint(r.x() + int(r.width() * mid), r.y());
+            default: return QPoint(r.x() + int(r.width() * mid), bottomOf(r));
+            }
+        };
+        const QPoint a = point(link.from, link.side, link.fromStart, link.fromEnd);
+        const QPoint b = point(link.to, opposite(link.side), link.toStart, link.toEnd);
+        list << QVariantMap{{QStringLiteral("x1"), a.x()}, {QStringLiteral("y1"), a.y()},
+                            {QStringLiteral("x2"), b.x()}, {QStringLiteral("y2"), b.y()}};
+    }
+    return list;
+}
+
+QJsonArray LayoutModel::gapLinksJson() const
+{
+    QJsonArray json;
+    for (const GapLink& g : m_gapLinks) {
+        QJsonObject o;
+        o.insert(QStringLiteral("from"), g.from);
+        o.insert(QStringLiteral("side"), g.side);
+        o.insert(QStringLiteral("to"), g.to);
+        json << o;
+    }
+    return json;
+}
+
+void LayoutModel::loadGapLinks(const QJsonArray& json)
+{
+    m_gapLinks.clear();
+    for (const QJsonValue& value : json) {
+        const QJsonObject o = value.toObject();
+        GapLink g{o.value(QStringLiteral("from")).toString(), o.value(QStringLiteral("side")).toInt(-1), o.value(QStringLiteral("to")).toString()};
+        if (g.from.isEmpty() || g.to.isEmpty() || g.side < Left || g.side > Down || m_gapLinks.size() >= 64) continue;
+        m_gapLinks << g;
+    }
+}
+
+QVector<ScreenLink> LayoutModel::touchingLinks() const
+{
     QVector<ScreenLink> links;
     for (int i = 0; i < m_screens.size(); ++i) {
         const QRect a = m_screens[i].desktop();
@@ -1030,7 +1205,7 @@ QVariantList LayoutModel::crossings() const
 {
     QVariantList list;
     for (const ScreenLink& link : links()) {
-        if (link.from > link.to) continue;   // the way back crosses at the same place
+        if (link.gap || link.from > link.to) continue;   // the way back crosses at the same place
         list << QVariantMap{{QStringLiteral("x1"), link.line.x1()}, {QStringLiteral("y1"), link.line.y1()},
                             {QStringLiteral("x2"), link.line.x2()}, {QStringLiteral("y2"), link.line.y2()}};
     }
@@ -1291,6 +1466,7 @@ void LayoutModel::load()
     }
     s.endArray();
 
+    loadGapLinks(QJsonDocument::fromJson(s.value(QStringLiteral("gapLinks")).toString().toUtf8()).array());
     loadSetups(s.value(QStringLiteral("setups")).toString());
     m_activeSetup = s.value(QStringLiteral("activeSetup"), -1).toInt();
     if (m_activeSetup >= m_setups.size()) {
@@ -1459,6 +1635,7 @@ void LayoutModel::save()
     }
     s.endArray();
 
+    s.setValue(QStringLiteral("gapLinks"), QString::fromUtf8(QJsonDocument(gapLinksJson()).toJson(QJsonDocument::Compact)));
     recordSetup();
     s.setValue(QStringLiteral("setups"), setupsJson());
     s.setValue(QStringLiteral("activeSetup"), m_activeSetup);
@@ -1635,6 +1812,7 @@ QJsonObject LayoutModel::toJson() const
         screens << screen;
     }
     json.insert(QStringLiteral("screens"), screens);
+    json.insert(QStringLiteral("gapLinks"), gapLinksJson());
 
     QJsonObject options;
     options.insert(QStringLiteral("hasHeartbeat"), m_hasHeartbeat);
@@ -1767,6 +1945,7 @@ void LayoutModel::loadJson(const QJsonObject& json)
 
     m_hotkeys.clear();
     m_mirrorHotkeys.clear();
+    loadGapLinks(json.value(QStringLiteral("gapLinks")).toArray());
     if (json.value(QStringLiteral("hotkeyData")).isArray()) {
         for (const QJsonValue& value : json.value(QStringLiteral("hotkeyData")).toArray()) {
             Hotkey hotkey;

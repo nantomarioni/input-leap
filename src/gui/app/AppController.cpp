@@ -1791,7 +1791,7 @@ void AppController::adoptSelfNames()
 void AppController::refreshLiveStates()
 {
     LayoutModel* shown = layout();
-    const QVector<ScreenConfig>& screens = shown->screens();
+    const QVector<ScreenConfig> screens = shown->screens();   // a copy: the tiles react while this runs
     for (const ScreenConfig& s : screens) {
         bool on = false;
         if (role() == Server) {
