@@ -1,1 +1,0 @@
-Fixed the macOS client and server being silently quit by AppKit automatic termination whenever the system was under memory pressure, which made the client restart in a loop (and dimmed screens flicker) until the pressure eased.

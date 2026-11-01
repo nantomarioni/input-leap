@@ -295,7 +295,7 @@ int main(int argc, char* argv[])
             o.insert(QStringLiteral("relevant"), true);
             return o;
         };
-        processes << piece("App", "3.0.3 · launched at 08:12", true)
+        processes << piece("App", "4.0.0 · launched at 08:12", true)
                   << piece("Core · input-leapc", "Running · PID 4120", true)
                   << piece("Discovery · Bonjour", "Advertising mac-studio · 1 found", true)
                   << piece("Settings channel", "Port 52114 · mirroring Mac", true);

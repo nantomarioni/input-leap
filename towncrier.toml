@@ -11,7 +11,7 @@
     [[tool.towncrier.type]]
         directory = "security"
         name = "Security fixes"
-        showcontent = false
+        showcontent = true
 
     [[tool.towncrier.type]]
         directory = "feature"

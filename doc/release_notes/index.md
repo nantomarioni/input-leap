@@ -3,6 +3,31 @@ Release notes
 
 [comment]: <> (towncrier release notes start)
 
+InputLeap `4.0.0` ( `2026-10-31` )
+================================
+
+=====================================================================
+
+Bug fixes
+---------
+
+- Fixed the macOS client and server being silently quit by AppKit automatic termination whenever the system was under memory pressure, which made the client restart in a loop (and dimmed screens flicker) until the pressure eased.
+- Fix bug where UI names and '.ui' paths in language files are incorrect and not displaying correctly.
+- Fix InputLeap server inputs stuck when EIS reconnect to client after invalid EIS protocol.
+- Fix Windows release builds by making installer “product version” numerical only.
+- macOS: the switch notification (the small HUD) no longer activates the app when it appears, so showing it from a full-screen Space no longer flips the desktop to the Space holding the Input Leap window. The HUD is also kept on every Space.
+- Ported Deskflow reliability fixes: a Windows server with TLS no longer busy-spins a CPU core when sending backs up, a connection that drops mid-message is now noticed immediately instead of lingering, TCP keep-alive is enabled as a backstop for vanished peers, and copying on Windows retries briefly when another app is holding the clipboard.
+- Windows: the service's sweep of leftover core processes looked for "InputLeaps.exe"/"InputLeapc.exe" and never matched the real "input-leaps.exe"/"input-leapc.exe", so a core from an earlier daemon instance survived service restarts; two servers then fought over the mouse (a screen-switch storm of 30 switches per second, visible as a dim flicker on the clients). The sweep now matches the real names and also runs before every new core is launched.
+
+Features
+--------
+
+- New single-window GUI (Qt Quick): one window with Overview, Layout, Server, Computers, Security, Processes and Settings pages; the role is a switch and both roles' settings stay reachable; join and fingerprint requests appear inline instead of pop-ups; the processes behind the service (app, core, Windows service, discovery) show their state; the screen-dimming options are configurable; the layout places each computer's desktop freely, sized from its displays, and links touching edges (with ranges when only part of an edge touches); light and dark follow the system; trusted computers share their settings over TLS, read-only: a client sees the server's configuration and layout, the server sees each client's own settings and the state of its pieces, and can change them (or restart its core) from its Computers tab when that client trusts the server's certificate, each change answered with where it lands. English only. Needs Qt 6.8 or newer. One window per user: opening Input Leap again brings the running window up, the tray icon is retried when the shell is not ready, and only launches at login start hidden.
+
+Security fixes
+--------------
+
+- Ported Deskflow's 2026 fixes for vulnerabilities shared with this codebase: out-of-bounds reads from malformed set-options messages (CVE-2026-63409, CVE-2026-65832) and clipboard data (CVE-2026-41476), unbounded memory use from oversized clipboard transfers (CVE-2026-65976), and a 1-second input stall per failed TLS handshake that any host on the network could trigger (CVE-2026-44296).
 InputLeap `3.0.3` ( `2025-06-13` )
 ================================
 

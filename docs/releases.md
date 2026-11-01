@@ -8,7 +8,7 @@ Two channels:
 
 - **Dev (default):** every push to `main` rebuilds and force-updates the
   rolling `latest-build` prerelease with fresh installers. Versioning is
-  commit-based (`INPUTLEAP_VERSION_DESC=git` → `3.0.3-git-<date>-<hash>`), so
+  commit-based (`INPUTLEAP_VERSION_DESC=git` → `4.0.0-git-<date>-<hash>`), so
   the version string in the app/dmg identifies the exact commit.
 - **Stable (optional):** pushing a `v*` tag creates a permanent Release —
   used only to bless known-good builds.
