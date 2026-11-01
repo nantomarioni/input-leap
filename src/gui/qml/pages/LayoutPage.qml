@@ -53,8 +53,16 @@ Item {
                         Layout.fillWidth: true
                         text: page.fromFile
                               ? App.layoutReadOnlyReason
-                              : qsTr("Drag the computers to where they sit on your desk. Each one is drawn as big as its monitors really are, from what it reports itself; the cursor crosses only where two screens meet (the green lines), and every other edge is a wall. Changes apply right away, on every computer.")
+                              : qsTr("Drag the computers to where they sit on your desk. Each one is drawn as big as its monitors really are, from what it reports itself; the cursor crosses only where two screens meet (the green lines), and every other edge is a wall. Changes are saved and apply right away, on every computer.")
                         color: Theme.muted
+                        wrapMode: Text.WordWrap
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        visible: App.role === App.Server && App.layout.setupCount > 1
+                        text: qsTr("Setup %1 of %2 stored · each combination of monitors keeps its own arrangement, and comes back when the computers report those monitors again.").arg(App.layout.activeSetup).arg(App.layout.setupCount)
+                        color: Theme.muted
+                        font.pixelSize: Theme.smallFontSize
                         wrapMode: Text.WordWrap
                     }
                 }

@@ -147,6 +147,10 @@ class LayoutModel : public QAbstractListModel
     // of the server's layout without the right to change it.
     Q_PROPERTY(bool readOnly READ readOnly NOTIFY readOnlyChanged)
     Q_PROPERTY(QVariantList hotkeys READ hotkeyList NOTIFY hotkeysChanged)
+    // The stored setups (where the desktops sit for one combination of
+    // monitors) and which one is shown, counted from 1.
+    Q_PROPERTY(int setupCount READ setupCount NOTIFY layoutChanged)
+    Q_PROPERTY(int activeSetup READ activeSetupNumber NOTIFY layoutChanged)
 
     // options (section: options)
     Q_PROPERTY(bool hasHeartbeat READ hasHeartbeat WRITE setHasHeartbeat NOTIFY optionsChanged)
@@ -272,6 +276,16 @@ public:
     static QString displaysToText(const QVector<DisplayConfig>& displays, bool withSizes = true);
     static QVector<DisplayConfig> displaysFromText(const QString& text);
 
+    // ---- setups ------------------------------------------------------------
+    // The layout keeps where the desktops sit for every combination of
+    // monitors the computers reported (a monitor moved from one computer to
+    // another is another setup). A report that makes a combination seen
+    // before brings its arrangement back; a new one starts from the current
+    // arrangement and is kept on its own. At most kMaxSetups, newest first.
+    static constexpr int kMaxSetups = 16;
+    int setupCount() const { return m_setups.size(); }
+    int activeSetupNumber() const { return m_activeSetup + 1; }
+
     // ---- options -----------------------------------------------------------
     bool hasHeartbeat() const { return m_hasHeartbeat; }
     int heartbeat() const { return m_heartbeat; }
@@ -351,6 +365,11 @@ private:
     bool applyGeometry(int index, const ScreenConfig& probe);
     int measuredScaleOf(int index) const;
     ScreenConfig newScreen(const QString& name) const;
+    using Setup = QHash<QString, ScreenConfig>;   // lower-case name -> where it sits, with its displays
+    bool restoreSetup(int index, const QVector<DisplayConfig>& displays);
+    void recordSetup();
+    void loadSetups(const QString& json);
+    QString setupsJson() const;
     QVector<DisplayConfig> reportedFor(const QString& name) const;
     bool fitsAt(const QRect& rect, int except) const { return !overlapsAnother(except, rect); }
     void changed(int first, int last);
@@ -365,6 +384,8 @@ private:
     QVector<ScreenConfig> m_screens;
     QHash<QString, QString> m_liveStates;
     QHash<QString, QVector<DisplayConfig>> m_reported;   // never persisted: re-reported every session
+    QVector<Setup> m_setups;
+    int m_activeSetup = -1;                              // -1: the next save starts a setup of its own
 
     bool m_hasHeartbeat = false;
     int m_heartbeat = 5000;

@@ -18,6 +18,7 @@
 
 #include <QFile>
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QRegularExpression>
 #include <QTextStream>
 
@@ -793,7 +794,17 @@ bool LayoutModel::reportDisplays(const QString& name, const QVector<DisplayConfi
     if (s.displays == clean && s.displaysReported && (measured == 0 || measured == s.scale)) {
         return false;
     }
+    // other monitors than before (not a first report): another setup
+    const bool otherMonitors = s.displaysReported && s.displays != clean && m_store != nullptr;
+    if (otherMonitors && restoreSetup(index, clean)) {
+        return true;
+    }
+    const int previous = m_activeSetup;
+    if (otherMonitors) {
+        m_activeSetup = -1;
+    }
     if (!applyDisplays(index, clean)) {
+        m_activeSetup = previous;
         changed(index, index);       // does not fit: the panel says so
         return false;
     }
@@ -1280,6 +1291,12 @@ void LayoutModel::load()
     }
     s.endArray();
 
+    loadSetups(s.value(QStringLiteral("setups")).toString());
+    m_activeSetup = s.value(QStringLiteral("activeSetup"), -1).toInt();
+    if (m_activeSetup >= m_setups.size()) {
+        m_activeSetup = -1;
+    }
+
     s.endGroup();
     endResetModel();
     emit layoutChanged();
@@ -1442,7 +1459,147 @@ void LayoutModel::save()
     }
     s.endArray();
 
+    recordSetup();
+    s.setValue(QStringLiteral("setups"), setupsJson());
+    s.setValue(QStringLiteral("activeSetup"), m_activeSetup);
+
     s.endGroup();
+}
+
+// ---- setups ---------------------------------------------------------------
+
+// The arrangement as it is now, under the setup shown (a new one when -1).
+void LayoutModel::recordSetup()
+{
+    Setup current;
+    for (const ScreenConfig& s : std::as_const(m_screens)) {
+        current.insert(s.name.toLower(), s);
+    }
+    if (m_activeSetup < 0 || m_activeSetup >= m_setups.size()) {
+        m_setups.prepend(current);
+        m_activeSetup = 0;
+        while (m_setups.size() > kMaxSetups) {
+            m_setups.removeLast();
+        }
+    } else {
+        m_setups[m_activeSetup] = current;
+    }
+}
+
+// The stored setup where `index` has `displays` and every other computer it
+// knows has the displays it has now, the one knowing the most of them; its
+// desktops go back where they were. A computer it did not know stays, unless
+// it now overlaps: then it goes right of everything.
+bool LayoutModel::restoreSetup(int index, const QVector<DisplayConfig>& displays)
+{
+    const QString changedName = m_screens[index].name.toLower();
+    int best = -1, bestCommon = -1;
+    for (int i = 0; i < m_setups.size(); ++i) {
+        if (i == m_activeSetup) continue;
+        const Setup& setup = m_setups[i];
+        const auto mine = setup.constFind(changedName);
+        if (mine == setup.constEnd() || mine->displays != displays) continue;
+        int common = 0;
+        bool same = true;
+        for (const ScreenConfig& s : std::as_const(m_screens)) {
+            const QString key = s.name.toLower();
+            if (key == changedName) continue;
+            const auto other = setup.constFind(key);
+            if (other == setup.constEnd()) continue;
+            if (other->displays != s.displays) {
+                same = false;
+                break;
+            }
+            ++common;
+        }
+        if (same && common > bestCommon) {
+            best = i;
+            bestCommon = common;
+        }
+    }
+    if (best < 0) {
+        return false;
+    }
+    const Setup setup = m_setups[best];
+    QVector<int> unknown;
+    for (int i = 0; i < m_screens.size(); ++i) {
+        ScreenConfig& s = m_screens[i];
+        const auto stored = setup.constFind(s.name.toLower());
+        if (stored == setup.constEnd()) {
+            unknown << i;
+            continue;
+        }
+        s.x = stored->x;
+        s.y = stored->y;
+        s.displays = stored->displays;
+        s.displaysReported = stored->displaysReported;
+        s.displaysTyped = stored->displaysTyped;
+        s.scale = stored->scale;
+        s.scaleTyped = stored->scaleTyped;
+    }
+    for (int i : std::as_const(unknown)) {
+        if (overlapsAnother(i, m_screens[i].desktop())) {
+            QRect box;
+            for (int j = 0; j < m_screens.size(); ++j) {
+                if (j != i) box = box.isNull() ? m_screens[j].desktop() : box.united(m_screens[j].desktop());
+            }
+            m_screens[i].x = rightOf(box);
+            m_screens[i].y = box.y();
+        }
+    }
+    m_activeSetup = best;
+    save();
+    changed(0, m_screens.size() - 1);
+    return true;
+}
+
+QString LayoutModel::setupsJson() const
+{
+    QJsonArray setups;
+    for (const Setup& setup : m_setups) {
+        QJsonArray screens;
+        for (const ScreenConfig& s : setup) {
+            QJsonObject o;
+            o.insert(QStringLiteral("name"), s.name);
+            o.insert(QStringLiteral("x"), s.x);
+            o.insert(QStringLiteral("y"), s.y);
+            o.insert(QStringLiteral("displays"), displaysToJson(s.displays));
+            o.insert(QStringLiteral("displaysReported"), s.displaysReported);
+            o.insert(QStringLiteral("displaysTyped"), s.displaysTyped);
+            o.insert(QStringLiteral("scale"), s.scale);
+            o.insert(QStringLiteral("scaleTyped"), s.scaleTyped);
+            screens << o;
+        }
+        setups << screens;
+    }
+    return QString::fromUtf8(QJsonDocument(setups).toJson(QJsonDocument::Compact));
+}
+
+void LayoutModel::loadSetups(const QString& json)
+{
+    m_setups.clear();
+    const QJsonArray setups = QJsonDocument::fromJson(json.toUtf8()).array();
+    for (const QJsonValue& value : setups) {
+        Setup setup;
+        for (const QJsonValue& screen : value.toArray()) {
+            const QJsonObject o = screen.toObject();
+            ScreenConfig s;
+            s.name = o.value(QStringLiteral("name")).toString();
+            if (s.isNull()) continue;
+            s.x = o.value(QStringLiteral("x")).toInt();
+            s.y = o.value(QStringLiteral("y")).toInt();
+            const QVector<DisplayConfig> displays = displaysFromJson(o.value(QStringLiteral("displays")).toArray());
+            if (!displays.isEmpty()) s.displays = displays;
+            s.displaysReported = o.value(QStringLiteral("displaysReported")).toBool();
+            s.displaysTyped = o.value(QStringLiteral("displaysTyped")).toBool();
+            s.scale = qBound(kMinScale, o.value(QStringLiteral("scale")).toInt(1000), kMaxScale);
+            s.scaleTyped = o.value(QStringLiteral("scaleTyped")).toBool();
+            setup.insert(s.name.toLower(), s);
+        }
+        if (!setup.isEmpty() && m_setups.size() < kMaxSetups) {
+            m_setups << setup;
+        }
+    }
 }
 
 // ---- JSON (the settings channel) -----------------------------------------------

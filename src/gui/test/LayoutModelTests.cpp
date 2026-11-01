@@ -469,6 +469,51 @@ TEST(LayoutModel, adoptsTheComputersOfAConfigurationFile)
     EXPECT_EQ(layout.adoptScreens(fromFile), 0);
 }
 
+// A monitor moved from the Mac to the PC and back: each combination keeps
+// its own arrangement, and it survives a restart.
+TEST(LayoutModel, keepsOneArrangementPerSetupOfMonitors)
+{
+    Store store;
+    const DisplayConfig left{0, 0, 1920, 1080}, right{1920, 0, 1920, 1080};
+    const DisplayConfig laptop{0, 0, 1512, 982}, external{1512, 0, 1920, 1080};
+    {
+        LayoutModel layout(&store.settings);
+        layout.setServerName(QStringLiteral("pc"));
+        layout.ensureServerPlaced();
+        layout.reportDisplays(QStringLiteral("pc"), {left});
+        layout.reportDisplays(QStringLiteral("mac"), {laptop, external});
+        ASSERT_TRUE(layout.addScreen(QStringLiteral("mac"), 0, 1080));   // below
+        const int mac = layout.indexOf(QStringLiteral("mac"));
+        EXPECT_EQ(layout.setupCount(), 1);
+
+        // the external monitor goes to the PC: the Mac first, then the PC
+        EXPECT_TRUE(layout.reportDisplays(QStringLiteral("mac"), {laptop}));
+        EXPECT_TRUE(layout.reportDisplays(QStringLiteral("pc"), {left, right}));
+        EXPECT_EQ(layout.activeSetupNumber(), 1);   // the newest
+        EXPECT_TRUE(layout.moveTo(mac, 1920, 1080));   // under the second monitor
+        const int setups = layout.setupCount();
+        EXPECT_GE(setups, 2);
+
+        // and back: the first arrangement returns, with the Mac at the left
+        EXPECT_TRUE(layout.reportDisplays(QStringLiteral("pc"), {left}));
+        EXPECT_TRUE(layout.reportDisplays(QStringLiteral("mac"), {laptop, external}));
+        EXPECT_EQ(desktopOf(layout, QStringLiteral("mac")).topLeft(), QPoint(0, 1080));
+        EXPECT_EQ(layout.screens()[mac].displays.size(), 2);
+
+        // and over again: the second one
+        EXPECT_TRUE(layout.reportDisplays(QStringLiteral("mac"), {laptop}));
+        EXPECT_TRUE(layout.reportDisplays(QStringLiteral("pc"), {left, right}));
+        EXPECT_EQ(desktopOf(layout, QStringLiteral("mac")).topLeft(), QPoint(1920, 1080));
+        EXPECT_EQ(layout.setupCount(), setups);   // nothing new was stored
+    }
+    LayoutModel reloaded(&store.settings);
+    reloaded.load();
+    EXPECT_GE(reloaded.setupCount(), 2);
+    EXPECT_TRUE(reloaded.reportDisplays(QStringLiteral("pc"), {left}));
+    EXPECT_TRUE(reloaded.reportDisplays(QStringLiteral("mac"), {laptop, external}));
+    EXPECT_EQ(desktopOf(reloaded, QStringLiteral("mac")).topLeft(), QPoint(0, 1080));
+}
+
 TEST(LayoutModel, renamesAndRemoves)
 {
     Store store;
