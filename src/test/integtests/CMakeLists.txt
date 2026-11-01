@@ -19,6 +19,7 @@ set(headers
 set(sources
     ipc/IpcTests.cpp
     net/NetworkTests.cpp
+    net/TCPSocketTests.cpp
     Main.cpp
 )
 

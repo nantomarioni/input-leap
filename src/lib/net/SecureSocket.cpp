@@ -723,6 +723,10 @@ MultiplexerJobStatus SecureSocket::serviceConnect(ISocketMultiplexerJob* job,
 
     std::lock_guard<std::mutex> lock(tcp_mutex_);
 
+    if (getSocket() == nullptr) {
+        return {false, {}};   // closed after this job was queued
+    }
+
     int status = 0;
 #ifdef SYSAPI_WIN32
     status = secureConnect(static_cast<int>(getSocket()->m_socket));
@@ -759,6 +763,10 @@ MultiplexerJobStatus SecureSocket::serviceAccept(ISocketMultiplexerJob* job,
     (void) error;
 
     std::lock_guard<std::mutex> lock(tcp_mutex_);
+
+    if (getSocket() == nullptr) {
+        return {false, {}};   // closed after this job was queued
+    }
 
     int status = 0;
 #ifdef SYSAPI_WIN32

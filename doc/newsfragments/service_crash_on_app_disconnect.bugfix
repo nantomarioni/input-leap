@@ -1,0 +1,1 @@
+Windows: the InputLeap service no longer crashes when the app closes its connection while log lines are being sent to it (a write job queued just before the socket closed ran against the closed socket).

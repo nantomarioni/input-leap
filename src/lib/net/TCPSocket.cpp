@@ -152,6 +152,7 @@ std::uint32_t TCPSocket::read(void* buffer, std::uint32_t n)
 void TCPSocket::write(const void* buffer, std::uint32_t n)
 {
     bool wasEmpty;
+    std::unique_ptr<ISocketMultiplexerJob> job;
     {
         std::lock_guard<std::mutex> lock(tcp_mutex_);
 
@@ -172,11 +173,17 @@ void TCPSocket::write(const void* buffer, std::uint32_t n)
 
         // there's data to write
         is_flushed_ = false;
+
+        // newJob() reads the socket's state, so under the lock
+        if (wasEmpty) {
+            job = newJob();
+        }
     }
 
-    // make sure we're waiting to write
+    // make sure we're waiting to write. close() may still slip in before
+    // the job is added; the service functions then find m_socket null.
     if (wasEmpty) {
-        setJob(newJob());
+        setJob(std::move(job));
     }
 }
 
@@ -508,6 +515,10 @@ MultiplexerJobStatus TCPSocket::serviceConnecting(ISocketMultiplexerJob* job, bo
 
     std::lock_guard<std::mutex> lock(tcp_mutex_);
 
+    if (m_socket == nullptr) {
+        return {false, {}};   // closed after this job was queued
+    }
+
     // should only check for errors if error is true but checking a new
     // socket (and a socket that's connecting should be new) for errors
     // should be safe and Mac OS X appears to have a bug where a
@@ -552,6 +563,13 @@ MultiplexerJobStatus TCPSocket::serviceConnected(ISocketMultiplexerJob* job,
     (void) job;
 
     std::lock_guard<std::mutex> lock(tcp_mutex_);
+
+    // a job queued by another thread just before close() (see write())
+    // still runs once; the socket is gone, so stop instead of writing
+    // through a null handle
+    if (m_socket == nullptr) {
+        return {false, {}};
+    }
 
     if (error) {
         sendEvent(EventType::SOCKET_DISCONNECTED);
