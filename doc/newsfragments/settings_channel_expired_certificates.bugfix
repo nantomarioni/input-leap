@@ -1,0 +1,1 @@
+The settings channel between windows accepts a computer whose certificate has expired, as the core does (trust is the certificate's fingerprint, and the generated certificates last a year), so the layout and settings are shared again on machines set up more than a year ago.

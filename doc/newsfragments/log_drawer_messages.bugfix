@@ -1,0 +1,1 @@
+The log drawer shows each line's message again (it showed only the time, source and level), wraps long lines, and keeps Copy, Clear and Hide on screen in a narrow window.

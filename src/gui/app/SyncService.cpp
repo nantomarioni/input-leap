@@ -65,10 +65,14 @@ private:
 };
 
 // The errors a self-signed certificate produces; everything else, including
-// a missing peer certificate, fails the handshake.
+// a missing peer certificate, fails the handshake. Trust is the fingerprint,
+// as for the core, which ignores the dates: its certificates last a year and
+// are never renewed, so an expired one is still the computer it was.
 bool tolerable(const QSslError& error)
 {
     switch (error.error()) {
+    case QSslError::CertificateExpired:
+    case QSslError::CertificateNotYetValid:
     case QSslError::SelfSignedCertificate:
     case QSslError::SelfSignedCertificateInChain:
     case QSslError::CertificateUntrusted:

@@ -56,6 +56,7 @@ Rectangle {
                 delegate: Button {
                     required property var modelData
                     text: modelData.label
+                    Layout.preferredWidth: contentItem.implicitWidth + 24   // the style's minimum width pushed Copy off the edge
                     flat: App.log.source !== modelData.source
                     highlighted: App.log.source === modelData.source
                     onClicked: App.log.source = modelData.source
@@ -64,14 +65,16 @@ Rectangle {
 
             ComboBox {
                 id: levelBox
-                Layout.preferredWidth: 150
+                Layout.preferredWidth: 130
                 model: [qsTr("Errors only"), qsTr("Warnings"), qsTr("Notes"), qsTr("Info"), qsTr("Debug"), qsTr("Debug 1"), qsTr("Debug 2")]
                 Accessible.name: qsTr("Lowest log level shown")
                 currentIndex: App.log.minLevel
                 onActivated: (index) => App.log.minLevel = index
             }
             TextField {
-                Layout.preferredWidth: 180
+                Layout.fillWidth: true
+                Layout.minimumWidth: 80
+                Layout.maximumWidth: 180
                 placeholderText: qsTr("Search…")
                 Accessible.name: qsTr("Search the log")
                 text: App.log.search
@@ -80,9 +83,9 @@ Rectangle {
 
             Item { Layout.fillWidth: true }
 
-            Button { text: qsTr("Copy"); flat: true; onClicked: App.copyLogToClipboard() }
-            Button { text: qsTr("Clear"); flat: true; onClicked: App.logModel.clear() }
-            Button { text: qsTr("Hide"); flat: true; onClicked: App.settings.logDrawerOpen = false }
+            Button { text: qsTr("Copy"); flat: true; Layout.preferredWidth: contentItem.implicitWidth + 24; onClicked: App.copyLogToClipboard() }
+            Button { text: qsTr("Clear"); flat: true; Layout.preferredWidth: contentItem.implicitWidth + 24; onClicked: App.logModel.clear() }
+            Button { text: qsTr("Hide"); flat: true; Layout.preferredWidth: contentItem.implicitWidth + 24; onClicked: App.settings.logDrawerOpen = false }
         }
 
         ListView {
@@ -94,6 +97,7 @@ Rectangle {
             clip: true
             model: App.log
             delegate: RowLayout {
+                id: entry
                 required property string time
                 required property string source
                 required property string level
@@ -115,13 +119,14 @@ Rectangle {
                     Layout.preferredWidth: 56
                     color: level === "ERROR" || level === "FATAL" ? Theme.danger : level === "WARNING" ? Theme.warning : Theme.muted
                 }
+                // entry.text: a bare `text` here is the Label's own, empty one
                 Label {
                     Layout.fillWidth: true
-                    text: text
+                    text: entry.text
                     font.family: App.monoFontFamily
                     font.pixelSize: 12
                     color: Theme.text
-                    elide: Text.ElideRight
+                    wrapMode: Text.WrapAnywhere
                 }
             }
             onCountChanged: Qt.callLater(positionViewAtEnd)
