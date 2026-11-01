@@ -61,9 +61,18 @@ void writeArray(QSettings& s, const QString& name, const QVector<T>& values)
     s.endArray();
 }
 
-int percent(int value, int whole)
+// A share of an edge in percent, to the hundredth the core reads.
+double percent(int value, int whole)
 {
-    return whole <= 0 ? 0 : qBound(0, qRound(100.0 * value / whole), 100);
+    return whole <= 0 ? 0 : qBound(0.0, std::round(10000.0 * value / whole) / 100.0, 100.0);
+}
+
+QString percentText(double value)
+{
+    QString text = QString::number(value, 'f', 2);
+    while (text.endsWith(QLatin1Char('0'))) text.chop(1);
+    if (text.endsWith(QLatin1Char('.'))) text.chop(1);
+    return text;
 }
 
 // The exclusive right/bottom edge, unlike QRect::right()/bottom().
@@ -77,6 +86,8 @@ QVariantMap displayMap(const DisplayConfig& d)
     map.insert(QStringLiteral("y"), d.y);
     map.insert(QStringLiteral("width"), d.width);
     map.insert(QStringLiteral("height"), d.height);
+    map.insert(QStringLiteral("mmWidth"), d.mmWidth);
+    map.insert(QStringLiteral("mmHeight"), d.mmHeight);
     return map;
 }
 
@@ -89,10 +100,44 @@ QVariantList displayList(const QVector<DisplayConfig>& displays)
     return list;
 }
 
-// Still the one placeholder display a computer gets when it is added.
-bool hasPlaceholderDisplays(const ScreenConfig& screen)
+int opposite(int side)
 {
-    return screen.displays.size() == 1 && screen.displays[0] == DisplayConfig();
+    switch (side) {
+    case LayoutModel::Left: return LayoutModel::Right;
+    case LayoutModel::Right: return LayoutModel::Left;
+    case LayoutModel::Up: return LayoutModel::Down;
+    default: return LayoutModel::Up;
+    }
+}
+
+// The parts of one side of a desktop its displays reach, merged and in
+// order, in the shared space. Elsewhere that side is a wall: the core only
+// notices the cursor at the desktop's own edges, and a cursor brought in
+// where no display is would jump to the nearest one.
+QVector<QPair<int, int>> edgeSpans(const ScreenConfig& screen, int side)
+{
+    const QRect box = screen.desktop();
+    QVector<QPair<int, int>> spans;
+    for (int i = 0; i < screen.displays.size(); ++i) {
+        const QRect d = screen.displayRect(i);
+        switch (side) {
+        case LayoutModel::Left: if (d.x() == box.x()) spans << qMakePair(d.y(), bottomOf(d)); break;
+        case LayoutModel::Right: if (rightOf(d) == rightOf(box)) spans << qMakePair(d.y(), bottomOf(d)); break;
+        case LayoutModel::Up: if (d.y() == box.y()) spans << qMakePair(d.x(), rightOf(d)); break;
+        case LayoutModel::Down: if (bottomOf(d) == bottomOf(box)) spans << qMakePair(d.x(), rightOf(d)); break;
+        default: break;
+        }
+    }
+    std::sort(spans.begin(), spans.end());
+    QVector<QPair<int, int>> merged;
+    for (const auto& span : spans) {
+        if (!merged.isEmpty() && span.first <= merged.last().second) {
+            merged.last().second = qMax(merged.last().second, span.second);
+        } else {
+            merged << span;
+        }
+    }
+    return merged;
 }
 
 } // namespace
@@ -103,16 +148,32 @@ const char* ScreenConfig::modifierName(int modifier) { return kModifierNames[qBo
 const char* ScreenConfig::cornerName(int corner) { return kCornerNames[qBound(0, corner, int(CornerCount) - 1)]; }
 const char* ScreenConfig::fixName(int fix) { return kFixNames[qBound(0, fix, int(FixCount) - 1)]; }
 
-QRect ScreenConfig::desktop() const
+int ScreenConfig::toShared(int pixels) const
+{
+    return int(std::lround(double(pixels) * scale / 1000.0));
+}
+
+QSize ScreenConfig::nativeSize() const
 {
     QRect box;
     for (const DisplayConfig& d : displays) {
         box = box.isNull() ? d.rect() : box.united(d.rect());
     }
-    if (box.isNull()) {
-        box = QRect(0, 0, LayoutModel::kDefaultWidth, LayoutModel::kDefaultHeight);
-    }
-    return box.translated(x, y);
+    return box.isNull() ? QSize(LayoutModel::kDefaultWidth, LayoutModel::kDefaultHeight) : box.size();
+}
+
+QRect ScreenConfig::desktop() const
+{
+    // the displays start at (0, 0) once normalised
+    const QSize size = nativeSize();
+    return QRect(x, y, qMax(1, toShared(size.width())), qMax(1, toShared(size.height())));
+}
+
+QRect ScreenConfig::displayRect(int index) const
+{
+    const DisplayConfig& d = displays[index];
+    const int left = toShared(d.x), top = toShared(d.y);
+    return QRect(x + left, y + top, qMax(1, toShared(d.x + d.width) - left), qMax(1, toShared(d.y + d.height) - top));
 }
 
 void ScreenConfig::normaliseDisplays()
@@ -133,8 +194,8 @@ void ScreenConfig::normaliseDisplays()
     }
     // the displays that were there stay where they were on the desk: the
     // desktop's origin moves instead
-    x += minX;
-    y += minY;
+    x += toShared(minX);
+    y += toShared(minY);
     for (DisplayConfig& d : displays) {
         d.x -= minX;
         d.y -= minY;
@@ -170,7 +231,16 @@ QVariant LayoutModel::data(const QModelIndex& index, int role) const
     case YRole: return desktop.y();
     case WidthRole: return desktop.width();
     case HeightRole: return desktop.height();
-    case DisplaysRole: return displayList(s.displays);
+    case DisplaysRole: {
+        // in the shared space, from the desktop's corner: what the canvas draws
+        QVariantList list;
+        for (int i = 0; i < s.displays.size(); ++i) {
+            const QRect r = s.displayRect(i).translated(-desktop.topLeft());
+            list << QVariantMap{{QStringLiteral("x"), r.x()}, {QStringLiteral("y"), r.y()},
+                                {QStringLiteral("width"), r.width()}, {QStringLiteral("height"), r.height()}};
+        }
+        return list;
+    }
     case IsServerRole: return s.name == m_serverName;
     case LinkedRole: return s.name == m_serverName || !linksOf(index.row()).isEmpty();
     case StateRole: return m_liveStates.value(s.name);
@@ -385,16 +455,23 @@ QVariantMap LayoutModel::snapPosition(int index, int x, int y, int threshold) co
         const QRect other = m_screens[i].desktop();
         const bool levelY = y < bottomOf(other) + threshold && y + h > other.y() - threshold;
         const bool levelX = x < rightOf(other) + threshold && x + w > other.x() - threshold;
+        // contact with the desktop, or lined up with one of its displays
+        // (an edge, or centred on it)
+        QVector<int> xs{rightOf(other), other.x() - w, other.x(), rightOf(other) - w};
+        QVector<int> ys{bottomOf(other), other.y() - h, other.y(), bottomOf(other) - h};
+        for (int k = 0; k < m_screens[i].displays.size(); ++k) {
+            const QRect r = m_screens[i].displayRect(k);
+            xs << r.x() << rightOf(r) - w << r.x() + (r.width() - w) / 2;
+            ys << r.y() << bottomOf(r) - h << r.y() + (r.height() - h) / 2;
+        }
         if (levelY) {
-            const int candidates[] = {rightOf(other), other.x() - w, other.x(), rightOf(other) - w};
-            for (int c : candidates) {
+            for (int c : std::as_const(xs)) {
                 const int d = std::abs(c - x);
                 if (d < bestDx) { bestDx = d; bestX = c; }
             }
         }
         if (levelX) {
-            const int candidates[] = {bottomOf(other), other.y() - h, other.y(), bottomOf(other) - h};
-            for (int c : candidates) {
+            for (int c : std::as_const(ys)) {
                 const int d = std::abs(c - y);
                 if (d < bestDy) { bestDy = d; bestY = c; }
             }
@@ -448,11 +525,15 @@ QVariantMap LayoutModel::screenSettings(int index) const
     map.insert(QStringLiteral("name"), s.name);
     map.insert(QStringLiteral("x"), desktop.x());
     map.insert(QStringLiteral("y"), desktop.y());
-    map.insert(QStringLiteral("width"), desktop.width());
-    map.insert(QStringLiteral("height"), desktop.height());
+    map.insert(QStringLiteral("width"), s.nativeSize().width());     // its own pixels, like the displays
+    map.insert(QStringLiteral("height"), s.nativeSize().height());
     map.insert(QStringLiteral("displays"), displayList(s.displays));
     const QVector<DisplayConfig> reported = m_reported.value(s.name);
     map.insert(QStringLiteral("displaysReported"), s.displaysReported);
+    map.insert(QStringLiteral("displaysTyped"), s.displaysTyped);
+    map.insert(QStringLiteral("scale"), s.scale / 10.0);
+    map.insert(QStringLiteral("scaleTyped"), s.scaleTyped);
+    map.insert(QStringLiteral("measuredScale"), measuredScaleOf(index) / 10.0);
     map.insert(QStringLiteral("reportedDisplays"), displayList(reported));
     map.insert(QStringLiteral("reportDiffers"), !reported.isEmpty() && reported != s.displays);
     map.insert(QStringLiteral("aliases"), s.aliases);
@@ -496,7 +577,8 @@ bool LayoutModel::setScreenSettings(int index, const QVariantMap& settings)
         s.displays = probe.displays;
         s.x = probe.x;      // normalising may have moved the origin
         s.y = probe.y;
-        s.displaysReported = false;   // typed by hand: reports no longer replace them
+        s.displaysReported = false;
+        s.displaysTyped = true;       // reports no longer replace them
     }
     if (settings.contains(QStringLiteral("aliases"))) {
         QStringList aliases;
@@ -563,16 +645,29 @@ bool LayoutModel::removeDisplay(int index, int display)
 
 // ---- displays reported by the computers -----------------------------------------
 
-// New displays for one desktop, its origin kept. The desktops wholly right of
-// its old right edge move by the change in width, those wholly below its old
-// bottom edge by the change in height, so neighbours keep touching; when that
-// still overlaps something, the new size alone is tried.
+// Reported displays for one desktop, and the scale their real sizes give
+// unless one was typed.
 bool LayoutModel::applyDisplays(int index, const QVector<DisplayConfig>& displays)
 {
     ScreenConfig probe = m_screens[index];
-    const QRect before = probe.desktop();
     probe.displays = displays;
     probe.normaliseDisplays();
+    const int measured = probe.scaleTyped ? 0 : measuredScale(probe.displays);
+    if (measured > 0) {
+        probe.scale = measured;
+    }
+    probe.displaysReported = true;
+    probe.displaysTyped = false;
+    return applyGeometry(index, probe);
+}
+
+// A desktop's new displays or scale, its origin kept. The desktops wholly
+// right of its old right edge move by the change in width, those wholly
+// below its old bottom edge by the change in height, so neighbours keep
+// touching; when that still overlaps something, the new size alone is tried.
+bool LayoutModel::applyGeometry(int index, const ScreenConfig& probe)
+{
+    const QRect before = m_screens[index].desktop();
     const QRect after = probe.desktop();
     const int dw = after.width() - before.width();
     const int dh = after.height() - before.height();
@@ -614,10 +709,7 @@ bool LayoutModel::applyDisplays(int index, const QVector<DisplayConfig>& display
             m_screens[i].y = origins[i].y();
         }
     }
-    m_screens[index].displays = probe.displays;
-    m_screens[index].x = probe.x;
-    m_screens[index].y = probe.y;
-    m_screens[index].displaysReported = true;
+    m_screens[index] = probe;
     save();
     changed(0, m_screens.size() - 1);
     return true;
@@ -635,19 +727,15 @@ bool LayoutModel::reportDisplays(const QString& name, const QVector<DisplayConfi
     if (index < 0) {
         return false;
     }
-    ScreenConfig& s = m_screens[index];
-    if (!s.displaysReported && !hasPlaceholderDisplays(s)) {
+    const ScreenConfig& s = m_screens[index];
+    if (s.displaysTyped) {
         if (news) {
             changed(index, index);   // the panel offers the reported ones
         }
         return false;
     }
-    if (s.displays == clean) {
-        if (!s.displaysReported) {
-            s.displaysReported = true;
-            save();
-            changed(index, index);
-        }
+    const int measured = s.scaleTyped ? 0 : measuredScale(clean);
+    if (s.displays == clean && s.displaysReported && (measured == 0 || measured == s.scale)) {
         return false;
     }
     if (!applyDisplays(index, clean)) {
@@ -666,13 +754,58 @@ bool LayoutModel::useReportedDisplays(int index)
     if (reported.isEmpty()) {
         return false;
     }
-    if (reported == m_screens[index].displays) {
-        m_screens[index].displaysReported = true;
-        save();
-        changed(index, index);
-        return true;
-    }
     return applyDisplays(index, reported);
+}
+
+bool LayoutModel::setScale(int index, double percent)
+{
+    if (index < 0 || index >= m_screens.size() || !std::isfinite(percent)) {
+        return false;
+    }
+    ScreenConfig probe = m_screens[index];
+    probe.scale = qBound(kMinScale, int(std::lround(percent * 10)), kMaxScale);
+    probe.scaleTyped = true;
+    return applyGeometry(index, probe);
+}
+
+bool LayoutModel::useMeasuredScale(int index)
+{
+    if (index < 0 || index >= m_screens.size()) {
+        return false;
+    }
+    const int measured = measuredScaleOf(index);
+    if (measured == 0) {
+        return false;
+    }
+    ScreenConfig probe = m_screens[index];
+    probe.scale = measured;
+    probe.scaleTyped = false;
+    return applyGeometry(index, probe);
+}
+
+int LayoutModel::measuredScale(const QVector<DisplayConfig>& displays)
+{
+    // the biggest display that knows its size speaks for the desktop
+    const DisplayConfig* best = nullptr;
+    for (const DisplayConfig& d : displays) {
+        if (d.mmWidth <= 0 || d.mmHeight <= 0 || d.width <= 0 || d.height <= 0) continue;
+        if (best == nullptr || qint64(d.width) * d.height > qint64(best->width) * best->height) {
+            best = &d;
+        }
+    }
+    if (best == nullptr) {
+        return 0;
+    }
+    // millimetres per pixel over both axes, against a 96-dpi pixel
+    const double mmPerPixel = (double(best->mmWidth) / best->width + double(best->mmHeight) / best->height) / 2;
+    const int scale = int(std::lround(mmPerPixel / (25.4 / 96) * 1000));
+    return scale >= kMinScale && scale <= kMaxScale ? scale : 0;   // else an aspect ratio posing as a size
+}
+
+int LayoutModel::measuredScaleOf(int index) const
+{
+    const int live = measuredScale(m_reported.value(m_screens[index].name));
+    return live > 0 ? live : measuredScale(m_screens[index].displays);
 }
 
 // What a computer reports, made safe: sizes and offsets clamped, empty
@@ -692,6 +825,10 @@ QVector<DisplayConfig> LayoutModel::cleanDisplays(const QVector<DisplayConfig>& 
         clean.height = qMin(d.height, kMaxDimension);
         clean.x = qBound(-kMaxDimension, d.x, kMaxDimension);
         clean.y = qBound(-kMaxDimension, d.y, kMaxDimension);
+        if (d.mmWidth > 0 && d.mmHeight > 0) {
+            clean.mmWidth = qMin(d.mmWidth, 10000);
+            clean.mmHeight = qMin(d.mmHeight, 10000);
+        }
         displays << clean;
     }
     if (displays.isEmpty()) {
@@ -728,6 +865,8 @@ QVector<DisplayConfig> LayoutModel::displaysFromJson(const QJsonArray& json)
         d.y = o.value(QStringLiteral("y")).toInt();
         d.width = o.value(QStringLiteral("width")).toInt();
         d.height = o.value(QStringLiteral("height")).toInt();
+        d.mmWidth = o.value(QStringLiteral("mmWidth")).toInt();
+        d.mmHeight = o.value(QStringLiteral("mmHeight")).toInt();
         displays << d;
         if (displays.size() > kMaxReportedDisplays * 4) {
             break;   // cleanReport keeps the first few that are usable
@@ -736,18 +875,22 @@ QVector<DisplayConfig> LayoutModel::displaysFromJson(const QJsonArray& json)
     return cleanDisplays(displays);
 }
 
-QString LayoutModel::displaysToText(const QVector<DisplayConfig>& displays)
+QString LayoutModel::displaysToText(const QVector<DisplayConfig>& displays, bool withSizes)
 {
     QStringList parts;
     for (const DisplayConfig& d : displays) {
-        parts << QStringLiteral("%1,%2,%3x%4").arg(d.x).arg(d.y).arg(d.width).arg(d.height);
+        QString part = QStringLiteral("%1,%2,%3x%4").arg(d.x).arg(d.y).arg(d.width).arg(d.height);
+        if (withSizes && d.mmWidth > 0 && d.mmHeight > 0) {
+            part += QStringLiteral("@%1x%2").arg(d.mmWidth).arg(d.mmHeight);
+        }
+        parts << part;
     }
     return parts.join(QLatin1Char(';'));
 }
 
 QVector<DisplayConfig> LayoutModel::displaysFromText(const QString& text)
 {
-    static const QRegularExpression pattern(QStringLiteral("^(-?\\d{1,6}),(-?\\d{1,6}),(\\d{1,6})x(\\d{1,6})$"));
+    static const QRegularExpression pattern(QStringLiteral("^(-?\\d{1,6}),(-?\\d{1,6}),(\\d{1,6})x(\\d{1,6})(?:@(\\d{1,5})x(\\d{1,5}))?$"));
     QVector<DisplayConfig> displays;
     const QStringList parts = text.split(QLatin1Char(';'), Qt::SkipEmptyParts);
     for (const QString& part : parts) {
@@ -760,6 +903,8 @@ QVector<DisplayConfig> LayoutModel::displaysFromText(const QString& text)
         d.y = m.captured(2).toInt();
         d.width = m.captured(3).toInt();
         d.height = m.captured(4).toInt();
+        d.mmWidth = m.captured(5).toInt();    // 0 when absent
+        d.mmHeight = m.captured(6).toInt();
         displays << d;
         if (displays.size() > kMaxReportedDisplays * 4) {
             break;
@@ -768,6 +913,10 @@ QVector<DisplayConfig> LayoutModel::displaysFromText(const QString& text)
     return cleanDisplays(displays);
 }
 
+// Two desktops whose edges touch are linked where a display of each reaches
+// the touching edges; the rest of the edge is a wall. The core maps a
+// crossing along each link proportionally, which is the real geometry once
+// both desktops are drawn to scale.
 QVector<ScreenLink> LayoutModel::links() const
 {
     QVector<ScreenLink> links;
@@ -776,37 +925,50 @@ QVector<ScreenLink> LayoutModel::links() const
         for (int j = 0; j < m_screens.size(); ++j) {
             if (i == j) continue;
             const QRect b = m_screens[j].desktop();
-            ScreenLink link;
-            link.from = i;
-            link.to = j;
-            if (rightOf(a) == b.x() || a.x() == rightOf(b)) {
-                const int top = qMax(a.y(), b.y());
-                const int bottom = qMin(bottomOf(a), bottomOf(b));
-                if (bottom <= top) continue;
-                link.side = rightOf(a) == b.x() ? Right : Left;
-                link.fromStart = percent(top - a.y(), a.height());
-                link.fromEnd = percent(bottom - a.y(), a.height());
-                link.toStart = percent(top - b.y(), b.height());
-                link.toEnd = percent(bottom - b.y(), b.height());
-            } else if (bottomOf(a) == b.y() || a.y() == bottomOf(b)) {
-                const int left = qMax(a.x(), b.x());
-                const int right = qMin(rightOf(a), rightOf(b));
-                if (right <= left) continue;
-                link.side = bottomOf(a) == b.y() ? Down : Up;
-                link.fromStart = percent(left - a.x(), a.width());
-                link.fromEnd = percent(right - a.x(), a.width());
-                link.toStart = percent(left - b.x(), b.width());
-                link.toEnd = percent(right - b.x(), b.width());
-            } else {
-                continue;
+            int side, edge;
+            if (rightOf(a) == b.x()) { side = Right; edge = b.x(); }
+            else if (a.x() == rightOf(b)) { side = Left; edge = a.x(); }
+            else if (bottomOf(a) == b.y()) { side = Down; edge = b.y(); }
+            else if (a.y() == bottomOf(b)) { side = Up; edge = a.y(); }
+            else continue;
+            const bool upright = side == Left || side == Right;   // the edge runs top to bottom
+            const int aStart = upright ? a.y() : a.x(), aLength = upright ? a.height() : a.width();
+            const int bStart = upright ? b.y() : b.x(), bLength = upright ? b.height() : b.width();
+            const QVector<QPair<int, int>> mine = edgeSpans(m_screens[i], side);
+            const QVector<QPair<int, int>> theirs = edgeSpans(m_screens[j], opposite(side));
+            for (const auto& m : mine) {
+                for (const auto& t : theirs) {
+                    const int from = qMax(m.first, t.first), to = qMin(m.second, t.second);
+                    if (to <= from) continue;
+                    ScreenLink link;
+                    link.from = i;
+                    link.to = j;
+                    link.side = side;
+                    link.fromStart = percent(from - aStart, aLength);
+                    link.fromEnd = percent(to - aStart, aLength);
+                    link.toStart = percent(from - bStart, bLength);
+                    link.toEnd = percent(to - bStart, bLength);
+                    if (link.fromStart >= link.fromEnd || link.toStart >= link.toEnd) {
+                        continue;   // too thin to mean anything once rounded
+                    }
+                    link.line = upright ? QLine(edge, from, edge, to) : QLine(from, edge, to, edge);
+                    links << link;
+                }
             }
-            if (link.fromStart >= link.fromEnd || link.toStart >= link.toEnd) {
-                continue;   // too thin to mean anything once rounded
-            }
-            links << link;
         }
     }
     return links;
+}
+
+QVariantList LayoutModel::crossings() const
+{
+    QVariantList list;
+    for (const ScreenLink& link : links()) {
+        if (link.from > link.to) continue;   // the way back crosses at the same place
+        list << QVariantMap{{QStringLiteral("x1"), link.line.x1()}, {QStringLiteral("y1"), link.line.y1()},
+                            {QStringLiteral("x2"), link.line.x2()}, {QStringLiteral("y2"), link.line.y2()}};
+    }
+    return list;
 }
 
 QVariantList LayoutModel::linksOf(int index) const
@@ -1102,6 +1264,8 @@ void LayoutModel::loadScreen(ScreenConfig& screen)
     }
     screen.x = s.value(QStringLiteral("x"), 0).toInt();
     screen.y = s.value(QStringLiteral("y"), 0).toInt();
+    screen.scale = qBound(kMinScale, s.value(QStringLiteral("scale"), 1000).toInt(), kMaxScale);
+    screen.scaleTyped = s.value(QStringLiteral("scaleTyped"), false).toBool();
     screen.displays.clear();
     const int displays = s.beginReadArray(QStringLiteral("displayArray"));
     for (int i = 0; i < displays; ++i) {
@@ -1111,11 +1275,15 @@ void LayoutModel::loadScreen(ScreenConfig& screen)
         d.y = s.value(QStringLiteral("y"), 0).toInt();
         d.width = s.value(QStringLiteral("width"), kDefaultWidth).toInt();
         d.height = s.value(QStringLiteral("height"), kDefaultHeight).toInt();
+        d.mmWidth = qMax(0, s.value(QStringLiteral("mmWidth"), 0).toInt());
+        d.mmHeight = qMax(0, s.value(QStringLiteral("mmHeight"), 0).toInt());
         screen.displays << d;
     }
     s.endArray();
     screen.normaliseDisplays();
     screen.displaysReported = s.value(QStringLiteral("displaysReported"), false).toBool();
+    // absent before typing was told apart from never reported: reports win once
+    screen.displaysTyped = s.value(QStringLiteral("displaysTyped"), false).toBool();
     screen.cornerSize = s.value(QStringLiteral("switchCornerSize"), 0).toInt();
     screen.aliases.clear();
     const int aliases = s.beginReadArray(QStringLiteral("aliasArray"));
@@ -1148,9 +1316,14 @@ void LayoutModel::saveScreen(const ScreenConfig& screen)
         s.setValue(QStringLiteral("y"), screen.displays[i].y);
         s.setValue(QStringLiteral("width"), screen.displays[i].width);
         s.setValue(QStringLiteral("height"), screen.displays[i].height);
+        s.setValue(QStringLiteral("mmWidth"), screen.displays[i].mmWidth);
+        s.setValue(QStringLiteral("mmHeight"), screen.displays[i].mmHeight);
     }
     s.endArray();
     s.setValue(QStringLiteral("displaysReported"), screen.displaysReported);
+    s.setValue(QStringLiteral("displaysTyped"), screen.displaysTyped);
+    s.setValue(QStringLiteral("scale"), screen.scale);
+    s.setValue(QStringLiteral("scaleTyped"), screen.scaleTyped);
     s.setValue(QStringLiteral("switchCornerSize"), screen.cornerSize);
     writeArray<QString>(s, QStringLiteral("alias"), QVector<QString>(screen.aliases.begin(), screen.aliases.end()));
     // the legacy store keeps "default" (-1) for an unmapped modifier
@@ -1235,6 +1408,9 @@ QJsonObject LayoutModel::toJson() const
         }
         screen.insert(QStringLiteral("displays"), displays);
         screen.insert(QStringLiteral("displaysReported"), s.displaysReported);
+        screen.insert(QStringLiteral("displaysTyped"), s.displaysTyped);
+        screen.insert(QStringLiteral("scale"), s.scale);
+        screen.insert(QStringLiteral("scaleTyped"), s.scaleTyped);
         screen.insert(QStringLiteral("aliases"), QJsonArray::fromStringList(s.aliases));
         QJsonArray modifiers, corners, fixes;
         for (int m : s.modifiers) modifiers << m;
@@ -1328,6 +1504,8 @@ void LayoutModel::loadJson(const QJsonObject& json)
         if (s.isNull() || hasScreen(s.name)) continue;
         s.x = o.value(QStringLiteral("x")).toInt();
         s.y = o.value(QStringLiteral("y")).toInt();
+        s.scale = qBound(kMinScale, o.value(QStringLiteral("scale")).toInt(1000), kMaxScale);
+        s.scaleTyped = o.value(QStringLiteral("scaleTyped")).toBool(false);
         s.displays.clear();
         const QJsonArray displays = o.value(QStringLiteral("displays")).toArray();
         for (const QJsonValue& dv : displays) {
@@ -1337,10 +1515,13 @@ void LayoutModel::loadJson(const QJsonObject& json)
             display.y = d.value(QStringLiteral("y")).toInt();
             display.width = d.value(QStringLiteral("width")).toInt(kDefaultWidth);
             display.height = d.value(QStringLiteral("height")).toInt(kDefaultHeight);
+            display.mmWidth = qBound(0, d.value(QStringLiteral("mmWidth")).toInt(), 10000);
+            display.mmHeight = qBound(0, d.value(QStringLiteral("mmHeight")).toInt(), 10000);
             s.displays << display;
         }
         s.normaliseDisplays();
         s.displaysReported = o.value(QStringLiteral("displaysReported")).toBool(false);
+        s.displaysTyped = o.value(QStringLiteral("displaysTyped")).toBool(false);
         for (const QJsonValue& a : o.value(QStringLiteral("aliases")).toArray()) s.aliases << a.toString();
         const QJsonArray modifiers = o.value(QStringLiteral("modifiers")).toArray();
         for (int i = 0; i < modifiers.size() && i < s.modifiers.size(); ++i) s.modifiers[i] = qBound(0, modifiers[i].toInt(), int(ScreenConfig::None));
@@ -1638,11 +1819,11 @@ QString LayoutModel::configText() const
             if (link.from != i) continue;
             out << "\t\t" << kSideNames[link.side];
             if (link.fromStart != 0 || link.fromEnd != 100) {
-                out << "(" << link.fromStart << "," << link.fromEnd << ")";
+                out << "(" << percentText(link.fromStart) << "," << percentText(link.fromEnd) << ")";
             }
             out << " = " << m_screens[link.to].name;
             if (link.toStart != 0 || link.toEnd != 100) {
-                out << "(" << link.toStart << "," << link.toEnd << ")";
+                out << "(" << percentText(link.toStart) << "," << percentText(link.toEnd) << ")";
             }
             out << "\n";
         }

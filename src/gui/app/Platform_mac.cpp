@@ -118,9 +118,9 @@ QString name()
     return QStringLiteral("macOS");
 }
 
-QVector<QRect> displays()
+QVector<Display> displays()
 {
-    QVector<QRect> list;
+    QVector<Display> list;
     CGDirectDisplayID ids[16];
     uint32_t count = 0;
     if (CGGetActiveDisplayList(16, ids, &count) != kCGErrorSuccess) {
@@ -132,7 +132,11 @@ QVector<QRect> displays()
             continue;
         }
         const CGRect r = CGDisplayBounds(ids[i]);
-        list << QRect(int(r.origin.x), int(r.origin.y), int(r.size.width), int(r.size.height));
+        const CGSize mm = CGDisplayScreenSize(ids[i]);   // zero when the display does not say
+        Display d;
+        d.rect = QRect(int(r.origin.x), int(r.origin.y), int(r.size.width), int(r.size.height));
+        d.mm = matchOrientation(QSize(qRound(mm.width), qRound(mm.height)), d.rect);
+        list << d;
     }
     return list;
 }

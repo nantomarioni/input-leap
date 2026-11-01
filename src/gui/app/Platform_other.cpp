@@ -68,9 +68,9 @@ QString name()
     return QStringLiteral("Linux");
 }
 
-QVector<QRect> displays()
+QVector<Display> displays()
 {
-    QVector<QRect> list;
+    QVector<Display> list;
     if (qobject_cast<QGuiApplication*>(QCoreApplication::instance()) == nullptr) {
         return list;
     }
@@ -79,7 +79,11 @@ QVector<QRect> displays()
         // Qt divides X11 pixels by the scale factor; the core counts them as they are
         const qreal ratio = screen->devicePixelRatio();
         const QRect g = screen->geometry();
-        list << QRect(qRound(g.x() * ratio), qRound(g.y() * ratio), qRound(g.width() * ratio), qRound(g.height() * ratio));
+        Display d;
+        d.rect = QRect(qRound(g.x() * ratio), qRound(g.y() * ratio), qRound(g.width() * ratio), qRound(g.height() * ratio));
+        const QSizeF mm = screen->physicalSize();
+        d.mm = matchOrientation(QSize(qRound(mm.width()), qRound(mm.height())), d.rect);
+        list << d;
     }
     return list;
 }

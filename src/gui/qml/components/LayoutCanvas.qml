@@ -3,10 +3,11 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import InputLeap.Ui
 
-// The desktops drawn to scale: every computer is the bounding box of its
-// displays, placed where the server's layout says; desktops whose edges
-// touch are linked. Interactive on the Layout page (drag, arrow keys),
-// a plain picture on the Overview.
+// The desktops drawn at their real sizes: every computer is its displays,
+// placed where the server's layout says. Where a display of each of two
+// touching desktops meets the other, the cursor crosses (the accent lines);
+// the rest of every edge is a wall. Interactive on the Layout page (drag,
+// arrow keys), a plain picture on the Overview.
 Item {
     id: canvas
 
@@ -20,6 +21,14 @@ Item {
     signal rejected()                    // a drop that would overlap another computer
 
     readonly property rect bounds: model.bounds
+    property int revision: 0
+    readonly property var crossings: (revision, model.crossings())
+
+    Connections {
+        target: canvas.model
+        function onLayoutChanged() { canvas.revision++ }
+        function onModelReset() { canvas.revision++ }
+    }
     readonly property real pxScale: {
         const b = bounds
         if (b.width <= 0 || b.height <= 0)
@@ -85,16 +94,26 @@ Item {
                 Qt.callLater(function() { canvas.focusTile(index) })
             }
 
+            // the display the name goes on: the biggest
+            readonly property int mainDisplay: {
+                let best = 0
+                for (let i = 1; i < displays.length; ++i)
+                    if (displays[i].width * displays[i].height > displays[best].width * displays[best].height)
+                        best = i
+                return best
+            }
+            readonly property var main: displays.length > 0 ? displays[mainDisplay]
+                                                            : { x: 0, y: 0, width: desktopWidth, height: desktopHeight }
+
             Rectangle {
                 id: tile
                 width: slot.width
                 height: slot.height
-                radius: Math.min(6, width / 8)
-                color: slot.isServer ? Theme.accentSoft : Theme.surface
-                border.color: slot.current || tile.activeFocus ? Theme.accent
-                            : slot.isServer ? Theme.accent
-                            : slot.linked ? Theme.border : Theme.warning
-                border.width: slot.current || tile.activeFocus ? 2 : 1
+                radius: 4
+                // the desktop's outline, only where it matters: picked, with gaps between displays
+                color: "transparent"
+                border.color: Theme.accent
+                border.width: (slot.current || tile.activeFocus) && slot.displays.length > 1 ? 1 : 0
                 opacity: mouse.drag.active ? 0.85 : 1
 
                 activeFocusOnTab: canvas.interactive
@@ -114,21 +133,24 @@ Item {
                     }
                 }
 
-                // the displays, when there is more than one
+                // every display as it is; the space between them is no screen
                 Repeater {
-                    model: canvas.showDetails && slot.displays.length > 1 ? slot.displays : []
+                    model: slot.displays
                     delegate: Rectangle {
                         required property int index
                         required property var modelData
                         x: modelData.x * canvas.pxScale
                         y: modelData.y * canvas.pxScale
-                        width: modelData.width * canvas.pxScale
-                        height: modelData.height * canvas.pxScale
-                        radius: 3
-                        color: "transparent"
-                        border.color: Theme.borderSoft
-                        border.width: 1
+                        width: Math.max(4, modelData.width * canvas.pxScale)
+                        height: Math.max(4, modelData.height * canvas.pxScale)
+                        radius: Math.min(5, width / 8)
+                        color: slot.isServer ? Theme.accentSoft : Theme.surface
+                        border.color: slot.current || tile.activeFocus ? Theme.accent
+                                    : slot.isServer ? Theme.accent
+                                    : slot.linked ? Theme.border : Theme.warning
+                        border.width: slot.current || tile.activeFocus ? 2 : 1
                         Label {
+                            visible: canvas.showDetails && slot.displays.length > 1
                             anchors.right: parent.right
                             anchors.bottom: parent.bottom
                             anchors.margins: 3
@@ -140,14 +162,15 @@ Item {
                 }
 
                 Column {
-                    anchors.centerIn: parent
-                    width: parent.width - 10
+                    x: slot.main.x * canvas.pxScale + 5
+                    y: (slot.main.y + slot.main.height / 2) * canvas.pxScale - height / 2
+                    width: slot.main.width * canvas.pxScale - 10
                     spacing: 1
                     Label {
                         width: parent.width
                         text: slot.name
                         font.weight: Font.DemiBold
-                        font.pixelSize: slot.width < 90 ? 11 : canvas.showDetails ? 13 : 11
+                        font.pixelSize: slot.main.width * canvas.pxScale < 90 ? 11 : canvas.showDetails ? 13 : 11
                         color: slot.isServer ? Theme.accent : Theme.text
                         wrapMode: Text.Wrap
                         maximumLineCount: 2
@@ -156,7 +179,7 @@ Item {
                     }
                     Label {
                         width: parent.width
-                        visible: canvas.showDetails && slot.height >= 44
+                        visible: canvas.showDetails && slot.main.height * canvas.pxScale >= 44
                         text: slot.isServer ? (canvas.model.isMirror ? qsTr("server") : qsTr("this computer"))
                             : canvas.model.isMirror && slot.name === App.screenName ? qsTr("this computer")
                             : slot.state === "connected" ? qsTr("connected")
@@ -186,6 +209,22 @@ Item {
                     }
                 }
             }
+        }
+    }
+
+    // where the cursor crosses from one computer to the next
+    Repeater {
+        model: canvas.crossings
+        delegate: Rectangle {
+            required property var modelData
+            readonly property bool upright: modelData.x1 === modelData.x2
+            x: canvas.originX + modelData.x1 * canvas.pxScale - (upright ? 2 : 0)
+            y: canvas.originY + modelData.y1 * canvas.pxScale - (upright ? 0 : 2)
+            width: upright ? 4 : Math.max(2, (modelData.x2 - modelData.x1) * canvas.pxScale)
+            height: upright ? Math.max(2, (modelData.y2 - modelData.y1) * canvas.pxScale) : 4
+            radius: 2
+            color: Theme.success
+            z: 20
         }
     }
 }

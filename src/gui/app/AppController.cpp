@@ -1166,7 +1166,10 @@ void AppController::startDiscovery()
     txt.insert(QStringLiteral("port"), QString::number(m_settings->port()));
     txt.insert(QStringLiteral("v"), m_version);
     m_advertisedDisplays = LayoutModel::displaysToText(m_localDisplays);
-    if (!m_advertisedDisplays.isEmpty() && m_advertisedDisplays.size() <= 250) {   // one TXT entry holds 255 bytes
+    if (m_advertisedDisplays.size() > 250) {   // one TXT entry holds 255 bytes: the sizes go first
+        m_advertisedDisplays = LayoutModel::displaysToText(m_localDisplays, false);
+    }
+    if (!m_advertisedDisplays.isEmpty() && m_advertisedDisplays.size() <= 250) {
         txt.insert(QStringLiteral("d"), m_advertisedDisplays);
     }
     m_discovery->start(role() == Server, screenName(), quint16(m_sync->port()), txt);
@@ -1612,13 +1615,15 @@ QVariantMap AppController::peerInfo(const QString& name) const
 void AppController::publishDisplays()
 {
     QVector<DisplayConfig> displays;
-    const QVector<QRect> rects = Platform::displays();
-    for (const QRect& r : rects) {
+    const QVector<Platform::Display> found = Platform::displays();
+    for (const Platform::Display& p : found) {
         DisplayConfig d;
-        d.x = r.x();
-        d.y = r.y();
-        d.width = r.width();
-        d.height = r.height();
+        d.x = p.rect.x();
+        d.y = p.rect.y();
+        d.width = p.rect.width();
+        d.height = p.rect.height();
+        d.mmWidth = p.mm.width();
+        d.mmHeight = p.mm.height();
         displays << d;
     }
     displays = LayoutModel::cleanDisplays(displays);

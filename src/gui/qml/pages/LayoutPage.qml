@@ -4,7 +4,7 @@ import QtQuick.Layouts
 import InputLeap.Ui
 
 // The server's layout: the computers' desktops to scale, dragged into
-// place; touching edges become links (docs/ui-redesign.md §4.4, phase B).
+// place; where their displays meet the cursor crosses (docs/ui-redesign.md §4.4).
 Item {
     id: page
 
@@ -54,7 +54,7 @@ Item {
                         Layout.fillWidth: true
                         text: page.fromFile
                               ? App.layoutReadOnlyReason
-                              : qsTr("Drag the computers to where they sit on your desk; edges that touch become links. Each computer is drawn to the size of its displays, which it reports itself. Changes apply right away, on every computer.")
+                              : qsTr("Drag the computers to where they sit on your desk. Each one is drawn as big as its monitors really are, from what it reports itself; the cursor crosses only where two screens meet (the green lines), and every other edge is a wall. Changes apply right away, on every computer.")
                         color: Theme.muted
                         wrapMode: Text.WordWrap
                     }

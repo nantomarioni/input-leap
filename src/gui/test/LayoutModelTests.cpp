@@ -111,8 +111,8 @@ TEST(LayoutModel, linksCarryRangesWhenEdgesTouchPartly)
     EXPECT_EQ(desktopOf(layout, QStringLiteral("tablet")), QRect(W, 500, 1000, 700));
 
     const QString conf = layout.configText();
-    EXPECT_TRUE(conf.contains(QStringLiteral("\tdesk-win:\n\t\tright(46,100) = tablet(0,83)\n"))) << conf.toStdString();
-    EXPECT_TRUE(conf.contains(QStringLiteral("\ttablet:\n\t\tleft(0,83) = desk-win(46,100)\n"))) << conf.toStdString();
+    EXPECT_TRUE(conf.contains(QStringLiteral("\tdesk-win:\n\t\tright(46.3,100) = tablet(0,82.86)\n"))) << conf.toStdString();
+    EXPECT_TRUE(conf.contains(QStringLiteral("\ttablet:\n\t\tleft(0,82.86) = desk-win(46.3,100)\n"))) << conf.toStdString();
     EXPECT_EQ(layout.positionText(layout.indexOf(QStringLiteral("tablet"))), QStringLiteral("right of desk-win"));
 
     // moved away from the edge: no link, and the page can say so
@@ -136,9 +136,11 @@ TEST(LayoutModel, aComputerIsTheBoundingBoxOfItsDisplays)
 
     EXPECT_TRUE(layout.placeNextTo(QStringLiteral("macbook"), QStringLiteral("desk-win"), LayoutModel::Right));
     EXPECT_EQ(desktopOf(layout, QStringLiteral("macbook")), QRect(3640, 0, W, H));
+    // only the portrait display reaches the right edge, from 200 px down: the
+    // corner above it is a wall, not a way onto the macbook
     const QString conf = layout.configText();
-    EXPECT_TRUE(conf.contains(QStringLiteral("\t\tright(0,51) = macbook\n"))) << conf.toStdString();
-    EXPECT_TRUE(conf.contains(QStringLiteral("\t\tleft = desk-win(0,51)\n"))) << conf.toStdString();
+    EXPECT_TRUE(conf.contains(QStringLiteral("\t\tright(9.43,50.94) = macbook(18.52,100)\n"))) << conf.toStdString();
+    EXPECT_TRUE(conf.contains(QStringLiteral("\t\tleft(18.52,100) = desk-win(9.43,50.94)\n"))) << conf.toStdString();
 
     // growing the desktop into a neighbour is refused
     settings.insert(QStringLiteral("displays"), QVariantList{displayMap(0, 0, 4000, 1440)});
@@ -606,4 +608,119 @@ TEST(LayoutModel, hotkeysRoundTripThroughJson)
     Action clamped;
     clamped.loadJson(wild);
     EXPECT_EQ(clamped.type(), int(Action::mousebutton));
+}
+
+TEST(LayoutModel, edgesNoDisplayReachesAreWalls)
+{
+    Store store;
+    LayoutModel layout(&store.settings);
+    layout.setServerName(QStringLiteral("desk-win"));
+    layout.ensureServerPlaced();
+    // a 1440p monitor and a shorter 1080p one beside it, tops aligned: the
+    // bottom edge is only real under the first
+    QVariantMap two;
+    two.insert(QStringLiteral("displays"), QVariantList{displayMap(0, 0, 2560, 1440), displayMap(2560, 0, 1920, 1080)});
+    EXPECT_TRUE(layout.setScreenSettings(0, two));
+    QVariantMap mac;
+    mac.insert(QStringLiteral("displays"), QVariantList{displayMap(0, 0, 1512, 982)});
+
+    // under the tall monitor: the macbook's whole top edge, onto that part
+    EXPECT_TRUE(layout.addScreen(QStringLiteral("macbook"), 500, 1440));
+    const int m = layout.indexOf(QStringLiteral("macbook"));
+    EXPECT_TRUE(layout.setScreenSettings(m, mac));
+    QString conf = layout.configText();
+    EXPECT_TRUE(conf.contains(QStringLiteral("\t\tdown(11.16,44.91) = macbook\n"))) << conf.toStdString();
+    EXPECT_TRUE(conf.contains(QStringLiteral("\t\tup = desk-win(11.16,44.91)\n"))) << conf.toStdString();
+
+    // half under each: only the part under the tall one crosses
+    EXPECT_TRUE(layout.moveTo(m, 2000, 1440));
+    conf = layout.configText();
+    EXPECT_TRUE(conf.contains(QStringLiteral("\t\tdown(44.64,57.14) = macbook(0,37.04)\n"))) << conf.toStdString();
+    const QVariantList crossings = layout.crossings();
+    ASSERT_EQ(crossings.size(), 1);
+    const QVariantMap line = crossings[0].toMap();
+    EXPECT_EQ(QLine(line.value(QStringLiteral("x1")).toInt(), line.value(QStringLiteral("y1")).toInt(),
+                    line.value(QStringLiteral("x2")).toInt(), line.value(QStringLiteral("y2")).toInt()),
+              QLine(2000, 1440, 2560, 1440));
+
+    // under the short one only: it touches the desktop but no display
+    EXPECT_TRUE(layout.moveTo(m, 3000, 1440));
+    EXPECT_EQ(layout.positionText(m), QStringLiteral("not linked"));
+    EXPECT_FALSE(layout.configText().contains(QStringLiteral("= macbook")));
+
+    // the canvas gets the displays in the shared space, from the desktop's corner
+    const QVariantList drawn = layout.data(layout.index(0), LayoutModel::DisplaysRole).toList();
+    ASSERT_EQ(drawn.size(), 2);
+    EXPECT_EQ(drawn[1].toMap().value(QStringLiteral("x")).toInt(), 2560);
+    EXPECT_EQ(drawn[1].toMap().value(QStringLiteral("height")).toInt(), 1080);
+}
+
+TEST(LayoutModel, drawsEachComputerAtItsRealSize)
+{
+    Store store;
+    LayoutModel layout(&store.settings);
+    layout.setServerName(QStringLiteral("desk-win"));
+    layout.ensureServerPlaced();
+    EXPECT_TRUE(layout.placeNextTo(QStringLiteral("macbook"), QStringLiteral("desk-win"), LayoutModel::Down));
+
+    // a 27" 1440p monitor (597 x 336 mm) and a 14" MacBook in points (302 x 196 mm)
+    DisplayConfig monitor{0, 0, 2560, 1440, 597, 336}, laptop{0, 0, 1512, 982, 302, 196};
+    EXPECT_EQ(LayoutModel::measuredScale({monitor}), 882);
+    EXPECT_EQ(LayoutModel::measuredScale({laptop}), 755);
+    EXPECT_EQ(LayoutModel::measuredScale({DisplayConfig{0, 0, 1920, 1080, 16, 9}}), 0);   // an aspect ratio, not a size
+
+    EXPECT_TRUE(layout.reportDisplays(QStringLiteral("desk-win"), {monitor}));
+    EXPECT_TRUE(layout.reportDisplays(QStringLiteral("macbook"), {laptop}));
+    EXPECT_EQ(desktopOf(layout, QStringLiteral("desk-win")), QRect(0, 0, 2258, 1270));
+    // it was below the server, which grew: it moved down along
+    EXPECT_EQ(desktopOf(layout, QStringLiteral("macbook")), QRect(0, 1270, 1142, 741));
+    // the crossing follows the real widths: the laptop spans half the monitor
+    const QString conf = layout.configText();
+    EXPECT_TRUE(conf.contains(QStringLiteral("\t\tdown(0,50.58) = macbook\n"))) << conf.toStdString();
+
+    // typed: reports keep their hands off; then back to the measurement
+    const int m = layout.indexOf(QStringLiteral("macbook"));
+    EXPECT_TRUE(layout.setScale(m, 100));
+    EXPECT_EQ(desktopOf(layout, QStringLiteral("macbook")).size(), QSize(1512, 982));
+    EXPECT_FALSE(layout.reportDisplays(QStringLiteral("macbook"), {laptop}));
+    EXPECT_EQ(layout.screenSettings(m).value(QStringLiteral("measuredScale")).toDouble(), 75.5);
+    EXPECT_TRUE(layout.useMeasuredScale(m));
+    EXPECT_EQ(desktopOf(layout, QStringLiteral("macbook")).size(), QSize(1142, 741));
+
+    // persisted, sizes and scale with it
+    LayoutModel reopened(&store.settings);
+    EXPECT_EQ(desktopOf(reopened, QStringLiteral("macbook")), QRect(0, 1270, 1142, 741));
+    EXPECT_EQ(reopened.screens()[0].displays[0].mmWidth, 597);
+    LayoutModel copy(nullptr);
+    copy.loadJson(layout.toJson());
+    EXPECT_EQ(desktopOf(copy, QStringLiteral("desk-win")), QRect(0, 0, 2258, 1270));
+}
+
+TEST(LayoutModel, reportsReplaceSizesTypedBeforeTheyExisted)
+{
+    // a layout from before typing was told apart: displays that are not the
+    // placeholder, never reported
+    QJsonObject screen;
+    screen.insert(QStringLiteral("name"), QStringLiteral("desk-win"));
+    screen.insert(QStringLiteral("displays"), QJsonArray{QJsonObject{{QStringLiteral("x"), 0}, {QStringLiteral("y"), 0},
+                                                                     {QStringLiteral("width"), 2560}, {QStringLiteral("height"), 1440}}});
+    QJsonObject json;
+    json.insert(QStringLiteral("serverName"), QStringLiteral("desk-win"));
+    json.insert(QStringLiteral("screens"), QJsonArray{screen});
+    LayoutModel layout(nullptr);
+    layout.loadJson(json);
+    EXPECT_TRUE(layout.reportDisplays(QStringLiteral("desk-win"), {DisplayConfig{0, 0, 2560, 1440}, DisplayConfig{2560, 0, 2560, 1440}}));
+    EXPECT_EQ(desktopOf(layout, QStringLiteral("desk-win")).size(), QSize(5120, 1440));
+}
+
+TEST(LayoutModel, displayReportsCarryRealSizes)
+{
+    const QVector<DisplayConfig> two = {DisplayConfig{0, 0, 2560, 1440, 597, 336}, DisplayConfig{2560, 0, 1920, 1080}};
+    EXPECT_EQ(LayoutModel::displaysToText(two), QStringLiteral("0,0,2560x1440@597x336;2560,0,1920x1080"));
+    EXPECT_EQ(LayoutModel::displaysToText(two, false), QStringLiteral("0,0,2560x1440;2560,0,1920x1080"));
+    EXPECT_EQ(LayoutModel::displaysFromText(LayoutModel::displaysToText(two)), two);
+    EXPECT_EQ(LayoutModel::displaysFromJson(LayoutModel::displaysToJson(two)), two);
+    // half a size is no size
+    const QVector<DisplayConfig> odd = LayoutModel::cleanDisplays({DisplayConfig{0, 0, 100, 100, 50, 0}});
+    EXPECT_EQ(odd[0].mmWidth, 0);
 }

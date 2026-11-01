@@ -244,6 +244,32 @@ mock shows `desk-win · 1` / `desk-win · 2` and a portrait `mac-studio · 2`).
   change, so neighbours keep touching; then the server restarts once
   (debounced). No core or wire change. Still open: overlay hints naming the
   display the cursor left from.
+- **Real sizes and walls (built 2026-11-01)**: each display also reports
+  its physical size (`DisplayConfig::mmWidth/mmHeight`: `CGDisplayScreenSize`
+  on macOS, the EDID's detailed timing on Windows through
+  `EnumDisplayDevices` + SetupAPI, `QScreen::physicalSize` elsewhere; JSON
+  keys of the same names, TXT `x,y,WxH@WmmxHmm`, the sizes dropped when the
+  record would pass 250 bytes). The shared space counts 96-dpi pixels:
+  every computer has a `scale` (thousandths; 1000 = a 96-dpi pixel) taken
+  from its biggest display that knows its size, so a 14" MacBook in points
+  (≈75 %) and a 27" 1440p monitor (≈88 %) are drawn, and linked, as big as
+  they are. A typed scale (`scaleTyped`) stops measurements from changing
+  it; "Use measured" goes back. `desktop()` and `displayRect()` are in the
+  shared space, the displays themselves stay in the core's units.
+  Links are computed per display: two desktops whose edges touch link only
+  where a display of each reaches the touching edges (`edgeSpans`), merged
+  into one link per stretch, with ranges to the hundredth (the core reads
+  `left(9.43,50.94)` with `strtod`). The rest of every edge is a wall: the
+  core only switches at a desktop's own edges, and bringing the cursor in
+  where no display is would make the OS throw it to the nearest one. The
+  canvas draws each display on its own and the crossings
+  (`LayoutModel::crossings()`) as green lines. Snapping also lines a
+  desktop up with the other's displays (edges and centres). Typing displays
+  sets `displaysTyped`; a layout saved before that flag existed takes the
+  next report even where its sizes were typed. Known limit, in the core:
+  inside a client the server tracks the cursor in the client's bounding
+  box, so with unequal client monitors it can wander into space with no
+  display before the client's OS catches it.
 
 ### 4.5 The process model, as shown in the UI
 

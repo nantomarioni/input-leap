@@ -22,6 +22,7 @@
 #include <QHash>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QLine>
 #include <QRect>
 #include <QSettings>
 #include <QString>
@@ -32,9 +33,10 @@
 #include <QtQml/qqmlregistration.h>
 
 /* One display of a computer: its size and where it sits inside the
- * computer's desktop, in the pixels its core sees. Reported by that
- * computer's window over the settings channel (or its zeroconf record), or
- * typed by hand (docs/ui-redesign.md §4.4).
+ * computer's desktop, in the pixels its core sees, and how big it really is
+ * (0 when unknown). Reported by that computer's window over the settings
+ * channel (or its zeroconf record), or typed by hand (docs/ui-redesign.md
+ * §4.4).
  */
 struct DisplayConfig
 {
@@ -42,17 +44,23 @@ struct DisplayConfig
     int y = 0;
     int width = 1920;
     int height = 1080;
+    int mmWidth = 0;
+    int mmHeight = 0;
 
     QRect rect() const { return QRect(x, y, width, height); }
     bool operator==(const DisplayConfig& other) const
     {
-        return x == other.x && y == other.y && width == other.width && height == other.height;
+        return x == other.x && y == other.y && width == other.width && height == other.height &&
+               mmWidth == other.mmWidth && mmHeight == other.mmHeight;
     }
+    bool operator!=(const DisplayConfig& other) const { return !(*this == other); }
 };
 
 /* One screen (computer) in the server's layout: where its desktop sits in
- * the shared pixel space, its displays, and the options the server holds
- * for it. The options keep the legacy settings keys and the legacy `.conf`
+ * the shared space, its displays, how big its pixels are on the desk, and
+ * the options the server holds for it. The shared space counts 96-dpi
+ * pixels: a computer's own pixels are multiplied by its scale, so desktops
+ * are drawn, and linked, at their real sizes. The options keep the legacy settings keys and the legacy `.conf`
  * text, so a store written by the Widgets GUI still loads.
  */
 struct ScreenConfig
@@ -66,6 +74,9 @@ struct ScreenConfig
     int y = 0;
     QVector<DisplayConfig> displays = {DisplayConfig()};
     bool displaysReported = false;           // the displays came from the computer itself
+    bool displaysTyped = false;              // typed by hand: reports no longer replace them
+    int scale = 1000;                        // shared-space units per 1000 of its own pixels
+    bool scaleTyped = false;                 // typed by hand: measurements no longer replace it
     QStringList aliases;
     QVector<int> modifiers = {Shift, Ctrl, Alt, Meta, Super};   // index = modifier, value = mapped to
     QVector<bool> corners = QVector<bool>(CornerCount, false);
@@ -75,8 +86,15 @@ struct ScreenConfig
     bool isNull() const { return name.isEmpty(); }
     void clear() { *this = ScreenConfig(); }
 
-    // The desktop: the bounding box of the displays, placed at (x, y).
+    // The desktop: the bounding box of the displays, scaled and placed at
+    // (x, y) in the shared space.
     QRect desktop() const;
+    // One display in the shared space; edges shared inside the desktop stay
+    // shared once scaled.
+    QRect displayRect(int index) const;
+    // The desktop in its own pixels, from (0, 0).
+    QSize nativeSize() const;
+    int toShared(int pixels) const;
     // Shifts the displays so their bounding box starts at (0, 0), moving the
     // origin the opposite way so nothing moves on the desk; clamps the sizes.
     void normaliseDisplays();
@@ -87,17 +105,20 @@ struct ScreenConfig
 };
 
 /* A link between two desktops that touch: `side` of `from` leads to `to`.
- * The ranges are percentages of each edge, (0, 100) when the whole edge.
+ * The ranges are percentages of each edge, (0, 100) when the whole edge;
+ * `line` is the shared part in the shared space. A side may carry several:
+ * only where a display of each desktop reaches the touching edges.
  */
 struct ScreenLink
 {
     int from = -1;
     int to = -1;
     int side = 0;          // LayoutModel::Direction
-    int fromStart = 0;
-    int fromEnd = 100;
-    int toStart = 0;
-    int toEnd = 100;
+    double fromStart = 0;
+    double fromEnd = 100;
+    double toStart = 0;
+    double toEnd = 100;
+    QLine line;
 };
 
 /* The server's layout and options (docs/ui-redesign.md §4.4, phase B): the
@@ -167,6 +188,9 @@ public:
     // The desktop a computer gets until its displays are typed in.
     static constexpr int kDefaultWidth = 1920;
     static constexpr int kDefaultHeight = 1080;
+    // The scale's bounds, in thousandths: 25 dpi to 480 dpi pixels.
+    static constexpr int kMinScale = 200;
+    static constexpr int kMaxScale = 4000;
 
     // store = nullptr: a mirror, filled with loadJson() and never saved
     // (the server's layout as a client sees it, docs/ui-redesign.md §4.7).
@@ -205,6 +229,8 @@ public:
     Q_INVOKABLE QString positionText(int index) const;         // "left of desk-win", "centre", "not linked"
     Q_INVOKABLE QVariantList linksOf(int index) const;         // [{name, side, fromStart, fromEnd, toStart, toEnd}]
     QVector<ScreenLink> links() const;
+    // Where the cursor crosses, once per pair: [{x1, y1, x2, y2}] in the shared space.
+    Q_INVOKABLE QVariantList crossings() const;
 
     // Live state shown on the tiles, set by the controller (never persisted).
     Q_INVOKABLE void setLiveState(const QString& name, const QString& state);
@@ -224,16 +250,23 @@ public:
     // Replaces hand-typed displays with the reported ones; false when there
     // are none or they do not fit.
     Q_INVOKABLE bool useReportedDisplays(int index);
+    // A typed scale (percent of a 96-dpi pixel), or back to the measured one.
+    Q_INVOKABLE bool setScale(int index, double percent);
+    Q_INVOKABLE bool useMeasuredScale(int index);
+    // The scale the displays' real sizes give, in thousandths; 0 when they
+    // say nothing usable.
+    static int measuredScale(const QVector<DisplayConfig>& displays);
 
     // The wire forms of a display list: JSON for the settings channel, a
     // short text ("0,0,3024x1964;3024,0,2560x1440") for a zeroconf TXT
-    // entry. Reading clamps sizes and offsets, drops what does not parse,
+    // entry, "@597x336" after a display giving its millimetres. Reading
+    // clamps sizes and offsets, drops what does not parse,
     // keeps at most kMaxReportedDisplays and moves the bounding box to (0, 0).
     static constexpr int kMaxReportedDisplays = 8;
     static QVector<DisplayConfig> cleanDisplays(const QVector<DisplayConfig>& displays);
     static QJsonArray displaysToJson(const QVector<DisplayConfig>& displays);
     static QVector<DisplayConfig> displaysFromJson(const QJsonArray& json);
-    static QString displaysToText(const QVector<DisplayConfig>& displays);
+    static QString displaysToText(const QVector<DisplayConfig>& displays, bool withSizes = true);
     static QVector<DisplayConfig> displaysFromText(const QString& text);
 
     // ---- options -----------------------------------------------------------
@@ -312,6 +345,8 @@ signals:
 private:
     bool overlapsAnother(int index, const QRect& rect) const;
     bool applyDisplays(int index, const QVector<DisplayConfig>& displays);
+    bool applyGeometry(int index, const ScreenConfig& probe);
+    int measuredScaleOf(int index) const;
     ScreenConfig newScreen(const QString& name) const;
     bool fitsAt(const QRect& rect, int except) const { return !overlapsAnother(except, rect); }
     void changed(int first, int last);

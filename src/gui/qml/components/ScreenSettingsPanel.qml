@@ -85,7 +85,7 @@ ColumnLayout {
             Label {
                 Layout.fillWidth: true
                 Layout.preferredWidth: 1
-                text: panel.valid && panel.s.displaysReported
+                text: panel.valid && !panel.s.displaysTyped
                       ? qsTr("%1 reports %n display(s) that would run into a neighbour; move it apart and try again.", "", panel.s.reportedDisplays.length).arg(panel.s.name)
                       : qsTr("Typed by hand; %1 reports %n display(s).", "", panel.valid ? panel.s.reportedDisplays.length : 0).arg(panel.valid ? panel.s.name : "")
                 color: Theme.warning
@@ -93,7 +93,7 @@ ColumnLayout {
                 wrapMode: Text.WordWrap
             }
             Button {
-                text: panel.valid && panel.s.displaysReported ? qsTr("Try again") : qsTr("Use them")
+                text: panel.valid && !panel.s.displaysTyped ? qsTr("Try again") : qsTr("Use them")
                 onClicked: if (!App.layout.useReportedDisplays(panel.screenIndex)) panel.revision++
             }
         }
@@ -137,6 +137,12 @@ ColumnLayout {
                             else
                                 text = displayRow.modelData.height
                         }
+                    }
+                    Label {
+                        visible: displayRow.modelData.mmWidth > 0
+                        text: qsTr("%1 × %2 mm").arg(displayRow.modelData.mmWidth).arg(displayRow.modelData.mmHeight)
+                        color: Theme.muted
+                        font.pixelSize: Theme.smallFontSize
                     }
                     ToolButton {
                         text: "×"
@@ -186,6 +192,41 @@ ColumnLayout {
         Label {
             Layout.fillWidth: true
             text: qsTr("Pixels as that computer's core sees them; offsets place a display beside the first. Typing here stops the reports from replacing them.")
+            color: Theme.muted
+            font.pixelSize: Theme.smallFontSize
+            wrapMode: Text.WordWrap
+        }
+    }
+
+    // ---- how big its pixels are next to the others' ----
+    ColumnLayout {
+        Layout.fillWidth: true
+        spacing: 4
+        Label { text: qsTr("Size on the desk"); font.pixelSize: Theme.smallFontSize; font.weight: Font.DemiBold; color: Theme.muted }
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 8
+            NumberBox {
+                from: 20; to: 400
+                Accessible.name: qsTr("Size of this computer's pixels, in percent of a 96-dpi pixel")
+                value: panel.valid ? Math.round(panel.s.scale) : 100
+                onValueModified: if (!App.layout.setScale(panel.screenIndex, value)) panel.revision++
+            }
+            Label { text: "%"; color: Theme.muted }
+            Item { Layout.fillWidth: true }
+            Button {
+                visible: panel.valid && panel.s.scaleTyped && panel.s.measuredScale > 0
+                text: qsTr("Use measured (%1 %)").arg(panel.valid ? Math.round(panel.s.measuredScale) : 0)
+                flat: true
+                onClicked: if (!App.layout.useMeasuredScale(panel.screenIndex)) panel.revision++
+            }
+        }
+        Label {
+            Layout.fillWidth: true
+            text: !panel.valid ? ""
+                : panel.s.scaleTyped ? qsTr("Typed: the monitors' real sizes no longer change it.")
+                : panel.s.measuredScale > 0 ? qsTr("From the monitors' real sizes, so every computer is drawn as big as it is and the cursor crosses where the screens really meet. 100 % is a 96-dpi pixel.")
+                : qsTr("The monitors don't say how big they are: set it so this computer is drawn at its real size next to the others. 100 % is a 96-dpi pixel.")
             color: Theme.muted
             font.pixelSize: Theme.smallFontSize
             wrapMode: Text.WordWrap
