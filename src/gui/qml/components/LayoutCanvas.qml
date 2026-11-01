@@ -83,6 +83,8 @@ Item {
             z: mouse.drag.active ? 10 : 0
 
             readonly property bool current: canvas.selectedIndex === index
+            readonly property bool isSelf: slot.name.toLowerCase() === App.screenName.toLowerCase()
+            readonly property bool online: slot.isServer || slot.isSelf || slot.state === "connected"
             readonly property int nudge: Math.max(1, Math.round(desktopWidth / 4))
 
             function focusTile() { tile.forceActiveFocus(Qt.TabFocusReason) }
@@ -114,7 +116,8 @@ Item {
                 color: "transparent"
                 border.color: Theme.accent
                 border.width: (slot.current || tile.activeFocus) && slot.displays.length > 1 ? 1 : 0
-                opacity: mouse.drag.active ? 0.85 : 1
+                // a computer that is not connected stays where it sits, grayed out
+                opacity: mouse.drag.active ? 0.85 : slot.online ? 1 : 0.45
 
                 activeFocusOnTab: canvas.interactive
                 Accessible.role: Accessible.Button
@@ -181,7 +184,7 @@ Item {
                         width: parent.width
                         visible: canvas.showDetails && slot.main.height * canvas.pxScale >= 44
                         text: slot.isServer ? (canvas.model.isMirror ? qsTr("server") : qsTr("this computer"))
-                            : canvas.model.isMirror && slot.name === App.screenName ? qsTr("this computer")
+                            : canvas.model.isMirror && slot.isSelf ? qsTr("this computer")
                             : slot.state === "connected" ? qsTr("connected")
                             : slot.state === "offline" ? qsTr("offline")
                             : slot.position

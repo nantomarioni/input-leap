@@ -171,6 +171,23 @@ AppController::AppController(QObject* parent) :
     connect(m_layout, &LayoutModel::optionsChanged, this, &AppController::publishSync);
     connect(m_layout, &LayoutModel::hotkeysChanged, this, &AppController::publishSync);
     connect(this, &AppController::stateChanged, this, &AppController::publishSync);
+    connect(this, &AppController::stateChanged, this, &AppController::refreshLiveStates);
+    // the channel names the computers as they call themselves: placed ones
+    // take that spelling, unplaced clients are placed, the server is remembered
+    connect(m_sync, &SyncService::changed, this, [this]() {
+        if (role() == Server) {
+            adoptSelfNames();
+            const QVariantList peers = m_sync->peers();
+            for (const QVariant& p : peers) {
+                const QVariantMap peer = p.toMap();
+                if (peer.value(QStringLiteral("connected")).toBool() && peer.value(QStringLiteral("role")).toString() == QLatin1String("client")) {
+                    autoPlace(peer.value(QStringLiteral("name")).toString());
+                }
+            }
+        } else if (m_sync->serverConnected()) {
+            m_settings->setKnownServerName(serverAddress(), m_sync->serverName());
+        }
+    });
     connect(m_discovery, &Discovery::peerResolved, this, &AppController::onPeerResolved);
     connect(m_discovery, &Discovery::peerLost, this, [this](const QString& name) { m_sync->forget(name); });
     connect(m_sync, &SyncService::message, this, [this](const QString& text, bool isError) {
@@ -391,7 +408,7 @@ QString AppController::statusText() const
     case Stopped:
         return m_pausedForTrust ? tr("Paused · waiting for you to trust the server") : tr("Not running");
     case Starting:
-        return server ? tr("Starting the server…") : tr("Connecting to %1…").arg(serverAddress());
+        return server ? tr("Starting the server…") : tr("Connecting to %1…").arg(serverDisplayName());
     case Running: {
         if (server) {
             const int total = layout()->screenCount() - (layout()->hasScreen(screenName()) ? 1 : 0);
@@ -399,7 +416,7 @@ QString AppController::statusText() const
             if (m_connectedClients.isEmpty()) return tr("Running as server · waiting for clients");
             return tr("Running as server · %1 of %2 clients connected").arg(m_connectedClients.size()).arg(qMax(total, int(m_connectedClients.size())));
         }
-        return m_connectedToServer ? tr("Connected to %1").arg(serverAddress()) : tr("Connecting to %1…").arg(serverAddress());
+        return m_connectedToServer ? tr("Connected to %1").arg(serverDisplayName()) : tr("Connecting to %1…").arg(serverDisplayName());
     }
     case Stopping:
         return tr("Stopping…");
@@ -421,6 +438,33 @@ QString AppController::serverAddress() const
         return peer.host;
     }
     return name;
+}
+
+QString AppController::serverDisplayName() const
+{
+    if (m_sync->serverConnected() && !m_sync->serverName().isEmpty()) {
+        return m_sync->serverName();
+    }
+    if (!m_mirror->serverName().isEmpty()) {
+        return m_mirror->serverName();
+    }
+    const QString address = serverAddress();
+    const QString known = m_settings->knownServerName(address);
+    if (!known.isEmpty()) {
+        return known;
+    }
+    if (m_settings->serverHostname().isEmpty() && !m_discovery->servers().isEmpty()) {
+        return m_discovery->servers().value(0);   // the name it advertises, not its .local host
+    }
+    return address;
+}
+
+// The layout's spelling of a computer's name: the core and the layout match
+// names without regard to case, the pages show one spelling.
+QString AppController::canonicalName(const QString& name) const
+{
+    const int i = m_layout->indexOf(name);
+    return i >= 0 ? m_layout->screens()[i].name : name;
 }
 
 // The core port to connect to: the one the server advertises when
@@ -539,12 +583,9 @@ QVariantList AppController::computers() const
     } else {
         list << entry(self, tr("client"), m_connectedToServer ? tr("Connected") : (running() ? tr("Connecting…") : tr("Not running")),
                       m_connectedToServer ? QStringLiteral("success") : QStringLiteral("neutral"), m_addresses.value(0), m_since);
-        // the server by its screen name when its window shares it, else by address
+        // the server by its own name, as everywhere
         const QString address = serverAddress();
-        QString server = m_sync->serverConnected() ? m_sync->serverName() : m_mirror->serverName();
-        if (server.isEmpty()) {
-            server = address;
-        }
+        const QString server = serverDisplayName();
         if (!server.isEmpty()) {
             const QString position = m_mirrorAvailable ? m_mirror->positionText(m_mirror->indexOf(self)) : QString();
             list << entry(server, position.isEmpty() ? tr("server") : tr("server · this computer is %1").arg(position),
@@ -557,10 +598,10 @@ QVariantList AppController::computers() const
         const QJsonArray fleet = m_sync->serverDocument(QStringLiteral("fleet")).value(QStringLiteral("computers")).toArray();
         for (const QJsonValue& value : fleet) {
             const QString name = value.toObject().value(QStringLiteral("name")).toString();
-            if (!others.contains(name)) others << name;
+            if (!others.contains(name, Qt::CaseInsensitive)) others << name;
         }
         for (const QString& name : std::as_const(others)) {
-            if (name == self || name == server) continue;
+            if (name.compare(self, Qt::CaseInsensitive) == 0 || name.compare(server, Qt::CaseInsensitive) == 0) continue;
             const QVariantMap peer = peerInfo(name);
             const bool sharing = peer.value(QStringLiteral("connected")).toBool();
             const bool on = peer.value(QStringLiteral("state")).toMap().value(QStringLiteral("connected")).toBool();
@@ -1019,6 +1060,9 @@ void AppController::handleCoreLine(const QString& line)
 void AppController::handleEvent(const CoreEvent& event)
 {
     using Type = CoreEvent::Type;
+    // the core names a client as configured on connect, as it calls itself on
+    // disconnect: one spelling from here on
+    const QString name = canonicalName(event.name);
     switch (event.type) {
     case Type::ServerStarted:
         m_listening = true;
@@ -1029,22 +1073,18 @@ void AppController::handleEvent(const CoreEvent& event)
         m_listening = false;
         break;
     case Type::ClientConnected:
-        m_connectedClients.insert(event.name);
-        m_layout->setLiveState(event.name, QStringLiteral("connected"));
-        emit notify(tr("Client connected"), tr("%1 is now sharing your keyboard and mouse").arg(event.name));
+        m_connectedClients.insert(name);
+        emit notify(tr("Client connected"), tr("%1 is now sharing your keyboard and mouse").arg(name));
         break;
     case Type::ClientDisconnected:
-        m_connectedClients.remove(event.name);
-        m_layout->setLiveState(event.name, QStringLiteral("offline"));
-        if (m_activeScreen == event.name) m_activeScreen.clear();
+        m_connectedClients.remove(name);
+        if (m_activeScreen == name) m_activeScreen.clear();
         break;
     case Type::ClientRefused:
-        if (!event.name.isEmpty() && !layout()->hasScreen(event.name)) {
-            requestJoin(event.name);
-        }
+        autoPlace(event.name);   // a client the layout lacks: placed, and the server restarts
         break;
     case Type::SwitchedScreen:
-        m_activeScreen = event.name;
+        m_activeScreen = name;
         break;
     case Type::CursorLockChanged:
         if (event.detail == QLatin1String("elsewhere")) {
@@ -1058,7 +1098,7 @@ void AppController::handleEvent(const CoreEvent& event)
     case Type::ScreenRestored: m_dimmed = false; break;
     case Type::ConnectedToServer:
         m_connectedToServer = true;
-        m_connectedServer = serverAddress();
+        m_connectedServer = serverDisplayName();
         m_since = QDateTime::currentDateTime();
         m_unexpectedExits = 0;
         break;
@@ -1083,7 +1123,7 @@ void AppController::handleEvent(const CoreEvent& event)
         fields.insert(QStringLiteral("columns"), TlsIdentity::columnsFor(event.sha256));
         fields.insert(QStringLiteral("randomart"), TlsIdentity::randomartFor(event.sha256));
         fields.insert(QStringLiteral("peerRole"), server ? QStringLiteral("client") : QStringLiteral("server"));
-        fields.insert(QStringLiteral("name"), server ? QString() : serverAddress());
+        fields.insert(QStringLiteral("name"), server ? QString() : serverDisplayName());
         addRequest(id, QStringLiteral("trust"), fields);
         emit notify(tr("New %1 fingerprint").arg(server ? tr("client") : tr("server")), tr("Open Input Leap to check and trust it"));
         if (!server) {
@@ -1107,8 +1147,9 @@ void AppController::handleEvent(const CoreEvent& event)
 void AppController::onClientFound(const QString& name)
 {
     log(tr("discovery found client %1").arg(name));
-    if (role() == Server && !layout()->hasScreen(name) && !layout()->ignoreAutoConfigClient()) {
-        requestJoin(name);
+    if (role() == Server && !layout()->ignoreAutoConfigClient()) {
+        adoptSelfNames();
+        autoPlace(name);
     }
     emit stateChanged();
 }
@@ -1699,15 +1740,77 @@ void AppController::publishSync()
     }
 }
 
-void AppController::requestJoin(const QString& name)
+// A computer that asks this server to share its keyboard and mouse (found
+// by discovery, over the settings channel, or refused by the core) is placed
+// at once, in a chain right of the server, and the server restarts with it;
+// it is dragged to where it sits on the Layout page.
+void AppController::autoPlace(const QString& name)
 {
-    if (m_ignoredJoins.contains(name) || hasRequest(QStringLiteral("join:") + name)) {
+    if (role() != Server || name.isEmpty() || m_layout->hasScreen(name)
+        || name.compare(screenName(), Qt::CaseInsensitive) == 0 || m_ignoredJoins.contains(name)) {
         return;
     }
-    QVariantMap fields;
-    fields.insert(QStringLiteral("name"), name);
-    addRequest(QStringLiteral("join:") + name, QStringLiteral("join"), fields);
-    emit notify(tr("%1 wants to join").arg(name), tr("Open Input Leap to place it on the layout"));
+    m_layout->setServerName(screenName());
+    m_layout->ensureServerPlaced();
+    if (!m_layout->placeNextTo(name, screenName(), LayoutModel::Right) && !m_layout->addScreenAnywhere(name)) {
+        log(tr("no room for %1 in the layout").arg(name), QStringLiteral("WARNING"));
+        return;
+    }
+    log(tr("%1 joined: placed %2; drag it to where it sits on the Layout page").arg(name, m_layout->positionText(m_layout->indexOf(name))));
+    emit notify(tr("%1 joined").arg(name), tr("Placed on the layout; drag it to where it sits"));
+}
+
+// A computer's own name is the one shown: a placed computer that calls itself
+// with other capitals (the core matches without regard to case) takes them.
+void AppController::adoptSelfNames()
+{
+    if (role() != Server) {
+        return;
+    }
+    QStringList selfNames = m_discovery->clients();
+    const QVariantList peers = m_sync->peers();
+    for (const QVariant& p : peers) {
+        const QVariantMap peer = p.toMap();
+        if (peer.value(QStringLiteral("connected")).toBool()) {
+            selfNames << peer.value(QStringLiteral("name")).toString();
+        }
+    }
+    for (const QString& self : std::as_const(selfNames)) {
+        const int i = m_layout->indexOf(self);
+        if (i >= 0 && m_layout->screens()[i].name != self && self.compare(screenName(), Qt::CaseInsensitive) != 0) {
+            const QString before = m_layout->screens()[i].name;
+            if (m_layout->renameScreen(i, self)) {
+                log(tr("%1 calls itself %2: renamed on the layout").arg(before, self));
+            }
+        }
+    }
+}
+
+// Online or not, on the tiles: a client is online while the core has it
+// connected, or (connected before this window attached) its own window says so.
+void AppController::refreshLiveStates()
+{
+    LayoutModel* shown = layout();
+    const QVector<ScreenConfig>& screens = shown->screens();
+    for (const ScreenConfig& s : screens) {
+        bool on = false;
+        if (role() == Server) {
+            if (s.name.compare(screenName(), Qt::CaseInsensitive) == 0) continue;
+            for (const QString& client : std::as_const(m_connectedClients)) {
+                if (client.compare(s.name, Qt::CaseInsensitive) == 0) on = true;
+            }
+            const QVariantMap peer = m_sync->peer(s.name);
+            on = on || (running() && peer.value(QStringLiteral("connected")).toBool()
+                        && peer.value(QStringLiteral("state")).toMap().value(QStringLiteral("connected")).toBool());
+        } else if (s.name.compare(screenName(), Qt::CaseInsensitive) == 0) {
+            on = m_connectedToServer;
+        } else if (s.name.compare(shown->serverName(), Qt::CaseInsensitive) == 0) {
+            on = m_connectedToServer || m_sync->serverConnected();
+        } else {
+            on = peerInfo(s.name).value(QStringLiteral("state")).toMap().value(QStringLiteral("connected")).toBool();
+        }
+        shown->setLiveState(s.name, on ? QStringLiteral("connected") : QStringLiteral("offline"));
+    }
 }
 
 void AppController::placeJoin(const QString& name, int direction)

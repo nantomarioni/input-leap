@@ -137,6 +137,23 @@ bool AppSettings::syncEnabled() const { return value("ui/syncEnabled", true).toB
 qint64 AppSettings::corePid() const { return value("ui/corePid", 0).toLongLong(); }
 void AppSettings::setCorePid(qint64 pid) { m_store->setValue(QStringLiteral("ui/corePid"), pid); }   // no changed(): bookkeeping
 
+QString AppSettings::knownServerName(const QString& address) const
+{
+    if (address.isEmpty() || value("ui/knownServerAddress", QString()).toString().compare(address, Qt::CaseInsensitive) != 0) {
+        return QString();
+    }
+    return value("ui/knownServerName", QString()).toString();
+}
+
+void AppSettings::setKnownServerName(const QString& address, const QString& name)
+{
+    if (address.isEmpty() || name.isEmpty() || knownServerName(address) == name) {
+        return;
+    }
+    m_store->setValue(QStringLiteral("ui/knownServerAddress"), address);   // no changed(): bookkeeping
+    m_store->setValue(QStringLiteral("ui/knownServerName"), name);
+}
+
 QString AppSettings::peerName(const QString& sha256) const
 {
     return m_store->value(QStringLiteral("ui/peerNames/") + sha256.toUpper().remove(QLatin1Char(':'))).toString();

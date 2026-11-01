@@ -84,6 +84,7 @@ class AppController : public QObject
     Q_PROPERTY(bool dimmed READ dimmed NOTIFY stateChanged)
     Q_PROPERTY(QString connectedServer READ connectedServer NOTIFY stateChanged)
     Q_PROPERTY(QString serverAddress READ serverAddress NOTIFY stateChanged)
+    Q_PROPERTY(QString serverDisplayName READ serverDisplayName NOTIFY stateChanged)
     Q_PROPERTY(QDateTime since READ since NOTIFY stateChanged)
     Q_PROPERTY(QString screenName READ screenName NOTIFY stateChanged)
     Q_PROPERTY(QStringList addresses READ addresses CONSTANT)
@@ -150,6 +151,8 @@ public:
     bool dimmed() const { return m_dimmed; }
     QString connectedServer() const { return m_connectedServer; }
     QString serverAddress() const;
+    // The server by the name it calls itself; its address only when that is unknown.
+    QString serverDisplayName() const;
     QDateTime since() const { return m_since; }
     QString screenName() const;
     QStringList addresses() const { return m_addresses; }
@@ -241,6 +244,10 @@ private:
     void startDiscovery();
     void startSync();
     void migrateConfigFile();
+    QString canonicalName(const QString& name) const;
+    void autoPlace(const QString& name);
+    void adoptSelfNames();
+    void refreshLiveStates();
     void dialServerAddress();
     void publishSync();
     void publishDisplays();
@@ -262,7 +269,7 @@ private:
     void addRequest(const QString& id, const QString& kind, const QVariantMap& fields);
     bool hasRequest(const QString& id) const;
     void removeRequest(const QString& id);
-    void requestJoin(const QString& name);
+
     void log(const QString& text, const QString& level = QStringLiteral("INFO"));
 
     AppSettings* m_settings = nullptr;

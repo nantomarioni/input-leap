@@ -97,7 +97,9 @@ ScrollView {
                     InfoRow {
                         visible: App.role === App.Client
                         label: qsTr("Server")
-                        value: App.serverAddress.length > 0 ? App.serverAddress : qsTr("none yet")
+                        value: App.serverAddress.length === 0 ? qsTr("none yet")
+                               : App.serverDisplayName !== App.serverAddress ? App.serverDisplayName + "  ·  " + App.serverAddress
+                               : App.serverAddress
                         mono: true
                     }
                     RowLayout {

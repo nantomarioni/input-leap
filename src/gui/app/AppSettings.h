@@ -108,6 +108,10 @@ public:
     bool syncEnabled() const;       // share settings with the trusted computers (the GUI channel)
     qint64 corePid() const;         // the core this window launched last (0 when none), to reap an orphan
     void setCorePid(qint64 pid);
+    // The server's own name, last time its window said it, for the address
+    // it was reached at; so a client names its server even while offline.
+    QString knownServerName(const QString& address) const;
+    void setKnownServerName(const QString& address, const QString& name);
 
     // A trusted peer's display name, kept beside the fingerprint database.
     QString peerName(const QString& sha256) const;

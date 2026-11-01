@@ -342,9 +342,14 @@ ScreenConfig LayoutModel::newScreen(const QString& name) const
 {
     ScreenConfig screen;
     screen.name = name;
-    const QVector<DisplayConfig> reported = m_reported.value(name);
+    const QVector<DisplayConfig> reported = reportedFor(name);
     if (!reported.isEmpty()) {
         screen.displays = reported;
+        screen.normaliseDisplays();
+        const int measured = measuredScale(screen.displays);
+        if (measured > 0) {
+            screen.scale = measured;
+        }
         screen.displaysReported = true;
     }
     return screen;

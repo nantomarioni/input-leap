@@ -39,7 +39,7 @@ ScrollView {
                 StatusPill { text: App.role === App.Server ? qsTr("Core · input-leaps") : qsTr("Core · input-leapc"); tone: "info"; showDot: false }
                 Label { text: "  → tcp " + App.settings.port + " →  "; font.family: App.monoFontFamily; color: Theme.muted }
                 StatusPill {
-                    text: App.role === App.Server ? qsTr("%1 clients").arg(App.connectedClients.length) : (App.serverAddress.length > 0 ? App.serverAddress : qsTr("the server"))
+                    text: App.role === App.Server ? qsTr("%1 clients").arg(App.connectedClients.length) : (App.serverDisplayName.length > 0 ? App.serverDisplayName : qsTr("the server"))
                     tone: App.connected ? "success" : "neutral"
                     showDot: false
                 }

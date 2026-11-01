@@ -94,7 +94,7 @@ ScrollView {
                 spacing: 12
                 Label { text: page.computer ? page.computer.name : ""; font.pixelSize: 16; font.weight: Font.DemiBold; color: Theme.text }
                 StatusPill {
-                    readonly property bool isServer: page.computer !== null && (page.computer.isSelf ? App.role === App.Server : page.peer.role === "server" || page.computer.name === App.layout.serverName)
+                    readonly property bool isServer: page.computer !== null && (page.computer.isSelf ? App.role === App.Server : page.peer.role === "server" || page.computer.name.toLowerCase() === App.layout.serverName.toLowerCase())
                     text: page.computer && page.computer.isSelf ? (isServer ? qsTr("this computer · server") : qsTr("this computer · client")) : (isServer ? qsTr("server") : qsTr("client"))
                     tone: "neutral"
                     showDot: false
