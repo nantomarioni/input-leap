@@ -13,8 +13,8 @@ Item {
     readonly property bool mirror: App.role === App.Client
     readonly property var cfg: App.layout
     readonly property var srv: mirror && App.mirrorAvailable ? App.sync.serverSettings : App.settings
-    // the layout's options and hotkeys: read-only from a file, or when this
-    // client may not change the server's configuration
+    // the layout's options and hotkeys: read-only when this client may not
+    // change the server's configuration
     readonly property bool fromFile: !App.layoutEditable
 
     function setSrv(key, value) {
@@ -70,51 +70,12 @@ Item {
                 wrapMode: Text.WordWrap
             }
 
-            Card {
+            Label {
                 Layout.fillWidth: true
-                padding: 14
-                spacing: 6
-                enabled: App.serverSettingsEditable
-                SectionTitle { text: qsTr("Configuration source") }
-                RadioButton {
-                    text: qsTr("Generate from the layout and the options below (recommended)")
-                    checked: !page.srv.useExternalConfig
-                    onToggled: if (checked) page.setSrv("useExternalConfig", false)
-                }
-                RowLayout {
-                    spacing: 8
-                    RadioButton {
-                        text: qsTr("Use a configuration file")
-                        checked: page.srv.useExternalConfig
-                        onToggled: if (checked) page.setSrv("useExternalConfig", true)
-                    }
-                    TextField {
-                        Layout.preferredWidth: 360
-                        enabled: page.srv.useExternalConfig
-                        text: page.srv.configFile
-                        font.family: App.monoFontFamily
-                        onEditingFinished: if (text !== page.srv.configFile) page.setSrv("configFile", text)
-                    }
-                    Button {
-                        text: qsTr("Browse…")
-                        enabled: page.srv.useExternalConfig && !page.mirror   // a file on the server: typed in from a client
-                        onClicked: { var f = App.pickFile(qsTr("Choose the server configuration file"), page.srv.configFile, false); if (f.length > 0) page.setSrv("configFile", f) }
-                    }
-                }
-                Label {
-                    visible: page.fromFile
-                    Layout.fillWidth: true
-                    text: qsTr("The options and hotkeys below, and the Layout page, show what the file says; edit the file to change them (it reloads when saved).")
-                    color: Theme.muted
-                    font.pixelSize: Theme.smallFontSize
-                    wrapMode: Text.WordWrap
-                }
-                Label {
-                    visible: !page.srv.useExternalConfig
-                    text: qsTr("Written to %1 on every start.").arg(page.mirror ? page.srv.generatedConfigPath : App.generatedConfigPath)
-                    color: Theme.muted
-                    font.pixelSize: Theme.smallFontSize
-                }
+                text: qsTr("The layout and the options below make the server's configuration, written to %1 on every start.").arg(page.mirror ? page.srv.generatedConfigPath : App.generatedConfigPath)
+                color: Theme.muted
+                font.pixelSize: Theme.smallFontSize
+                wrapMode: Text.WordWrap
             }
 
             GridLayout {

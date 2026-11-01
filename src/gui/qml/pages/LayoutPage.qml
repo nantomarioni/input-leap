@@ -43,9 +43,8 @@ Item {
                         spacing: 10
                         Label { text: qsTr("Screen layout"); font.pixelSize: Theme.titleFontSize; font.weight: Font.DemiBold; color: Theme.text }
                         StatusPill {
-                            visible: App.role === App.Client || page.fromFile
-                            text: App.role === App.Client ? (page.fromFile ? qsTr("held by %1 · read-only") : qsTr("held by %1 · editable here")).arg(App.sync.serverName)
-                                                          : qsTr("from a file · read-only")
+                            visible: App.role === App.Client
+                            text: (page.fromFile ? qsTr("held by %1 · read-only") : qsTr("held by %1 · editable here")).arg(App.sync.serverName)
                             tone: page.fromFile ? "info" : "success"
                             showDot: false
                         }

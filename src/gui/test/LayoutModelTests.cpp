@@ -446,6 +446,29 @@ TEST(LayoutModel, aFileLayoutTakesTheDisplaysTheComputersReport)
     EXPECT_EQ(layout.screens()[layout.indexOf(QStringLiteral("MacBookPro-P"))].nativeSize(), QSize(1512, 982));
 }
 
+// The configuration file option is gone: what the file had moves into the
+// layout once, around wherever the server already sits.
+TEST(LayoutModel, adoptsTheComputersOfAConfigurationFile)
+{
+    LayoutModel fromFile(nullptr);
+    fromFile.loadConfigText(QStringLiteral(
+        "section: screens\n\tdesk-win:\n\tmacbook:\n\t\talt = super\n\tstudio:\nend\n"
+        "section: links\n\tdesk-win:\n\t\tright = macbook\n\t\tdown = studio\nend\n"), QStringLiteral("desk-win"));
+
+    Store store;
+    LayoutModel layout(&store.settings);
+    layout.setServerName(QStringLiteral("desk-win"));
+    EXPECT_TRUE(layout.addScreen(QStringLiteral("desk-win"), 3840, 1080));
+    EXPECT_TRUE(layout.addScreen(QStringLiteral("STUDIO"), 3840, 1080 + H));   // already here, any case
+
+    EXPECT_EQ(layout.adoptScreens(fromFile), 1);
+    EXPECT_EQ(layout.screenCount(), 3);
+    EXPECT_EQ(desktopOf(layout, QStringLiteral("macbook")).topLeft(), QPoint(3840 + W, 1080));
+    const QVariantMap mac = layout.screenSettings(layout.indexOf(QStringLiteral("macbook")));
+    EXPECT_EQ(mac.value(QStringLiteral("modifiers")).toList().value(ScreenConfig::Alt).toInt(), int(ScreenConfig::Super));
+    EXPECT_EQ(layout.adoptScreens(fromFile), 0);
+}
+
 TEST(LayoutModel, renamesAndRemoves)
 {
     Store store;

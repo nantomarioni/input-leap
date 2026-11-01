@@ -35,7 +35,6 @@
 #include "SyncService.h"
 #include "TlsIdentity.h"
 
-class QFileSystemWatcher;
 class QQmlEngine;
 class QJSEngine;
 class QTimer;
@@ -118,10 +117,10 @@ public:
     static AppController* create(QQmlEngine* qmlEngine, QJSEngine* jsEngine);
 
     AppSettings* settings() const { return m_settings; }
-    // The layout the server runs: the editable one kept in the settings, or
-    // a read-only reading of the configuration file when one is used. On a
-    // client, its copy of the server's (edits go back to the server).
-    LayoutModel* layout() const { return role() == Client ? m_mirror : m_externalActive ? m_external : m_layout; }
+    // The layout the server runs, kept in the settings and turned into the
+    // core's configuration on every start. On a client, its copy of the
+    // server's (edits go back to the server).
+    LayoutModel* layout() const { return role() == Client ? m_mirror : m_layout; }
     QString layoutSource() const;
     TlsIdentity* identity() const { return m_identity; }
     Discovery* discovery() const { return m_discovery; }
@@ -241,7 +240,7 @@ private:
     void onPeerResolved(const QString& name, const QString& host, quint16 port, const QMap<QString, QString>& txt);
     void startDiscovery();
     void startSync();
-    void reloadExternalLayout();
+    void migrateConfigFile();
     void dialServerAddress();
     void publishSync();
     void publishDisplays();
@@ -273,10 +272,6 @@ private:
     CoreProcess* m_core = nullptr;
     SyncService* m_sync = nullptr;
     LayoutModel* m_mirror = nullptr;
-    LayoutModel* m_external = nullptr;
-    QFileSystemWatcher* m_externalWatcher = nullptr;
-    bool m_externalActive = false;
-    QString m_externalPath;
     bool m_mirrorAvailable = false;
     bool m_dryRun = false;
     bool m_trayAvailable = false;

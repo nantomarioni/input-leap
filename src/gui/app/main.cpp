@@ -308,7 +308,6 @@ int main(int argc, char* argv[])
             server.insert(QStringLiteral("cryptoEnabled"), true);
             server.insert(QStringLiteral("requireClientCertificate"), false);
             server.insert(QStringLiteral("useExternalConfig"), false);
-            server.insert(QStringLiteral("configFile"), QString());
             server.insert(QStringLiteral("generatedConfigPath"), QStringLiteral("/Users/demo/Library/Application Support/InputLeap/generated.conf"));
             serverConfig.insert(QStringLiteral("settings"), server);
             LayoutModel sample(nullptr);

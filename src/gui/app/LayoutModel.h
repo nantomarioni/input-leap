@@ -217,6 +217,9 @@ public:
     Q_INVOKABLE bool hasScreen(const QString& name) const { return indexOf(name) >= 0; }
     Q_INVOKABLE bool addScreen(const QString& name, int x, int y);
     Q_INVOKABLE bool addScreenAnywhere(const QString& name);
+    // The computers `other` has and this layout lacks, with their options,
+    // placed as `other` places them around the server; returns how many.
+    int adoptScreens(const LayoutModel& other);
     Q_INVOKABLE bool placeNextTo(const QString& name, const QString& anchor, int direction);
     Q_INVOKABLE bool moveTo(int index, int x, int y);          // false when it would overlap
     Q_INVOKABLE QVariantMap snapPosition(int index, int x, int y, int threshold) const;

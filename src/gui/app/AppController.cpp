@@ -36,7 +36,6 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
-#include <QFileSystemWatcher>
 #include <QFontDatabase>
 #include <QGuiApplication>
 #include <QHostInfo>
@@ -84,8 +83,6 @@ AppController::AppController(QObject* parent) :
     m_core = new CoreProcess(this);
     m_sync = new SyncService(this);
     m_mirror = new LayoutModel(nullptr, this);
-    m_external = new LayoutModel(nullptr, this);
-    m_externalWatcher = new QFileSystemWatcher(this);
     m_logModel = new LogModel(this);
     m_log = new LogFilterModel(m_logModel, this);
     m_updates = new inputleap::fork_gui::UpdateChecker(nullptr);
@@ -101,7 +98,6 @@ AppController::AppController(QObject* parent) :
     m_configSendTimer = new QTimer(this);
     m_configSendTimer->setSingleShot(true);
     m_configSendTimer->setInterval(300);
-    m_external->setReadOnly(true);
     m_mirror->setReadOnly(true);
 
     const auto all = QNetworkInterface::allAddresses();
@@ -123,9 +119,6 @@ AppController::AppController(QObject* parent) :
     connect(m_settings, &AppSettings::changed, this, [this]() {
         m_layout->setServerName(m_settings->screenName());
         onDisplaysReported(screenName(), m_localDisplays);   // a new name or role: the server's own desktop
-        if (m_settings->useExternalConfig() != m_externalActive || m_settings->configFile() != m_externalPath) {
-            reloadExternalLayout();
-        }
         if (m_settings->serverHostname() != m_syncServerHost) {
             dialServerAddress();
         }
@@ -176,10 +169,6 @@ AppController::AppController(QObject* parent) :
         }
     });
     connect(m_layout, &LayoutModel::optionsChanged, this, &AppController::publishSync);
-    connect(m_external, &LayoutModel::layoutChanged, this, &AppController::stateChanged);
-    connect(m_externalWatcher, &QFileSystemWatcher::fileChanged, this, [this]() {
-        QTimer::singleShot(300, this, &AppController::reloadExternalLayout);   // editors save in several steps
-    });
     connect(m_layout, &LayoutModel::hotkeysChanged, this, &AppController::publishSync);
     connect(this, &AppController::stateChanged, this, &AppController::publishSync);
     connect(m_discovery, &Discovery::peerResolved, this, &AppController::onPeerResolved);
@@ -230,40 +219,39 @@ AppController::AppController(QObject* parent) :
         emit stateChanged();
     });
 
-    reloadExternalLayout();
+    migrateConfigFile();
     publishDisplays();
     log(tr("Input Leap %1 started").arg(m_version));
 }
 
-// The configuration file, when the server runs one, read into a model of
-// its own so the pages show what the core actually loads.
-void AppController::reloadExternalLayout()
+// A configuration file is no longer a source: the layout is. A server that
+// ran one gets, once, the computers the file had and the layout lacks,
+// placed where the file put them relative to this computer, with their
+// per-computer options. Hotkeys in the file are only text there: they are
+// listed in the log to be added again.
+void AppController::migrateConfigFile()
 {
-    const bool want = m_settings->useExternalConfig();
-    const QString path = want ? m_settings->configFile() : QString();
-    if (want) {
-        QFile file(path);
-        if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-            m_external->loadConfigText(QString::fromUtf8(file.readAll()), screenName());
-        } else {
-            m_external->loadJson(QJsonObject());
-            log(tr("cannot read the configuration file %1").arg(path), QStringLiteral("WARNING"));
+    if (!m_settings->useExternalConfig()) {
+        return;
+    }
+    const QString path = m_settings->configFile();
+    QFile file(path);
+    if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        LayoutModel fromFile(nullptr);
+        fromFile.loadConfigText(QString::fromUtf8(file.readAll()), screenName());
+        m_layout->setServerName(screenName());
+        m_layout->ensureServerPlaced();
+        const int adopted = m_layout->adoptScreens(fromFile);
+        log(tr("the layout replaces the configuration file %1: %n computer(s) taken from it", "", adopted).arg(path));
+        const QVariantList hotkeys = fromFile.hotkeyList();
+        for (const QVariant& hotkey : hotkeys) {
+            log(tr("not carried over from the file, add it on the Server page: %1").arg(hotkey.toMap().value(QStringLiteral("text")).toString()),
+                QStringLiteral("WARNING"));
         }
+    } else {
+        log(tr("the configuration file %1 cannot be read; the layout is used from now on").arg(path), QStringLiteral("WARNING"));
     }
-    const QStringList watched = m_externalWatcher->files();
-    if (!watched.isEmpty()) {
-        m_externalWatcher->removePaths(watched);
-    }
-    if (want && QFile::exists(path)) {
-        m_externalWatcher->addPath(path);
-    }
-    const bool changed = want != m_externalActive || path != m_externalPath;
-    m_externalActive = want;
-    m_externalPath = path;
-    if (changed) {
-        emit layoutSourceChanged();
-    }
-    emit stateChanged();
+    m_settings->setUseExternalConfig(false);
 }
 
 QString AppController::layoutSource() const
@@ -271,7 +259,7 @@ QString AppController::layoutSource() const
     if (role() == Client) {
         return tr("held by %1").arg(m_sync->serverConnected() ? m_sync->serverName() : tr("the server"));
     }
-    return m_externalActive ? tr("the file %1").arg(m_externalPath) : tr("generated from the layout");
+    return tr("generated from the layout");
 }
 
 // ---- the server's configuration, edited from any window ---------------------------
@@ -292,7 +280,7 @@ bool AppController::serverSettingsEditable() const
 bool AppController::layoutEditable() const
 {
     if (role() == Server) {
-        return !m_externalActive;
+        return true;
     }
     return m_mirrorAvailable && serverSettingsEditable()
            && !m_sync->serverSettings().value(QStringLiteral("useExternalConfig")).toBool();
@@ -303,14 +291,11 @@ QString AppController::layoutReadOnlyReason() const
     if (layoutEditable()) {
         return QString();
     }
-    if (role() == Server) {
-        return tr("As read from %1. Edit that file (it reloads here when saved), or choose \"Generate from the layout\" on the Server page to arrange it here.").arg(m_externalPath);
-    }
     if (!m_mirrorAvailable) {
         return tr("Waiting for the server to share its configuration.");
     }
     const QString server = m_sync->serverName();
-    if (m_sync->serverSettings().value(QStringLiteral("useExternalConfig")).toBool()) {
+    if (m_sync->serverSettings().value(QStringLiteral("useExternalConfig")).toBool()) {   // an older build
         return tr("%1 runs a configuration file: edit it there.").arg(server);
     }
     if (m_sync->peer(server).value(QStringLiteral("protocol")).toInt() < 3) {
@@ -788,17 +773,8 @@ bool AppController::buildLaunch(QString& program, QStringList& arguments, QStrin
         if (!m_settings->requireClientCertificate()) {
             arguments << QStringLiteral("--disable-client-cert-checking");
         }
-        QString configPath;
-        if (m_settings->useExternalConfig()) {
-            configPath = m_settings->configFile();
-            if (!QFile::exists(configPath)) {
-                error = tr("The configuration file does not exist: %1").arg(configPath);
-                return false;
-            }
-        } else {
-            configPath = generatedConfigPath();
-        }
-        if (prepare && !m_settings->useExternalConfig()) {
+        const QString configPath = generatedConfigPath();
+        if (prepare) {
             m_layout->setServerName(screenName());
             m_layout->ensureServerPlaced();
             QDir().mkpath(dataFolder());
@@ -926,7 +902,7 @@ QString AppController::launchSignature()
         arguments << m_settings->serverHostname() << QString::number(m_settings->port());
     }
     QString signature = program + QLatin1Char('\n') + arguments.join(QLatin1Char('\n'));
-    if (role() == Server && !m_settings->useExternalConfig()) {
+    if (role() == Server) {
         signature += QLatin1Char('\n') + m_layout->configText();
     }
     return signature;
@@ -1310,7 +1286,6 @@ QJsonObject AppController::handleSyncRequest(const QString& peer, const QString&
     }
     if (kind == QLatin1String("set-config")) {
         if (role() != Server) return answer(false, tr("%1 is not the server").arg(me));
-        if (m_externalActive) return answer(false, tr("%1 runs the configuration file %2: edit it there").arg(me, m_externalPath));
         QString error;
         if (!m_layout->replaceWith(body.value(QStringLiteral("layout")).toObject(), &error)) {
             return answer(false, tr("%1 refused the layout: %2").arg(me, error));
@@ -1419,12 +1394,6 @@ QJsonObject AppController::applySetting(const QString& by, const QString& key, c
         when = CoreRestart;
     } else if (server && key == QLatin1String("requireClientCertificate")) {
         m_settings->setRequireClientCertificate(value.toBool());
-        when = CoreRestart;
-    } else if (server && key == QLatin1String("useExternalConfig")) {
-        m_settings->setUseExternalConfig(value.toBool());
-        when = CoreRestart;
-    } else if (server && key == QLatin1String("configFile")) {
-        m_settings->setConfigFile(value.toString());
         when = CoreRestart;
     } else {
         return answer(false, tr("%1 cannot be changed from another computer").arg(key));
@@ -1651,11 +1620,7 @@ void AppController::onDisplaysReported(const QString& name, const QVector<Displa
     if (role() != Server || displays.isEmpty()) {
         return;
     }
-    // the file's layout too: it has no sizes of its own, and keeps the
-    // reports for when the file is read again
-    const bool generated = m_layout->reportDisplays(name, displays);
-    const bool fromFile = m_external->reportDisplays(name, displays) && m_externalActive;
-    if (generated || fromFile) {
+    if (m_layout->reportDisplays(name, displays)) {
         log(tr("%1 reports its displays: %2").arg(name, LayoutModel::displaysToText(displays)));
     }
 }
@@ -1706,8 +1671,7 @@ void AppController::publishSync()
         server.insert(QStringLiteral("networkInterface"), m_settings->networkInterface());
         server.insert(QStringLiteral("cryptoEnabled"), m_settings->cryptoEnabled());
         server.insert(QStringLiteral("requireClientCertificate"), m_settings->requireClientCertificate());
-        server.insert(QStringLiteral("useExternalConfig"), m_settings->useExternalConfig());
-        server.insert(QStringLiteral("configFile"), m_settings->configFile());
+        server.insert(QStringLiteral("useExternalConfig"), false);   // older clients read it
         server.insert(QStringLiteral("generatedConfigPath"), generatedConfigPath());
         config.insert(QStringLiteral("settings"), server);
         config.insert(QStringLiteral("layout"), layout()->toJson());
@@ -1748,11 +1712,6 @@ void AppController::requestJoin(const QString& name)
 
 void AppController::placeJoin(const QString& name, int direction)
 {
-    if (m_externalActive) {
-        removeRequest(QStringLiteral("join:") + name);
-        log(tr("%1 asked to join, but the layout comes from %2: add it to that file").arg(name, m_externalPath), QStringLiteral("WARNING"));
-        return;
-    }
     bool placed = false;
     m_layout->setServerName(screenName());
     m_layout->ensureServerPlaced();

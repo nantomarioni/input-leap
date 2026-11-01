@@ -370,6 +370,44 @@ bool LayoutModel::addScreen(const QString& name, int x, int y)
     return true;
 }
 
+int LayoutModel::adoptScreens(const LayoutModel& other)
+{
+    // where `other` puts its desktops, moved so its server sits on ours
+    QPoint shift;
+    const int ours = indexOf(m_serverName), theirs = other.indexOf(m_serverName);
+    if (ours >= 0 && theirs >= 0) {
+        shift = QPoint(m_screens[ours].x - other.m_screens[theirs].x, m_screens[ours].y - other.m_screens[theirs].y);
+    }
+    int adopted = 0;
+    for (const ScreenConfig& s : other.m_screens) {
+        if (hasScreen(s.name)) {
+            continue;
+        }
+        ScreenConfig screen = s;   // with its options
+        const QVector<DisplayConfig> reported = reportedFor(s.name);
+        if (!reported.isEmpty()) {
+            screen.displays = reported;
+            screen.displaysReported = true;
+        }
+        screen.x += shift.x();
+        screen.y += shift.y();
+        if (overlapsAnother(-1, screen.desktop())) {
+            const QRect box = bounds();
+            screen.x = rightOf(box);
+            screen.y = box.y();
+        }
+        beginInsertRows(QModelIndex(), m_screens.size(), m_screens.size());
+        m_screens << screen;
+        endInsertRows();
+        ++adopted;
+    }
+    if (adopted > 0) {
+        save();
+        changed(0, m_screens.size() - 1);
+    }
+    return adopted;
+}
+
 bool LayoutModel::addScreenAnywhere(const QString& name)
 {
     if (m_screens.isEmpty()) {
