@@ -348,6 +348,7 @@ private:
     bool applyGeometry(int index, const ScreenConfig& probe);
     int measuredScaleOf(int index) const;
     ScreenConfig newScreen(const QString& name) const;
+    QVector<DisplayConfig> reportedFor(const QString& name) const;
     bool fitsAt(const QRect& rect, int except) const { return !overlapsAnother(except, rect); }
     void changed(int first, int last);
     void loadScreen(ScreenConfig& screen);

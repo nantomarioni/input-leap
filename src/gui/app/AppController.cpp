@@ -1651,7 +1651,11 @@ void AppController::onDisplaysReported(const QString& name, const QVector<Displa
     if (role() != Server || displays.isEmpty()) {
         return;
     }
-    if (m_layout->reportDisplays(name, displays)) {
+    // the file's layout too: it has no sizes of its own, and keeps the
+    // reports for when the file is read again
+    const bool generated = m_layout->reportDisplays(name, displays);
+    const bool fromFile = m_external->reportDisplays(name, displays) && m_externalActive;
+    if (generated || fromFile) {
         log(tr("%1 reports its displays: %2").arg(name, LayoutModel::displaysToText(displays)));
     }
 }

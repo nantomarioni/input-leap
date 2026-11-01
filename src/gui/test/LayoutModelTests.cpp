@@ -404,6 +404,48 @@ TEST(LayoutModel, readsAConfigurationFileOfTheCoresFormat)
     EXPECT_TRUE(conf.contains(QStringLiteral("\t\tup = DeepPurple(10,60)\n"))) << conf.toStdString();
 }
 
+// The file has no sizes: the reports fill them in, before the file is read
+// (kept for every reload) and after it (applied live).
+TEST(LayoutModel, aFileLayoutTakesTheDisplaysTheComputersReport)
+{
+    const QString text = QStringLiteral(
+        "section: screens\n"
+        "\tDeepPurple:\n"
+        "\tMacBookPro-R:\n"
+        "\tMacBookPro-P:\n"
+        "end\n"
+        "section: links\n"
+        "\tDeepPurple:\n"
+        "\t\tright = MacBookPro-R\n"
+        "\t\tdown = MacBookPro-P\n"
+        "\tMacBookPro-R:\n"
+        "\t\tleft = DeepPurple\n"
+        "\tMacBookPro-P:\n"
+        "\t\tup = DeepPurple\n"
+        "end\n");
+    LayoutModel layout(nullptr);
+    const DisplayConfig monitor{0, 0, 2560, 1440, 597, 336};
+    EXPECT_FALSE(layout.reportDisplays(QStringLiteral("DeepPurple"), {monitor, DisplayConfig{2560, 0, 2560, 1440, 597, 336}}));
+    EXPECT_FALSE(layout.reportDisplays(QStringLiteral("MacBooKPro-R"), {DisplayConfig{0, 0, 1512, 982}}));   // any case
+    layout.loadConfigText(text, QStringLiteral("DeepPurple"));
+
+    const int server = layout.indexOf(QStringLiteral("DeepPurple"));
+    ASSERT_GE(server, 0);
+    EXPECT_EQ(layout.screens()[server].displays.size(), 2);
+    EXPECT_EQ(layout.screens()[server].nativeSize(), QSize(5120, 1440));
+    EXPECT_EQ(layout.screens()[layout.indexOf(QStringLiteral("MacBookPro-R"))].nativeSize(), QSize(1512, 982));
+    const QRect desk = desktopOf(layout, QStringLiteral("DeepPurple"));
+    EXPECT_EQ(desktopOf(layout, QStringLiteral("MacBookPro-R")).x(), desk.x() + desk.width());
+    EXPECT_EQ(desktopOf(layout, QStringLiteral("MacBookPro-P")).y(), desk.y() + desk.height());
+
+    EXPECT_TRUE(layout.reportDisplays(QStringLiteral("MacBookPro-P"), {DisplayConfig{0, 0, 1512, 982}}));
+    EXPECT_EQ(layout.screens()[layout.indexOf(QStringLiteral("MacBookPro-P"))].nativeSize(), QSize(1512, 982));
+    EXPECT_EQ(desktopOf(layout, QStringLiteral("MacBookPro-P")).y(), desk.y() + desk.height());
+
+    layout.loadConfigText(text, QStringLiteral("DeepPurple"));   // the file saved again
+    EXPECT_EQ(layout.screens()[layout.indexOf(QStringLiteral("MacBookPro-P"))].nativeSize(), QSize(1512, 982));
+}
+
 TEST(LayoutModel, renamesAndRemoves)
 {
     Store store;

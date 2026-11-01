@@ -325,6 +325,18 @@ bool LayoutModel::overlapsAnother(int index, const QRect& rect) const
     return false;
 }
 
+// What a computer reported, matched without regard to case like the core
+// does (a Mac may report "MacBooKPro-P" for the file's "MacBookPro-P").
+QVector<DisplayConfig> LayoutModel::reportedFor(const QString& name) const
+{
+    for (auto it = m_reported.cbegin(); it != m_reported.cend(); ++it) {
+        if (it.key().compare(name, Qt::CaseInsensitive) == 0) {
+            return it.value();
+        }
+    }
+    return {};
+}
+
 // A computer about to be added: with the displays it reported, if any.
 ScreenConfig LayoutModel::newScreen(const QString& name) const
 {
@@ -1701,8 +1713,21 @@ void LayoutModel::loadConfigText(const QString& text, const QString& serverName)
         }
     }
 
+    // the file has no sizes: a computer that reported its displays this
+    // session is drawn with them, like in a generated layout
+    for (ScreenConfig& s : screens) {
+        const QVector<DisplayConfig> reported = reportedFor(s.name);
+        if (reported.isEmpty()) continue;
+        s.displays = reported;
+        s.normaliseDisplays();
+        const int measured = measuredScale(s.displays);
+        if (measured > 0) s.scale = measured;
+        s.displaysReported = true;
+    }
+
     // Desktops from the links: start at the server, walk outwards; a link's
-    // ranges size the neighbour along the shared edge.
+    // ranges size the neighbour along the shared edge, unless it reported
+    // its own displays.
     QVector<bool> placed(screens.size(), false);
     int start = indexNamed(serverName);
     if (start < 0 && !screens.isEmpty()) start = 0;
@@ -1718,7 +1743,9 @@ void LayoutModel::loadConfigText(const QString& text, const QString& serverName)
             const int edgeB = qMax(100, int(qint64(edgeA) * spanA / spanB));
             if (horizontal) d.height = edgeB; else d.width = edgeB;
         }
-        B.displays = {d};
+        if (!B.displaysReported) {
+            B.displays = {d};
+        }
         const QRect rb = B.desktop();
         if (horizontal) {
             B.x = side == Right ? rightOf(ra) : ra.x() - rb.width();

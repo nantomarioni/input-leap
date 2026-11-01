@@ -1,0 +1,1 @@
+Layout: a server that runs a configuration file now draws each computer at the size of the displays it reports, instead of one default-sized screen each.
