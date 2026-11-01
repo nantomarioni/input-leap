@@ -182,18 +182,13 @@ ColumnLayout {
                 }
             }
         }
-        RowLayout {
+        Button { text: qsTr("Add display"); flat: true; onClicked: App.layout.addDisplay(panel.screenIndex) }
+        Label {
             Layout.fillWidth: true
-            spacing: 8
-            Button { text: qsTr("Add display"); flat: true; onClicked: App.layout.addDisplay(panel.screenIndex) }
-            Label {
-                Layout.fillWidth: true
-                Layout.preferredWidth: 1
-                text: qsTr("Pixels as that computer's core sees them; offsets place a display beside the first. Typing here stops the reports from replacing them.")
-                color: Theme.muted
-                font.pixelSize: Theme.smallFontSize
-                wrapMode: Text.WordWrap
-            }
+            text: qsTr("Pixels as that computer's core sees them; offsets place a display beside the first. Typing here stops the reports from replacing them.")
+            color: Theme.muted
+            font.pixelSize: Theme.smallFontSize
+            wrapMode: Text.WordWrap
         }
     }
 
