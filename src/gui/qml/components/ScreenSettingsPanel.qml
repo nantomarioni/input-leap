@@ -15,6 +15,8 @@ ColumnLayout {
     property int revision: 0
     readonly property var s: (revision, App.layout.screenSettings(screenIndex))
     readonly property bool valid: screenIndex >= 0 && s.name !== undefined && s.name.length > 0
+    // the computer said what its monitors are: shown, not typed
+    readonly property bool reported: valid && s.displaysReported && !s.displaysTyped
 
     Connections {
         target: App.layout
@@ -105,6 +107,21 @@ ColumnLayout {
                 required property var modelData
                 spacing: 2
                 RowLayout {
+                    visible: panel.reported
+                    spacing: 6
+                    Label { text: displayRow.index + 1; color: Theme.text; font.weight: Font.DemiBold; Layout.preferredWidth: 14 }
+                    Label {
+                        Layout.fillWidth: true
+                        text: qsTr("%1 × %2 at %3, %4").arg(displayRow.modelData.width).arg(displayRow.modelData.height)
+                                                     .arg(displayRow.modelData.x).arg(displayRow.modelData.y)
+                              + (displayRow.modelData.mmWidth > 0 ? "  ·  " + qsTr("%1 × %2 mm").arg(displayRow.modelData.mmWidth).arg(displayRow.modelData.mmHeight) : "")
+                        font.family: App.monoFontFamily
+                        color: Theme.text
+                        elide: Text.ElideRight
+                    }
+                }
+                RowLayout {
+                    visible: !panel.reported
                     spacing: 6
                     Label { text: displayRow.index + 1; color: Theme.text; font.weight: Font.DemiBold; Layout.preferredWidth: 14 }
                     TextField {
@@ -152,6 +169,7 @@ ColumnLayout {
                     }
                 }
                 RowLayout {
+                    visible: !panel.reported
                     spacing: 6
                     Label { text: qsTr("at"); color: Theme.muted; Layout.leftMargin: 20 }
                     TextField {
@@ -188,10 +206,11 @@ ColumnLayout {
                 }
             }
         }
-        Button { text: qsTr("Add display"); flat: true; onClicked: App.layout.addDisplay(panel.screenIndex) }
+        Button { visible: !panel.reported; text: qsTr("Add display"); flat: true; onClicked: App.layout.addDisplay(panel.screenIndex) }
         Label {
             Layout.fillWidth: true
-            text: qsTr("Pixels as that computer's core sees them; offsets place a display beside the first. Typing here stops the reports from replacing them.")
+            visible: !panel.reported
+            text: qsTr("%1 has not reported its monitors yet: type them as its core sees them; offsets place a display beside the first. Once it reports its own, this panel offers to use them.").arg(panel.valid ? panel.s.name : "")
             color: Theme.muted
             font.pixelSize: Theme.smallFontSize
             wrapMode: Text.WordWrap

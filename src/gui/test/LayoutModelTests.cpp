@@ -551,6 +551,30 @@ TEST(LayoutModel, linksAcrossAGap)
     EXPECT_TRUE(reloaded.gapLinksOf(reloaded.indexOf(QStringLiteral("mac1"))).isEmpty());
 }
 
+// A laptop under an external monitor: each drawn at its own real size, the
+// laptop still meeting the monitor, and a link through the laptop counted in
+// the computer's own pixels, so the cursor lands where the drawing says.
+TEST(LayoutModel, drawsEachDisplayAtItsOwnSize)
+{
+    LayoutModel layout(nullptr);
+    const DisplayConfig external{0, 0, 2560, 1440, 602, 339}, laptop{220, 1440, 1512, 982, 301, 196};
+    layout.reportDisplays(QStringLiteral("mac"), {external, laptop});
+    ASSERT_TRUE(layout.addScreen(QStringLiteral("mac"), 0, 0));
+    const ScreenConfig& mac = layout.screens()[layout.indexOf(QStringLiteral("mac"))];
+    EXPECT_EQ(mac.scale, 889);                 // the biggest display speaks for the computer
+    EXPECT_EQ(mac.displayScale(1), 753);       // the laptop panel for itself
+    const QRect top = mac.displayRect(0), bottom = mac.displayRect(1);
+    EXPECT_EQ(top.width(), 2276);
+    EXPECT_EQ(bottom.width(), 1139);
+    EXPECT_EQ(bottom.y(), top.y() + top.height());   // still under the monitor
+    EXPECT_EQ(bottom.x(), top.x() + 196);           // 220 of the monitor's pixels in
+
+    ASSERT_TRUE(layout.addScreen(QStringLiteral("pc"), bottom.x(), bottom.y() + bottom.height()));
+    const QString conf = layout.configText();
+    // the laptop spans 220..1732 of the Mac's 2560; it covers 1139 of the PC's 1920
+    EXPECT_TRUE(conf.contains(QStringLiteral("\t\tdown(8.59,67.66) = pc(0,59.32)\n"))) << conf.toStdString();
+}
+
 TEST(LayoutModel, renamesAndRemoves)
 {
     Store store;

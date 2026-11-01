@@ -86,16 +86,20 @@ Item {
             readonly property bool current: canvas.selectedIndex === index
             readonly property bool isSelf: slot.name.toLowerCase() === App.screenName.toLowerCase()
             readonly property bool online: slot.isServer || slot.isSelf || slot.state === "connected"
+            // an arrow moves it a little, to line it up with where it really
+            // sits; with Shift a quarter of its width, snapping to what is near
+            readonly property int fine: Math.max(1, Math.round(desktopWidth / 50))
             readonly property int nudge: Math.max(1, Math.round(desktopWidth / 4))
 
             function focusTile() { tile.forceActiveFocus(Qt.TabFocusReason) }
 
-            function moveBy(dx, dy) {
-                // one step, snapping to whatever edge is within reach
-                canvas.dropAt(index, desktopX + dx, desktopY + dy, Math.round(Math.max(desktopWidth, desktopHeight) * 0.3))
+            function moveBy(dx, dy, coarse) {
+                const snap = coarse ? Math.round(Math.max(desktopWidth, desktopHeight) * 0.3) : Math.max(1, Math.round(slot.fine / 2))
+                canvas.dropAt(index, desktopX + dx, desktopY + dy, snap)
                 canvas.selected(index)
                 Qt.callLater(function() { canvas.focusTile(index) })
             }
+            function step(event) { return (event.modifiers & Qt.ShiftModifier) ? slot.nudge : slot.fine }
 
             // the display the name goes on: the biggest
             readonly property int mainDisplay: {
@@ -125,10 +129,10 @@ Item {
                 Accessible.name: slot.isServer ? qsTr("%1, this computer").arg(slot.name) : slot.name + ", " + slot.position
                 Accessible.focusable: canvas.interactive
                 onActiveFocusChanged: if (activeFocus) canvas.selected(slot.index)
-                Keys.onLeftPressed: slot.moveBy(-slot.nudge, 0)
-                Keys.onRightPressed: slot.moveBy(slot.nudge, 0)
-                Keys.onUpPressed: slot.moveBy(0, -slot.nudge)
-                Keys.onDownPressed: slot.moveBy(0, slot.nudge)
+                Keys.onLeftPressed: (event) => slot.moveBy(-slot.step(event), 0, event.modifiers & Qt.ShiftModifier)
+                Keys.onRightPressed: (event) => slot.moveBy(slot.step(event), 0, event.modifiers & Qt.ShiftModifier)
+                Keys.onUpPressed: (event) => slot.moveBy(0, -slot.step(event), event.modifiers & Qt.ShiftModifier)
+                Keys.onDownPressed: (event) => slot.moveBy(0, slot.step(event), event.modifiers & Qt.ShiftModifier)
                 Keys.onPressed: (event) => {
                     if ((event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace) && canvas.interactive && !slot.isServer) {
                         canvas.model.removeScreen(slot.index)

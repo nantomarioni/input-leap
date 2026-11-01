@@ -92,6 +92,13 @@ struct ScreenConfig
     // One display in the shared space; edges shared inside the desktop stay
     // shared once scaled.
     QRect displayRect(int index) const;
+    // Every display in the shared space, each as big as it really is (its
+    // own scale), placed against the biggest one as they meet in the
+    // computer's own pixels; together they start at (x, y).
+    QVector<QRect> displayRects() const;
+    // A display's scale: from its own real size unless the computer's scale
+    // was typed or the display does not say; else the computer's.
+    int displayScale(int index) const;
     // The desktop in its own pixels, from (0, 0).
     QSize nativeSize() const;
     int toShared(int pixels) const;

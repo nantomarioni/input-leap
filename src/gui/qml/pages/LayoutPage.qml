@@ -141,7 +141,7 @@ Item {
                     anchors.bottom: parent.bottom
                     anchors.margins: 10
                     visible: App.layout.screenCount > 0
-                    text: qsTr("1 px here = %1 px on the desks · Tab reaches a computer, arrows nudge it, Delete removes it").arg(Math.round(1 / canvas.pxScale))
+                    text: qsTr("1 px here = %1 px on the desks · Tab reaches a computer, arrows nudge it (Shift: bigger steps), Delete removes it").arg(Math.round(1 / canvas.pxScale))
                     font.pixelSize: 11
                     color: Theme.muted
                     elide: Text.ElideRight

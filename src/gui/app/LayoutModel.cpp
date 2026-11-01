@@ -63,7 +63,7 @@ void writeArray(QSettings& s, const QString& name, const QVector<T>& values)
 }
 
 // A share of an edge in percent, to the hundredth the core reads.
-double percent(int value, int whole)
+double percent(double value, int whole)
 {
     return whole <= 0 ? 0 : qBound(0.0, std::round(10000.0 * value / whole) / 100.0, 100.0);
 }
@@ -115,30 +115,82 @@ int opposite(int side)
 // order, in the shared space. Elsewhere that side is a wall: the core only
 // notices the cursor at the desktop's own edges, and a cursor brought in
 // where no display is would jump to the nearest one.
+// Displays of different scales stay apart: a link maps its two ranges
+// linearly, which is only true within one scale.
 QVector<QPair<int, int>> edgeSpans(const ScreenConfig& screen, int side)
 {
-    const QRect box = screen.desktop();
-    QVector<QPair<int, int>> spans;
-    for (int i = 0; i < screen.displays.size(); ++i) {
-        const QRect d = screen.displayRect(i);
+    const QVector<QRect> rects = screen.displayRects();
+    QRect box;
+    for (const QRect& r : rects) box = box.isNull() ? r : box.united(r);
+    struct Span { int from; int to; int scale; };
+    QVector<Span> spans;
+    for (int i = 0; i < rects.size(); ++i) {
+        const QRect& d = rects[i];
+        const int scale = screen.displayScale(i);
         switch (side) {
-        case LayoutModel::Left: if (d.x() == box.x()) spans << qMakePair(d.y(), bottomOf(d)); break;
-        case LayoutModel::Right: if (rightOf(d) == rightOf(box)) spans << qMakePair(d.y(), bottomOf(d)); break;
-        case LayoutModel::Up: if (d.y() == box.y()) spans << qMakePair(d.x(), rightOf(d)); break;
-        case LayoutModel::Down: if (bottomOf(d) == bottomOf(box)) spans << qMakePair(d.x(), rightOf(d)); break;
+        case LayoutModel::Left: if (d.x() == box.x()) spans << Span{d.y(), bottomOf(d), scale}; break;
+        case LayoutModel::Right: if (rightOf(d) == rightOf(box)) spans << Span{d.y(), bottomOf(d), scale}; break;
+        case LayoutModel::Up: if (d.y() == box.y()) spans << Span{d.x(), rightOf(d), scale}; break;
+        case LayoutModel::Down: if (bottomOf(d) == bottomOf(box)) spans << Span{d.x(), rightOf(d), scale}; break;
         default: break;
         }
     }
-    std::sort(spans.begin(), spans.end());
+    std::sort(spans.begin(), spans.end(), [](const Span& a, const Span& b) { return a.from < b.from; });
     QVector<QPair<int, int>> merged;
-    for (const auto& span : spans) {
-        if (!merged.isEmpty() && span.first <= merged.last().second) {
-            merged.last().second = qMax(merged.last().second, span.second);
+    int lastScale = 0;
+    for (const Span& span : std::as_const(spans)) {
+        if (!merged.isEmpty() && span.from <= merged.last().second && span.scale == lastScale) {
+            merged.last().second = qMax(merged.last().second, span.to);
         } else {
-            merged << span;
+            merged << qMakePair(span.from, span.to);
+            lastScale = span.scale;
         }
     }
     return merged;
+}
+
+// Where a stretch of one side, in the shared space, lies on that side in the
+// computer's own pixels (what the core's ranges count, over its whole
+// desktop), in percent: each end through the display that reaches the side
+// there, at that display's scale.
+QPair<double, double> ownRange(const ScreenConfig& screen, int side, int from, int to)
+{
+    const QVector<QRect> rects = screen.displayRects();
+    QRect box;
+    for (const QRect& r : rects) box = box.isNull() ? r : box.united(r);
+    const QSize native = screen.nativeSize();
+    const bool upright = side == LayoutModel::Left || side == LayoutModel::Right;
+    const int whole = upright ? native.height() : native.width();
+    auto reaches = [&](const QRect& r) {
+        switch (side) {
+        case LayoutModel::Left: return r.x() == box.x();
+        case LayoutModel::Right: return rightOf(r) == rightOf(box);
+        case LayoutModel::Up: return r.y() == box.y();
+        default: return bottomOf(r) == bottomOf(box);
+        }
+    };
+    auto own = [&](int at, bool end) {
+        // the display holding this end: an end is exclusive, a start inclusive
+        int pick = -1;
+        for (int i = 0; i < rects.size(); ++i) {
+            const QRect& r = rects[i];
+            const int lo = upright ? r.y() : r.x(), hi = upright ? bottomOf(r) : rightOf(r);
+            if (reaches(r) && (end ? (at > lo && at <= hi) : (at >= lo && at < hi))) {
+                pick = i;
+                break;
+            }
+        }
+        if (pick < 0) {
+            // not on a display (the uniform reading of the desktop box)
+            const int lo = upright ? box.y() : box.x(), length = upright ? box.height() : box.width();
+            return length <= 0 ? 0.0 : double(at - lo) * whole / length;
+        }
+        const DisplayConfig& d = screen.displays[pick];
+        const QRect& r = rects[pick];
+        return upright ? d.y + double(at - r.y()) * d.height / r.height()
+                       : d.x + double(at - r.x()) * d.width / r.width();
+    };
+    return qMakePair(percent(own(from, false), whole), percent(own(to, true), whole));
 }
 
 } // namespace
@@ -165,16 +217,60 @@ QSize ScreenConfig::nativeSize() const
 
 QRect ScreenConfig::desktop() const
 {
-    // the displays start at (0, 0) once normalised
-    const QSize size = nativeSize();
-    return QRect(x, y, qMax(1, toShared(size.width())), qMax(1, toShared(size.height())));
+    QRect box;
+    const QVector<QRect> rects = displayRects();
+    for (const QRect& r : rects) box = box.isNull() ? r : box.united(r);
+    return box.isNull() ? QRect(x, y, 1, 1) : box;
 }
 
 QRect ScreenConfig::displayRect(int index) const
 {
-    const DisplayConfig& d = displays[index];
-    const int left = toShared(d.x), top = toShared(d.y);
-    return QRect(x + left, y + top, qMax(1, toShared(d.x + d.width) - left), qMax(1, toShared(d.y + d.height) - top));
+    return displayRects().value(index);
+}
+
+int ScreenConfig::displayScale(int index) const
+{
+    if (scaleTyped || index < 0 || index >= displays.size()) {
+        return scale;
+    }
+    const int own = LayoutModel::measuredScale({displays[index]});
+    return own > 0 ? own : scale;
+}
+
+QVector<QRect> ScreenConfig::displayRects() const
+{
+    QVector<QRect> rects(displays.size());
+    if (displays.isEmpty()) {
+        return rects;
+    }
+    int main = 0;
+    for (int i = 1; i < displays.size(); ++i) {
+        if (qint64(displays[i].width) * displays[i].height > qint64(displays[main].width) * displays[main].height) main = i;
+    }
+    auto shared = [](int pixels, int scale) { return int(std::lround(double(pixels) * scale / 1000.0)); };
+    const DisplayConfig& m = displays[main];
+    const int sm = displayScale(main);
+    const QRect M(shared(m.x, sm), shared(m.y, sm), qMax(1, shared(m.width, sm)), qMax(1, shared(m.height, sm)));
+    rects[main] = M;
+    for (int i = 0; i < displays.size(); ++i) {
+        if (i == main) continue;
+        const DisplayConfig& d = displays[i];
+        const int si = displayScale(i);
+        const QSize size(qMax(1, shared(d.width, si)), qMax(1, shared(d.height, si)));
+        // along the biggest one, offsets at its scale; a display meeting it
+        // keeps meeting it, whatever its own size
+        int left = M.x() + shared(d.x - m.x, sm), top = M.y() + shared(d.y - m.y, sm);
+        if (d.x == m.x + m.width) left = rightOf(M);
+        else if (d.x + d.width == m.x) left = M.x() - size.width();
+        if (d.y == m.y + m.height) top = bottomOf(M);
+        else if (d.y + d.height == m.y) top = M.y() - size.height();
+        rects[i] = QRect(QPoint(left, top), size);
+    }
+    QRect box;
+    for (const QRect& r : std::as_const(rects)) box = box.isNull() ? r : box.united(r);
+    const QPoint shift = QPoint(x, y) - box.topLeft();
+    for (QRect& r : rects) r.translate(shift);
+    return rects;
 }
 
 void ScreenConfig::normaliseDisplays()
@@ -1002,21 +1098,17 @@ QVector<ScreenLink> LayoutModel::links() const
         const QVector<QPair<int, int>> mine = freeSpans(a, g.side, touching);
         const QVector<QPair<int, int>> theirs = freeSpans(b, back, touching);
         if (mine.isEmpty() || theirs.isEmpty()) continue;
-        const bool upright = g.side == Left || g.side == Right;
-        const QRect ra = m_screens[a].desktop(), rb = m_screens[b].desktop();
-        const int aStart = upright ? ra.y() : ra.x(), aLength = upright ? ra.height() : ra.width();
-        const int bStart = upright ? rb.y() : rb.x(), bLength = upright ? rb.height() : rb.width();
         // the free stretch of each edge, end to end
-        const int af = mine.first().first, at = mine.last().second;
-        const int bf = theirs.first().first, bt = theirs.last().second;
+        const QPair<double, double> ra = ownRange(m_screens[a], g.side, mine.first().first, mine.last().second);
+        const QPair<double, double> rb = ownRange(m_screens[b], back, theirs.first().first, theirs.last().second);
         ScreenLink there;
         there.from = a;
         there.to = b;
         there.side = g.side;
-        there.fromStart = percent(af - aStart, aLength);
-        there.fromEnd = percent(at - aStart, aLength);
-        there.toStart = percent(bf - bStart, bLength);
-        there.toEnd = percent(bt - bStart, bLength);
+        there.fromStart = ra.first;
+        there.fromEnd = ra.second;
+        there.toStart = rb.first;
+        there.toEnd = rb.second;
         there.gap = true;
         if (there.fromStart >= there.fromEnd || there.toStart >= there.toEnd) continue;
         ScreenLink returning = there;
@@ -1173,8 +1265,6 @@ QVector<ScreenLink> LayoutModel::touchingLinks() const
             else if (a.y() == bottomOf(b)) { side = Up; edge = a.y(); }
             else continue;
             const bool upright = side == Left || side == Right;   // the edge runs top to bottom
-            const int aStart = upright ? a.y() : a.x(), aLength = upright ? a.height() : a.width();
-            const int bStart = upright ? b.y() : b.x(), bLength = upright ? b.height() : b.width();
             const QVector<QPair<int, int>> mine = edgeSpans(m_screens[i], side);
             const QVector<QPair<int, int>> theirs = edgeSpans(m_screens[j], opposite(side));
             for (const auto& m : mine) {
@@ -1185,10 +1275,12 @@ QVector<ScreenLink> LayoutModel::touchingLinks() const
                     link.from = i;
                     link.to = j;
                     link.side = side;
-                    link.fromStart = percent(from - aStart, aLength);
-                    link.fromEnd = percent(to - aStart, aLength);
-                    link.toStart = percent(from - bStart, bLength);
-                    link.toEnd = percent(to - bStart, bLength);
+                    const QPair<double, double> ra = ownRange(m_screens[i], side, from, to);
+                    const QPair<double, double> rb = ownRange(m_screens[j], opposite(side), from, to);
+                    link.fromStart = ra.first;
+                    link.fromEnd = ra.second;
+                    link.toStart = rb.first;
+                    link.toEnd = rb.second;
                     if (link.fromStart >= link.fromEnd || link.toStart >= link.toEnd) {
                         continue;   // too thin to mean anything once rounded
                     }

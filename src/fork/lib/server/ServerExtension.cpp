@@ -17,6 +17,8 @@
 #include "ServerExtension.h"
 #include "server/Server.h"
 #include "server/BaseClientProxy.h"
+#include "server/Config.h"
+#include "inputleap/option_types.h"
 #include "base/Log.h"
 #include "base/Event.h"
 #include "base/IEventQueue.h"
@@ -32,14 +34,17 @@ Server* ServerExtension::host() const {
 
 void ServerExtension::fork_dimScreenAll() {
     Server* srv = host();
+    // dimming turned off in the configuration: nothing is dimmed (a client
+    // told to dim would skip it but still say it dimmed)
+    bool enabled = true;
+    if (const Config::ScreenOptions* options = srv->m_config->getOptions("")) {
+        const auto option = options->find(kOptionScreenDimmingEnabled);
+        enabled = option == options->end() || option->second != 0;
+    }
     for (const auto& clientPair : srv->m_clients) {
         BaseClientProxy* clientProxy = clientPair.second;
         if (clientProxy == nullptr) continue;
-        if (clientProxy == srv->m_active) {
-            clientProxy->fork_dimScreen(false);
-        } else {
-            clientProxy->fork_dimScreen(true);
-        }
+        clientProxy->fork_dimScreen(enabled && clientProxy != srv->m_active);
     }
 
     // The active screen may change while the cursor is locked (undim-on-
