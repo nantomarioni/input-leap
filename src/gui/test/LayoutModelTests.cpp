@@ -115,8 +115,11 @@ TEST(LayoutModel, linksCarryRangesWhenEdgesTouchPartly)
     EXPECT_TRUE(conf.contains(QStringLiteral("\ttablet:\n\t\tleft(0,82.86) = desk-win(46.3,100)\n"))) << conf.toStdString();
     EXPECT_EQ(layout.positionText(layout.indexOf(QStringLiteral("tablet"))), QStringLiteral("right of desk-win"));
 
-    // moved away from the edge: no link, and the page can say so
+    // a little away from the edge: still straight ahead, so still linked
     EXPECT_TRUE(layout.moveTo(layout.indexOf(QStringLiteral("tablet")), W + 10, 500));
+    EXPECT_TRUE(layout.configText().contains(QStringLiteral("\tdesk-win:\n\t\tright(46.3,100) = tablet(0,82.86)\n")));
+    // only diagonally across: no link, and the page can say so
+    EXPECT_TRUE(layout.moveTo(layout.indexOf(QStringLiteral("tablet")), W + 10, H + 10));
     EXPECT_EQ(layout.positionText(layout.indexOf(QStringLiteral("tablet"))), QStringLiteral("not linked"));
     EXPECT_FALSE(layout.data(layout.index(1), LayoutModel::LinkedRole).toBool());
     EXPECT_TRUE(layout.data(layout.index(0), LayoutModel::LinkedRole).toBool());
@@ -516,39 +519,47 @@ TEST(LayoutModel, keepsOneArrangementPerSetupOfMonitors)
 
 // Two laptops each centred under one monitor of the PC: a gap between them,
 // bridged by hand, both ways; only the free part of an edge is used.
-TEST(LayoutModel, linksAcrossAGap)
+// Four screens in a square, the two laptops under the PC's monitors too small
+// to touch: each edge still leads straight on to the next computer, and the
+// cursor keeps its place along it. Nothing ahead, or only diagonally: a wall.
+TEST(LayoutModel, crossesAGapToTheNextComputerAhead)
 {
-    Store store;
-    {
-        LayoutModel layout(&store.settings);
-        layout.setServerName(QStringLiteral("pc"));
-        layout.reportDisplays(QStringLiteral("pc"), {DisplayConfig{0, 0, 1920, 1080}, DisplayConfig{1920, 0, 1920, 1080}});
-        layout.reportDisplays(QStringLiteral("mac1"), {DisplayConfig{0, 0, 1512, 982}});
-        layout.reportDisplays(QStringLiteral("mac2"), {DisplayConfig{0, 0, 1512, 982}});
-        ASSERT_TRUE(layout.addScreen(QStringLiteral("pc"), 0, 0));
-        ASSERT_TRUE(layout.addScreen(QStringLiteral("mac1"), 204, 1080));
-        ASSERT_TRUE(layout.addScreen(QStringLiteral("mac2"), 1920 + 204, 1080));
-        const int mac1 = layout.indexOf(QStringLiteral("mac1")), mac2 = layout.indexOf(QStringLiteral("mac2"));
+    LayoutModel layout(nullptr);
+    layout.setServerName(QStringLiteral("pc"));
+    layout.reportDisplays(QStringLiteral("pc"), {DisplayConfig{0, 0, 1920, 1080}});
+    layout.reportDisplays(QStringLiteral("pc2"), {DisplayConfig{0, 0, 1920, 1080}});
+    layout.reportDisplays(QStringLiteral("mac1"), {DisplayConfig{0, 0, 1512, 982}});
+    layout.reportDisplays(QStringLiteral("mac2"), {DisplayConfig{0, 0, 1512, 982}});
+    ASSERT_TRUE(layout.addScreen(QStringLiteral("pc"), 0, 0));
+    ASSERT_TRUE(layout.addScreen(QStringLiteral("pc2"), 1920, 0));
+    ASSERT_TRUE(layout.addScreen(QStringLiteral("mac1"), 204, 1080));
+    ASSERT_TRUE(layout.addScreen(QStringLiteral("mac2"), 1920 + 204, 1080));
 
-        EXPECT_FALSE(layout.configText().contains(QStringLiteral("= mac2\n"))
-                     && layout.configText().contains(QStringLiteral("right = mac2")));
-        EXPECT_TRUE(layout.addGapLink(mac1, LayoutModel::Right, mac2));
-        EXPECT_FALSE(layout.addGapLink(mac2, LayoutModel::Left, mac1));   // the same link, seen from the other side
-        const QString conf = layout.configText();
-        EXPECT_TRUE(conf.contains(QStringLiteral("\t\tright = mac2\n"))) << conf.toStdString();
-        EXPECT_TRUE(conf.contains(QStringLiteral("\t\tleft = mac1\n"))) << conf.toStdString();
-        EXPECT_EQ(layout.gapLinksOf(mac2).size(), 1);
-        EXPECT_EQ(layout.gapLinksOf(mac2).first().toMap().value(QStringLiteral("side")).toInt(), int(LayoutModel::Left));
-        EXPECT_EQ(layout.gapCrossings().size(), 1);
-        EXPECT_EQ(layout.crossings().size(), 2);   // the touching ones only: each laptop under the PC
+    const QString conf = layout.configText();
+    EXPECT_TRUE(conf.contains(QStringLiteral("\tmac1:\n\t\tright = mac2\n"))) << conf.toStdString();
+    EXPECT_TRUE(conf.contains(QStringLiteral("\tmac2:\n\t\tleft = mac1\n"))) << conf.toStdString();
+    EXPECT_FALSE(conf.contains(QStringLiteral("left = mac2"))) << conf.toStdString();   // nothing left of mac1
+    EXPECT_FALSE(conf.contains(QStringLiteral("right = mac1"))) << conf.toStdString();  // nor right of mac2
+
+    int gaps = 0;
+    const QVariantList crossings = layout.crossings();
+    for (const QVariant& crossing : crossings) {
+        if (crossing.toMap().value(QStringLiteral("gap")).toBool()) ++gaps;
     }
-    LayoutModel reloaded(&store.settings);
-    reloaded.load();
-    EXPECT_TRUE(reloaded.configText().contains(QStringLiteral("\t\tright = mac2\n")));
-    EXPECT_TRUE(reloaded.renameScreen(reloaded.indexOf(QStringLiteral("mac2")), QStringLiteral("studio")));
-    EXPECT_TRUE(reloaded.configText().contains(QStringLiteral("\t\tright = studio\n")));
-    reloaded.removeScreen(reloaded.indexOf(QStringLiteral("studio")));
-    EXPECT_TRUE(reloaded.gapLinksOf(reloaded.indexOf(QStringLiteral("mac1"))).isEmpty());
+    EXPECT_EQ(crossings.size(), 4);   // the two monitors, each laptop under one, and the gap
+    EXPECT_EQ(gaps, 1);
+
+    // half a laptop lower: only the half facing the other one leads there
+    ASSERT_TRUE(layout.moveTo(layout.indexOf(QStringLiteral("mac2")), 1920 + 204, 1080 + 491));
+    const QString lower = layout.configText();
+    EXPECT_TRUE(lower.contains(QStringLiteral("\t\tright(50,100) = mac2(0,50)\n"))) << lower.toStdString();
+
+    // a computer in between is the one the cursor reaches
+    layout.reportDisplays(QStringLiteral("mini"), {DisplayConfig{0, 0, 200, 982}});
+    ASSERT_TRUE(layout.addScreen(QStringLiteral("mini"), 1920, 1080 + 491));
+    const QString between = layout.configText();
+    EXPECT_FALSE(between.contains(QStringLiteral("= mac2(0,50)"))) << between.toStdString();
+    EXPECT_TRUE(between.contains(QStringLiteral("\t\tright(50,100) = mini(0,50)\n"))) << between.toStdString();
 }
 
 // A laptop under an external monitor: each drawn at its own real size, the

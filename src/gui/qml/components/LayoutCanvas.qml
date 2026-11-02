@@ -23,7 +23,6 @@ Item {
     readonly property rect bounds: model.bounds
     property int revision: 0
     readonly property var crossings: (revision, model.crossings())
-    readonly property var gapCrossings: (revision, model.gapCrossings())
 
     Connections {
         target: canvas.model
@@ -223,35 +222,19 @@ Item {
     // where the cursor crosses from one computer to the next
     Repeater {
         model: canvas.crossings
+        // touching: a line on the shared edge; across a gap: the stretch
+        // the cursor leaps, edge to edge
         delegate: Rectangle {
             required property var modelData
             readonly property bool upright: modelData.x1 === modelData.x2
+            readonly property bool flat: modelData.y1 === modelData.y2
             x: canvas.originX + modelData.x1 * canvas.pxScale - (upright ? 2 : 0)
-            y: canvas.originY + modelData.y1 * canvas.pxScale - (upright ? 0 : 2)
+            y: canvas.originY + modelData.y1 * canvas.pxScale - (flat ? 2 : 0)
             width: upright ? 4 : Math.max(2, (modelData.x2 - modelData.x1) * canvas.pxScale)
-            height: upright ? Math.max(2, (modelData.y2 - modelData.y1) * canvas.pxScale) : 4
+            height: flat ? 4 : Math.max(2, (modelData.y2 - modelData.y1) * canvas.pxScale)
             radius: 2
             color: Theme.success
-            z: 20
-        }
-    }
-
-    // links made by hand across a gap: edge to edge
-    Repeater {
-        model: canvas.gapCrossings
-        delegate: Rectangle {
-            required property var modelData
-            readonly property real dx: (modelData.x2 - modelData.x1) * canvas.pxScale
-            readonly property real dy: (modelData.y2 - modelData.y1) * canvas.pxScale
-            x: canvas.originX + modelData.x1 * canvas.pxScale
-            y: canvas.originY + modelData.y1 * canvas.pxScale - height / 2
-            width: Math.max(4, Math.sqrt(dx * dx + dy * dy))
-            height: 3
-            radius: 1.5
-            transformOrigin: Item.Left
-            rotation: Math.atan2(dy, dx) * 180 / Math.PI
-            color: Theme.success
-            opacity: 0.7
+            opacity: modelData.gap ? 0.3 : 1
             z: 20
         }
     }

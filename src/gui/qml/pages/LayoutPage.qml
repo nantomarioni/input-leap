@@ -53,7 +53,7 @@ Item {
                         Layout.fillWidth: true
                         text: page.fromFile
                               ? App.layoutReadOnlyReason
-                              : qsTr("Drag the computers to where they sit on your desk. Each one is drawn as big as its monitors really are, from what it reports itself; the cursor crosses only where two screens meet (the green lines), and every other edge is a wall. Changes are saved and apply right away, on every computer.")
+                              : qsTr("Drag the computers to where they sit on your desk. Each one is drawn as big as its monitors really are, from what it reports itself; from any edge the cursor goes straight on to the next computer in that direction, even across a gap (the green marks); where nothing is ahead, the edge is a wall. Changes are saved and apply right away, on every computer.")
                         color: Theme.muted
                         wrapMode: Text.WordWrap
                     }

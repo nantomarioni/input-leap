@@ -125,14 +125,15 @@ struct ScreenLink
     double fromEnd = 100;
     double toStart = 0;
     double toEnd = 100;
-    QLine line;            // touching: the shared part; across a gap: empty
-    bool gap = false;      // linked by hand across a gap
+    QLine line;            // the stretch of the edge it leaves by, in the shared space
+    int gap = 0;           // how far the other computer is, in the shared space; 0 when they touch
 };
 
 /* The server's layout and options (docs/ui-redesign.md §4.4, phase B): the
  * computers placed freely in a shared pixel space, each one the bounding
- * box of its displays; two desktops whose edges touch are linked, with
- * ranges when the touching part is not the whole edge. Plus the per-screen
+ * box of its displays; an edge leads straight on to the first desktop in
+ * that direction, touching or across a gap, with ranges when only part of
+ * the edge faces it. Plus the per-screen
  * options, the switching/behaviour options and the hotkeys. Writes itself
  * to QSettings (`internalConfig` group) and renders the `.conf` the core
  * reads. A store from the grid era (phase A, the Widgets GUI) migrates on
@@ -244,17 +245,9 @@ public:
     Q_INVOKABLE QString positionText(int index) const;         // "left of desk-win", "centre", "not linked"
     Q_INVOKABLE QVariantList linksOf(int index) const;         // [{name, side, fromStart, fromEnd, toStart, toEnd}]
     QVector<ScreenLink> links() const;
-    // Where the cursor crosses, once per pair: [{x1, y1, x2, y2}] in the shared space.
+    // Where the cursor crosses, once per pair: [{x1, y1, x2, y2, gap}] in the
+    // shared space; across a gap, the stretch it leaps from edge to edge.
     Q_INVOKABLE QVariantList crossings() const;
-
-    // ---- links across a gap -------------------------------------------------
-    // Two desktops that do not touch, linked by hand: `side` of one leads to
-    // the other, entered on the opposite side, and back the same way. Only
-    // the parts of those two edges no touching neighbour uses already.
-    Q_INVOKABLE bool addGapLink(int index, int side, int other);
-    Q_INVOKABLE void removeGapLink(int index, int side, int other);
-    Q_INVOKABLE QVariantList gapLinksOf(int index) const;   // [{side, name, other}] both ways
-    Q_INVOKABLE QVariantList gapCrossings() const;          // [{x1, y1, x2, y2}] edge to edge, once per link
 
     // Live state shown on the tiles, set by the controller (never persisted).
     Q_INVOKABLE void setLiveState(const QString& name, const QString& state);
@@ -384,11 +377,6 @@ private:
     ScreenConfig newScreen(const QString& name) const;
     using Setup = QHash<QString, ScreenConfig>;   // lower-case name -> where it sits, with its displays
     bool restoreSetup(int index, const QVector<DisplayConfig>& displays);
-    QVector<ScreenLink> touchingLinks() const;
-    QVector<QPair<int, int>> freeSpans(int index, int side, const QVector<ScreenLink>& touching) const;
-    struct GapLink { QString from; int side = 0; QString to; };
-    QJsonArray gapLinksJson() const;
-    void loadGapLinks(const QJsonArray& json);
     void recordSetup();
     void loadSetups(const QString& json);
     QString setupsJson() const;
@@ -407,7 +395,6 @@ private:
     QHash<QString, QString> m_liveStates;
     QHash<QString, QVector<DisplayConfig>> m_reported;   // never persisted: re-reported every session
     QVector<Setup> m_setups;
-    QVector<GapLink> m_gapLinks;
     int m_activeSetup = -1;                              // -1: the next save starts a setup of its own
 
     bool m_hasHeartbeat = false;
