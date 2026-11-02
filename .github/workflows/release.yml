@@ -22,7 +22,10 @@ env:
 jobs:
   mac-build:
     name: ${{ matrix.name}}
-    runs-on: ${{ matrix.os }}
+    # For now the macOS build runs on the maintainer's own Mac (a self-hosted
+    # runner labelled input-leap-mac): hosted macOS arm64 runners were not
+    # being assigned. Set this back to ${{ matrix.os }} to use GitHub's.
+    runs-on: [self-hosted, macOS, ARM64, input-leap-mac]
     strategy:
       fail-fast: false
       matrix:
@@ -38,10 +41,16 @@ jobs:
     env:
       VERBOSE: 1
       TERM: xterm-256color
-      OpenSSL_Install_Path: "/Users/runner/openssl"
       OpenSSL_Version: 3.2.0
 
     steps:
+      # Paths under the runner's own home, not /Users/runner: a self-hosted
+      # runner runs as its owner, and its home outlives the job.
+      - name: Locate tool paths
+        run: |
+          echo "OpenSSL_Install_Path=$HOME/.cache/input-leap-ci/openssl-${OpenSSL_Version}" >> "$GITHUB_ENV"
+
+
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
@@ -52,7 +61,7 @@ jobs:
 
       - name: Setup the image
         run: |
-          brew install ninja
+          command -v ninja || brew install ninja
 
       - name: Cache OpenSSL
         id: cache-openssl
@@ -65,18 +74,25 @@ jobs:
       - name: Build OpenSSL
         if: ((steps.cache-openssl.outputs.cache-hit != 'true') && (matrix.os == 'macos-15'))
         run: |
+          # a self-hosted runner keeps the previous job's build
+          if [ -f "${{env.OpenSSL_Install_Path}}/lib/libssl.a" ]; then
+            echo "OpenSSL already built at ${{env.OpenSSL_Install_Path}}"
+            exit 0
+          fi
           curl -sSL -o openssl-${{env.OpenSSL_Version}}.tar.gz https://github.com/openssl/openssl/releases/download/openssl-${{env.OpenSSL_Version}}/openssl-${{env.OpenSSL_Version}}.tar.gz
+          rm -rf openssl-${{env.OpenSSL_Version}}
           tar -xf openssl-${{env.OpenSSL_Version}}.tar.gz
+          CC_OVERRIDE="$RUNNER_TEMP/cc_override"
           echo "#!/bin/bash
           if [[ \$* == *-arch\ x86_64* ]] && ! [[ \$* == *-arch\ arm64* ]]; then
             cc -arch arm64 \$@
           else
             cc \$@
-          fi" >> /Users/runner/cc_override
-          chmod a+x /Users/runner/cc_override
-          cat /Users/runner/cc_override
+          fi" > "$CC_OVERRIDE"
+          chmod a+x "$CC_OVERRIDE"
+          cat "$CC_OVERRIDE"
           export MACOSX_DEPLOYMENT_TARGET=${{matrix.min-macOS-version}}
-          export CC=/Users/runner/cc_override
+          export CC="$CC_OVERRIDE"
           cd openssl-${{env.OpenSSL_Version}}
           ./configure no-asm darwin64-x86_64-cc --prefix=${{env.OpenSSL_Install_Path}}
           make
@@ -89,10 +105,11 @@ jobs:
 
       - name: Setup the build
         run: |
+          rm -rf build
           cmake -DCMAKE_BUILD_TYPE="${B_BUILD_TYPE}" -S input-leap -B build -G Ninja \
                 -DCMAKE_UNITY_BUILD=1 \
                 -DOpenSSL_ROOT=${{env.OpenSSL_Install_Path}} \
-                -DCMAKE_OSX_SYSROOT=$(xcode-select --print-path)/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk \
+                -DCMAKE_OSX_SYSROOT="$(xcrun --show-sdk-path)" \
                 -DCMAKE_OSX_DEPLOYMENT_TARGET=${{matrix.min-macOS-version}} -DCMAKE_UNITY_BUILD=1 \
                 -DQT_DEFAULT_MAJOR_VERSION=$(echo ${{matrix.qt-version}} | cut -c -1) \
                 -DINPUTLEAP_VERSION_DESC=git \
@@ -116,17 +133,28 @@ jobs:
             echo "::warning::MACOS_CERT_P12 secret not set; shipping unsigned dmg (TCC permissions will reset on update)"
             exit 0
           fi
-          echo "$MACOS_CERT_P12" | base64 -d > cert.p12
-          security create-keychain -p ci-keychain-pass build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p ci-keychain-pass build.keychain
-          security import cert.p12 -k build.keychain -P "$MACOS_CERT_P12_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple: -s -k ci-keychain-pass build.keychain
-          rm cert.p12
+          # A throwaway keychain, added to the search list only for this step:
+          # on a self-hosted runner the default keychain is the owner's own.
+          KC="$RUNNER_TEMP/build.keychain-db"
+          OLD_KEYCHAINS=$(security list-keychains -d user | tr -d '"')
+          cleanup() {
+            security list-keychains -d user -s $OLD_KEYCHAINS
+            security delete-keychain "$KC" 2>/dev/null || true
+            rm -f "$RUNNER_TEMP/cert.p12"
+          }
+          trap cleanup EXIT
+          echo "$MACOS_CERT_P12" | base64 -d > "$RUNNER_TEMP/cert.p12"
+          rm -f "$KC"
+          security create-keychain -p ci-keychain-pass "$KC"
+          security set-keychain-settings "$KC"
+          security unlock-keychain -p ci-keychain-pass "$KC"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KC" -P "$MACOS_CERT_P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k ci-keychain-pass "$KC"
+          security list-keychains -d user -s "$KC" $OLD_KEYCHAINS
 
           DMG=$(ls build/bundle/*.dmg)
           rm "$DMG"
-          codesign --force --deep --sign "InputLeap Fork" build/bundle/InputLeap.app
+          codesign --force --deep --keychain "$KC" --sign "InputLeap Fork" build/bundle/InputLeap.app
           codesign --verify --deep --verbose=2 build/bundle/InputLeap.app
           hdiutil create -volname InputLeap -srcfolder build/bundle/InputLeap.app -ov -format UDZO "$DMG"
 
