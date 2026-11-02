@@ -814,21 +814,37 @@ TEST(LayoutModel, edgesNoDisplayReachesAreWalls)
     EXPECT_TRUE(conf.contains(QStringLiteral("\t\tdown(11.16,44.91) = macbook\n"))) << conf.toStdString();
     EXPECT_TRUE(conf.contains(QStringLiteral("\t\tup = desk-win(11.16,44.91)\n"))) << conf.toStdString();
 
-    // half under each: only the part under the tall one crosses
+    // the server is told where the displays are, to keep the cursor on them
+    EXPECT_TRUE(conf.contains(QStringLiteral("section: displays\n\tdesk-win = 0,0,2560,1440 2560,0,1920,1080\nend\n")))
+        << conf.toStdString();
+
+    // half under each: under the tall one it touches; the short one's bottom
+    // edge leads on across the gap under it
     EXPECT_TRUE(layout.moveTo(m, 2000, 1440));
     conf = layout.configText();
     EXPECT_TRUE(conf.contains(QStringLiteral("\t\tdown(44.64,57.14) = macbook(0,37.04)\n"))) << conf.toStdString();
     const QVariantList crossings = layout.crossings();
-    ASSERT_EQ(crossings.size(), 1);
+    ASSERT_EQ(crossings.size(), 2);
     const QVariantMap line = crossings[0].toMap();
     EXPECT_EQ(QLine(line.value(QStringLiteral("x1")).toInt(), line.value(QStringLiteral("y1")).toInt(),
                     line.value(QStringLiteral("x2")).toInt(), line.value(QStringLiteral("y2")).toInt()),
               QLine(2000, 1440, 2560, 1440));
+    EXPECT_FALSE(line.value(QStringLiteral("gap")).toBool());
+    const QVariantMap across = crossings[1].toMap();
+    EXPECT_TRUE(across.value(QStringLiteral("gap")).toBool());
+    EXPECT_EQ(QRect(QPoint(across.value(QStringLiteral("x1")).toInt(), across.value(QStringLiteral("y1")).toInt()),
+                    QPoint(across.value(QStringLiteral("x2")).toInt(), across.value(QStringLiteral("y2")).toInt())),
+              QRect(QPoint(2560, 1080), QPoint(3512, 1440)));
 
-    // under the short one only: it touches the desktop but no display
+    // under the short one only: straight down from it, across the gap
     EXPECT_TRUE(layout.moveTo(m, 3000, 1440));
+    conf = layout.configText();
+    EXPECT_TRUE(conf.contains(QStringLiteral("\t\tdown(66.96,100) = macbook(0,97.88)\n"))) << conf.toStdString();
+    // and nowhere near it: a wall
+    EXPECT_TRUE(layout.moveTo(m, 5000, 1440));
     EXPECT_EQ(layout.positionText(m), QStringLiteral("not linked"));
     EXPECT_FALSE(layout.configText().contains(QStringLiteral("= macbook")));
+    EXPECT_TRUE(layout.moveTo(m, 3000, 1440));
 
     // the canvas gets the displays in the shared space, from the desktop's corner
     const QVariantList drawn = layout.data(layout.index(0), LayoutModel::DisplaysRole).toList();

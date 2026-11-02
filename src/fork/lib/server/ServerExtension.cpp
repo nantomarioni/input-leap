@@ -23,6 +23,8 @@
 #include "base/Event.h"
 #include "base/IEventQueue.h"
 
+#include <algorithm>
+
 namespace inputleap {
 
 ServerExtension::ServerExtension() {}
@@ -105,6 +107,68 @@ void ServerExtension::fork_lockStateChanged(bool locked) {
         // screen changes while locked; per-proxy dedup suppresses no-ops.
         clientProxy->fork_sendLockState(locked && clientProxy != srv->m_active);
     }
+}
+
+std::vector<DisplayRect> ServerExtension::fork_displaysOf(BaseClientProxy* client, DisplayRect& box) const {
+    Server* srv = host();
+    if (client == nullptr || srv->m_config == nullptr) {
+        return {};
+    }
+    client->getShape(box.x, box.y, box.w, box.h);
+    const std::string name = srv->getName(client);
+    const std::vector<DisplayRect>* given = srv->m_config->fork_displays(name);
+    if (given == nullptr || given->size() < 2) {
+        return {};
+    }
+    std::int32_t right = 0, bottom = 0, left = given->front().x, top = given->front().y;
+    for (const DisplayRect& d : *given) {
+        left = (std::min)(left, d.x);
+        top = (std::min)(top, d.y);
+        right = (std::max)(right, d.x + d.w);
+        bottom = (std::max)(bottom, d.y + d.h);
+    }
+    if (left != 0 || top != 0 || right != box.w || bottom != box.h) {
+        if (m_displaysMismatch.insert(name).second) {
+            LOG_WARN("the displays configured for \"%s\" span %dx%d, it reports %dx%d: using its whole desktop",
+                     name.c_str(), right - left, bottom - top, box.w, box.h);
+        }
+        return {};
+    }
+    m_displaysMismatch.erase(name);
+    std::vector<DisplayRect> displays = *given;
+    for (DisplayRect& d : displays) {
+        d.x += box.x;
+        d.y += box.y;
+    }
+    return displays;
+}
+
+void ServerExtension::fork_enterDisplays(BaseClientProxy* dst, EDirection dir, std::int32_t& x, std::int32_t& y) const {
+    DisplayRect box;
+    const std::vector<DisplayRect> displays = fork_displaysOf(dst, box);
+    display_geometry::enter(displays, box, dir, x, y);
+}
+
+void ServerExtension::fork_leaveDisplays(BaseClientProxy* client, std::int32_t xOld, std::int32_t yOld,
+                                         std::int32_t& x, std::int32_t& y) const {
+    DisplayRect box;
+    const std::vector<DisplayRect> displays = fork_displaysOf(client, box);
+    if (display_geometry::leave(displays, box, xOld, yOld, x, y)) {
+        LOG_DEBUG2("off a display of \"%s\" facing out, at %d,%d", host()->getName(client).c_str(), x, y);
+    }
+}
+
+void ServerExtension::fork_stayOnDisplays(BaseClientProxy* client, std::int32_t xOld, std::int32_t yOld,
+                                          std::int32_t& x, std::int32_t& y) const {
+    DisplayRect box;
+    const std::vector<DisplayRect> displays = fork_displaysOf(client, box);
+    display_geometry::stay(displays, xOld, yOld, x, y);
+}
+
+void ServerExtension::fork_toBoxEdge(BaseClientProxy* client, std::int32_t zone, std::int32_t& x, std::int32_t& y) const {
+    DisplayRect box;
+    const std::vector<DisplayRect> displays = fork_displaysOf(client, box);
+    display_geometry::toBoxEdge(displays, box, zone, x, y);
 }
 
 } // namespace inputleap

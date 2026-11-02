@@ -16,8 +16,12 @@
 
 #pragma once
 
+#include "DisplayGeometry.h"
 #include "inputleap/option_types.h"
+#include <iosfwd>
+#include <map>
 #include <string>
+#include <vector>
 
 namespace inputleap {
 
@@ -33,8 +37,20 @@ public:
     static const char* fork_getOptionName(OptionID id);
     static std::string fork_getOptionValue(OptionID id, OptionValue value);
 
+    // `section: displays`, one line per computer whose monitors don't fill
+    // its desktop: `name = x,y,w,h x,y,w,h ...` in its own pixels, the box
+    // around them starting at 0,0. Read after the screens.
+    void fork_readSectionDisplays(ConfigReadContext& s);
+    void fork_writeDisplays(std::ostream& s) const;
+    // The monitors of a screen (canonical name), or null when not given.
+    const std::vector<DisplayRect>* fork_displays(const std::string& name) const;
+    bool fork_sameDisplays(const ConfigExtension& other) const { return m_displays == other.m_displays; }
+
 protected:
     class Config* host() const;
+
+private:
+    std::map<std::string, std::vector<DisplayRect>> m_displays;
 };
 
 } // namespace inputleap

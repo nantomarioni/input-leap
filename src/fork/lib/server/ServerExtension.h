@@ -16,10 +16,14 @@
 
 #pragma once
 
+#include "DisplayGeometry.h"
 #include <chrono>
+#include <cstdint>
 #include <deque>
 #include <map>
+#include <set>
 #include <string>
+#include <vector>
 
 namespace inputleap {
 
@@ -50,12 +54,28 @@ public:
     // unconditionally).
     virtual void fork_lockStateChanged(bool locked);
 
+    // ---- a computer's own monitors (`section: displays`) ----------------
+    // Where its monitors don't fill its desktop's box, the cursor stays on
+    // them: it enters at the monitor facing the way it comes, leaves by any
+    // monitor edge with nothing beyond, and is a wall elsewhere. Without
+    // them, or when they don't match the size the computer reports, the box
+    // alone as before.
+    std::vector<DisplayRect> fork_displaysOf(BaseClientProxy* client, DisplayRect& box) const;
+    void fork_enterDisplays(BaseClientProxy* dst, EDirection dir, std::int32_t& x, std::int32_t& y) const;
+    void fork_leaveDisplays(BaseClientProxy* client, std::int32_t xOld, std::int32_t yOld,
+                            std::int32_t& x, std::int32_t& y) const;
+    void fork_stayOnDisplays(BaseClientProxy* client, std::int32_t xOld, std::int32_t yOld,
+                             std::int32_t& x, std::int32_t& y) const;
+    void fork_toBoxEdge(BaseClientProxy* client, std::int32_t zone, std::int32_t& x, std::int32_t& y) const;
+
 protected:
     class Server* host() const;
 
 private:
     // client name -> recent adoption timestamps (flap detector)
     std::map<std::string, std::deque<std::chrono::steady_clock::time_point>> m_adoptions;
+    // screens whose monitors don't match their size, said once
+    mutable std::set<std::string> m_displaysMismatch;
 };
 
 } // namespace inputleap

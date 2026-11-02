@@ -402,6 +402,7 @@ std::int32_t Server::getJumpZoneSize(BaseClientProxy* client) const
 void Server::switchScreen(BaseClientProxy* dst, std::int32_t x, std::int32_t y, bool forScreensaver)
 {
 	assert(dst != nullptr);
+	fork_stayOnDisplays(dst, x, y, x, y);
 
 #ifndef NDEBUG
 	{
@@ -701,6 +702,7 @@ BaseClientProxy* Server::mapToNeighbor(BaseClientProxy* src, EDirection srcSide,
 	// a neighbor (i.e. an asymmetrical side) then we don't need to
 	// move inwards because that side can't provoke a jump.
 	avoidJumpZone(dst, srcSide, x, y);
+	fork_enterDisplays(dst, srcSide, x, y);
 
 	return dst;
 }
@@ -1682,6 +1684,7 @@ bool Server::onMouseMovePrimary(std::int32_t x, std::int32_t y)
 	std::int32_t ax, ay, aw, ah;
 	m_active->getShape(ax, ay, aw, ah);
 	std::int32_t zoneSize = getJumpZoneSize(m_active);
+	fork_toBoxEdge(m_active, zoneSize, x, y);
 
 	// clamp position to screen
 	std::int32_t xc = x, yc = y;
@@ -1850,6 +1853,7 @@ void Server::onMouseMoveSecondary(std::int32_t dx, std::int32_t dy)
 	// get screen shape
 	std::int32_t ax, ay, aw, ah;
 	m_active->getShape(ax, ay, aw, ah);
+	fork_leaveDisplays(m_active, xOld, yOld, m_x, m_y);
 
 	// find direction of neighbor and get the neighbor
 	bool jump = true;
@@ -1967,6 +1971,7 @@ void Server::onMouseMoveSecondary(std::int32_t dx, std::int32_t dy)
 			m_y = ay + ah - 1;
 			LOG_DEBUG2("clamp to bottom of \"%s\"", getName(m_active).c_str());
 		}
+		fork_stayOnDisplays(m_active, xOld, yOld, m_x, m_y);
 
 		// warp cursor if it moved.
 		if (m_x != xOld || m_y != yOld) {

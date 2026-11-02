@@ -111,86 +111,62 @@ int opposite(int side)
     }
 }
 
-// The parts of one side of a desktop its displays reach, merged and in
-// order, in the shared space. Elsewhere that side is a wall: the core only
-// notices the cursor at the desktop's own edges, and a cursor brought in
-// where no display is would jump to the nearest one.
-// Displays of different scales stay apart: a link maps its two ranges
-// linearly, which is only true within one scale.
-QVector<QPair<int, int>> edgeSpans(const ScreenConfig& screen, int side)
+// Where a desktop's displays face out on one side, in the shared space: each
+// stretch of a display's edge with nothing of the same computer beyond it,
+// in order. The server keeps the cursor on the displays and leaves by those
+// edges (the core's `section: displays`); everywhere else is a wall.
+struct Face { int from; int to; int display; int at; };
+QVector<Face> faces(const ScreenConfig& screen, int side)
 {
     const QVector<QRect> rects = screen.displayRects();
-    QRect box;
-    for (const QRect& r : rects) box = box.isNull() ? r : box.united(r);
-    struct Span { int from; int to; int scale; };
-    QVector<Span> spans;
+    const bool upright = side == LayoutModel::Left || side == LayoutModel::Right;
+    QVector<Face> out;
     for (int i = 0; i < rects.size(); ++i) {
         const QRect& d = rects[i];
-        const int scale = screen.displayScale(i);
-        switch (side) {
-        case LayoutModel::Left: if (d.x() == box.x()) spans << Span{d.y(), bottomOf(d), scale}; break;
-        case LayoutModel::Right: if (rightOf(d) == rightOf(box)) spans << Span{d.y(), bottomOf(d), scale}; break;
-        case LayoutModel::Up: if (d.y() == box.y()) spans << Span{d.x(), rightOf(d), scale}; break;
-        case LayoutModel::Down: if (bottomOf(d) == bottomOf(box)) spans << Span{d.x(), rightOf(d), scale}; break;
-        default: break;
+        const int at = side == LayoutModel::Left ? d.x() : side == LayoutModel::Right ? rightOf(d)
+                     : side == LayoutModel::Up ? d.y() : bottomOf(d);
+        QVector<QPair<int, int>> open{qMakePair(upright ? d.y() : d.x(), upright ? bottomOf(d) : rightOf(d))};
+        for (int j = 0; j < rects.size(); ++j) {
+            const QRect& e = rects[j];
+            const bool beyond = side == LayoutModel::Left ? rightOf(e) <= d.x()
+                              : side == LayoutModel::Right ? e.x() >= rightOf(d)
+                              : side == LayoutModel::Up ? bottomOf(e) <= d.y() : e.y() >= bottomOf(d);
+            if (j == i || !beyond) continue;
+            const int lo = upright ? e.y() : e.x(), hi = upright ? bottomOf(e) : rightOf(e);
+            QVector<QPair<int, int>> rest;
+            for (const auto& span : std::as_const(open)) {
+                if (hi <= span.first || lo >= span.second) {
+                    rest << span;
+                    continue;
+                }
+                if (span.first < lo) rest << qMakePair(span.first, lo);
+                if (hi < span.second) rest << qMakePair(hi, span.second);
+            }
+            open = rest;
+        }
+        for (const auto& span : std::as_const(open)) {
+            out << Face{span.first, span.second, i, at};
         }
     }
-    std::sort(spans.begin(), spans.end(), [](const Span& a, const Span& b) { return a.from < b.from; });
-    QVector<QPair<int, int>> merged;
-    int lastScale = 0;
-    for (const Span& span : std::as_const(spans)) {
-        if (!merged.isEmpty() && span.from <= merged.last().second && span.scale == lastScale) {
-            merged.last().second = qMax(merged.last().second, span.to);
-        } else {
-            merged << qMakePair(span.from, span.to);
-            lastScale = span.scale;
-        }
-    }
-    return merged;
+    std::sort(out.begin(), out.end(), [](const Face& a, const Face& b) { return a.from < b.from; });
+    return out;
 }
 
-// Where a stretch of one side, in the shared space, lies on that side in the
-// computer's own pixels (what the core's ranges count, over its whole
-// desktop), in percent: each end through the display that reaches the side
-// there, at that display's scale.
-QPair<double, double> ownRange(const ScreenConfig& screen, int side, int from, int to)
+// Where a stretch of one display's edge, in the shared space, lies along that
+// side of the computer in its own pixels (what the core's ranges count, over
+// its whole desktop), in percent.
+QPair<double, double> ownRange(const ScreenConfig& screen, int display, int side, int from, int to)
 {
-    const QVector<QRect> rects = screen.displayRects();
-    QRect box;
-    for (const QRect& r : rects) box = box.isNull() ? r : box.united(r);
     const QSize native = screen.nativeSize();
     const bool upright = side == LayoutModel::Left || side == LayoutModel::Right;
     const int whole = upright ? native.height() : native.width();
-    auto reaches = [&](const QRect& r) {
-        switch (side) {
-        case LayoutModel::Left: return r.x() == box.x();
-        case LayoutModel::Right: return rightOf(r) == rightOf(box);
-        case LayoutModel::Up: return r.y() == box.y();
-        default: return bottomOf(r) == bottomOf(box);
-        }
-    };
-    auto own = [&](int at, bool end) {
-        // the display holding this end: an end is exclusive, a start inclusive
-        int pick = -1;
-        for (int i = 0; i < rects.size(); ++i) {
-            const QRect& r = rects[i];
-            const int lo = upright ? r.y() : r.x(), hi = upright ? bottomOf(r) : rightOf(r);
-            if (reaches(r) && (end ? (at > lo && at <= hi) : (at >= lo && at < hi))) {
-                pick = i;
-                break;
-            }
-        }
-        if (pick < 0) {
-            // not on a display (the uniform reading of the desktop box)
-            const int lo = upright ? box.y() : box.x(), length = upright ? box.height() : box.width();
-            return length <= 0 ? 0.0 : double(at - lo) * whole / length;
-        }
-        const DisplayConfig& d = screen.displays[pick];
-        const QRect& r = rects[pick];
+    const DisplayConfig& d = screen.displays[display];
+    const QRect r = screen.displayRect(display);
+    auto own = [&](int at) {
         return upright ? d.y + double(at - r.y()) * d.height / r.height()
                        : d.x + double(at - r.x()) * d.width / r.width();
     };
-    return qMakePair(percent(own(from, false), whole), percent(own(to, true), whole));
+    return qMakePair(percent(own(from), whole), percent(own(to), whole));
 }
 
 } // namespace
@@ -1075,95 +1051,79 @@ QVector<DisplayConfig> LayoutModel::displaysFromText(const QString& text)
     return cleanDisplays(displays);
 }
 
-// From every stretch of every edge the cursor goes straight on to the first
-// computer in that direction, whether it touches or sits across a gap. A
-// stretch with nothing ahead, or where that computer has no display on its
-// facing edge, is a wall. Both ends count the same stretch of the shared
-// space in each computer's own pixels, so the cursor keeps its place along
-// the edge as the layout draws it, and comes back the same way.
+// From every stretch of every display edge facing out, the cursor goes
+// straight on to the first display of another computer in that direction,
+// whether it touches or sits across a gap. A stretch with nothing ahead is a
+// wall. Both ends count the same stretch of the shared space in each
+// computer's own pixels, so the cursor keeps its place along the edge as the
+// layout draws it, and comes back the same way.
 QVector<ScreenLink> LayoutModel::links() const
 {
     QVector<ScreenLink> links;
-    QHash<int, QVector<QPair<int, int>>> facing;   // per computer, the spans of the side being entered
     for (int side = Left; side <= Down; ++side) {
-        const bool upright = side == Left || side == Right;   // the edge runs top to bottom
-        facing.clear();
+        const bool upright = side == Left || side == Right;   // the edges run top to bottom
+        const bool forward = side == Right || side == Down;
+        QVector<QVector<Face>> leaving(m_screens.size()), entering(m_screens.size());
         for (int i = 0; i < m_screens.size(); ++i) {
-            const QRect a = m_screens[i].desktop();
-            const int lo = upright ? a.y() : a.x(), hi = upright ? bottomOf(a) : rightOf(a);
-            struct Ahead { int index; int distance; int from; int to; };
-            QVector<Ahead> ahead;
-            QVector<int> cuts{lo, hi};
-            for (int j = 0; j < m_screens.size(); ++j) {
-                if (j == i) continue;
-                const QRect b = m_screens[j].desktop();
-                int distance;
-                switch (side) {
-                case Left: distance = a.x() - rightOf(b); break;
-                case Right: distance = b.x() - rightOf(a); break;
-                case Up: distance = a.y() - bottomOf(b); break;
-                default: distance = b.y() - bottomOf(a); break;
-                }
-                const int from = qMax(lo, upright ? b.y() : b.x()), to = qMin(hi, upright ? bottomOf(b) : rightOf(b));
-                if (distance < 0 || to <= from) continue;
-                ahead << Ahead{j, distance, from, to};
-                cuts << from << to;
-            }
-            if (ahead.isEmpty()) continue;
-            std::sort(cuts.begin(), cuts.end());
-            cuts.erase(std::unique(cuts.begin(), cuts.end()), cuts.end());
-
-            // stretch by stretch, the nearest one ahead; then where a display
-            // of each reaches the edge
-            struct Piece { int to; int distance; int from; int end; int mine; int theirs; };
-            QVector<Piece> pieces;
-            const QVector<QPair<int, int>> mine = edgeSpans(m_screens[i], side);
-            for (int c = 0; c + 1 < cuts.size(); ++c) {
-                const int from = cuts[c], to = cuts[c + 1];
-                const Ahead* nearest = nullptr;
-                for (const Ahead& candidate : std::as_const(ahead)) {
-                    if (candidate.from <= from && to <= candidate.to && (!nearest || candidate.distance < nearest->distance)) {
-                        nearest = &candidate;
+            leaving[i] = faces(m_screens[i], side);
+            entering[i] = faces(m_screens[i], opposite(side));
+        }
+        for (int i = 0; i < m_screens.size(); ++i) {
+            for (const Face& f : std::as_const(leaving[i])) {
+                struct Ahead { int screen; const Face* face; int distance; int from; int to; };
+                QVector<Ahead> ahead;
+                QVector<int> cuts{f.from, f.to};
+                for (int j = 0; j < m_screens.size(); ++j) {
+                    if (j == i) continue;
+                    for (const Face& g : std::as_const(entering[j])) {
+                        const int distance = forward ? g.at - f.at : f.at - g.at;
+                        const int from = qMax(f.from, g.from), to = qMin(f.to, g.to);
+                        if (distance < 0 || to <= from) continue;
+                        ahead << Ahead{j, &g, distance, from, to};
+                        cuts << from << to;
                     }
                 }
-                if (!nearest) continue;
-                if (!facing.contains(nearest->index)) {
-                    facing.insert(nearest->index, edgeSpans(m_screens[nearest->index], opposite(side)));
-                }
-                const QVector<QPair<int, int>>& theirs = facing[nearest->index];
-                for (int m = 0; m < mine.size(); ++m) {
-                    for (int t = 0; t < theirs.size(); ++t) {
-                        const int f = qMax(from, qMax(mine[m].first, theirs[t].first));
-                        const int e = qMin(to, qMin(mine[m].second, theirs[t].second));
-                        if (e <= f) continue;
-                        if (!pieces.isEmpty() && pieces.last().to == nearest->index && pieces.last().mine == m
-                            && pieces.last().theirs == t && pieces.last().end == f) {
-                            pieces.last().end = e;
-                        } else {
-                            pieces << Piece{nearest->index, nearest->distance, f, e, m, t};
+                std::sort(cuts.begin(), cuts.end());
+                cuts.erase(std::unique(cuts.begin(), cuts.end()), cuts.end());
+
+                // stretch by stretch, the nearest one ahead
+                struct Piece { const Ahead* ahead; int from; int to; };
+                QVector<Piece> pieces;
+                for (int c = 0; c + 1 < cuts.size(); ++c) {
+                    const Ahead* nearest = nullptr;
+                    for (const Ahead& candidate : std::as_const(ahead)) {
+                        if (candidate.from <= cuts[c] && cuts[c + 1] <= candidate.to
+                            && (!nearest || candidate.distance < nearest->distance)) {
+                            nearest = &candidate;
                         }
                     }
+                    if (!nearest) continue;
+                    if (!pieces.isEmpty() && pieces.last().ahead->face == nearest->face && pieces.last().to == cuts[c]) {
+                        pieces.last().to = cuts[c + 1];
+                    } else {
+                        pieces << Piece{nearest, cuts[c], cuts[c + 1]};
+                    }
                 }
-            }
 
-            const int edge = side == Left ? a.x() : side == Right ? rightOf(a) : side == Up ? a.y() : bottomOf(a);
-            for (const Piece& piece : std::as_const(pieces)) {
-                ScreenLink link;
-                link.from = i;
-                link.to = piece.to;
-                link.side = side;
-                const QPair<double, double> ra = ownRange(m_screens[i], side, piece.from, piece.end);
-                const QPair<double, double> rb = ownRange(m_screens[piece.to], opposite(side), piece.from, piece.end);
-                link.fromStart = ra.first;
-                link.fromEnd = ra.second;
-                link.toStart = rb.first;
-                link.toEnd = rb.second;
-                if (link.fromStart >= link.fromEnd || link.toStart >= link.toEnd) {
-                    continue;   // too thin to mean anything once rounded
+                for (const Piece& piece : std::as_const(pieces)) {
+                    const int j = piece.ahead->screen;
+                    ScreenLink link;
+                    link.from = i;
+                    link.to = j;
+                    link.side = side;
+                    const QPair<double, double> ra = ownRange(m_screens[i], f.display, side, piece.from, piece.to);
+                    const QPair<double, double> rb = ownRange(m_screens[j], piece.ahead->face->display, opposite(side), piece.from, piece.to);
+                    link.fromStart = ra.first;
+                    link.fromEnd = ra.second;
+                    link.toStart = rb.first;
+                    link.toEnd = rb.second;
+                    if (link.fromStart >= link.fromEnd || link.toStart >= link.toEnd) {
+                        continue;   // too thin to mean anything once rounded
+                    }
+                    link.line = upright ? QLine(f.at, piece.from, f.at, piece.to) : QLine(piece.from, f.at, piece.to, f.at);
+                    link.gap = piece.ahead->distance;
+                    links << link;
                 }
-                link.line = upright ? QLine(edge, piece.from, edge, piece.end) : QLine(piece.from, edge, piece.end, edge);
-                link.gap = piece.distance;
-                links << link;
             }
         }
     }
@@ -2209,6 +2169,21 @@ QString LayoutModel::configText() const
         }
     }
     out << "end\n\n";
+
+    // Where a computer's displays don't fill its desktop, the server keeps the
+    // cursor on them and leaves by the edges facing out.
+    bool anyDisplays = false;
+    for (const ScreenConfig& screen : m_screens) {
+        if (screen.displays.size() < 2) continue;
+        if (!anyDisplays) out << "section: displays\n";
+        anyDisplays = true;
+        out << "\t" << screen.name << " =";
+        for (const DisplayConfig& d : screen.displays) {
+            out << " " << d.x << "," << d.y << "," << d.width << "," << d.height;
+        }
+        out << "\n";
+    }
+    if (anyDisplays) out << "end\n\n";
 
     out << "section: options\n";
     if (m_hasHeartbeat) out << "\theartbeat = " << m_heartbeat << "\n";

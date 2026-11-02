@@ -569,6 +569,10 @@ Config::operator==(const Config& x) const
 		return false;
 	}
 
+	if (!fork_sameDisplays(x)) {
+		return false;
+	}
+
 	return true;
 }
 
@@ -650,6 +654,9 @@ Config::readSection(ConfigReadContext& s)
 	}
 	else if (name == s_aliases) {
 		readSectionAliases(s);
+	}
+	else if (name == "displays") {
+		fork_readSectionDisplays(s);
 	}
 	else {
 		throw XConfigRead(s, "unknown section name \"%{1}\"", name);
@@ -1779,6 +1786,8 @@ operator<<(std::ostream& s, const Config& config)
 		}
         s << "end\n";
 	}
+
+	config.fork_writeDisplays(s);
 
 	// options section
     s << "section: options\n";

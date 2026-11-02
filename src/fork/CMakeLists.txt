@@ -44,6 +44,8 @@ set(FORK_SERVER_SOURCES
     lib/server/BaseClientProxyExtension.h
     lib/server/ConfigExtension.cpp
     lib/server/ConfigExtension.h
+    lib/server/DisplayGeometry.cpp
+    lib/server/DisplayGeometry.h
     lib/server/PrimaryClientExtension.cpp
     lib/server/PrimaryClientExtension.h
     lib/client/ClientExtension.cpp
