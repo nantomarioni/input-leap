@@ -167,6 +167,10 @@ NetworkAddress::resolve()
 bool
 NetworkAddress::operator==(const NetworkAddress& addr) const
 {
+    // an unset address (as in a config without "address") equals only another
+    if (m_address == nullptr || addr.m_address == nullptr) {
+        return m_address == addr.m_address;
+    }
     return ARCH->isEqualAddr(m_address, addr.m_address);
 }
 
