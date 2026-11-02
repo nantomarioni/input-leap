@@ -112,11 +112,28 @@ jobs:
 
       - name: Setup the build
         run: |
+          # Link against a macOS 15 SDK. Linked against the macOS 26 SDK the
+          # Carbon event queue no longer wakes for events posted from the
+          # socket thread: every message waits for the next timer, and the
+          # client drops each connection at its 15 s connect timeout.
+          SDK="$(xcrun --show-sdk-path)"
+          case "$(xcrun --show-sdk-version)" in
+            15.*) ;;
+            *) SDK=$(ls -d /Library/Developer/CommandLineTools/SDKs/MacOSX15*.sdk \
+                           /Applications/Xcode*.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15*.sdk \
+                           2>/dev/null | sort -V | tail -1 || true) ;;
+          esac
+          if [ -z "$SDK" ]; then
+            echo "::error::no macOS 15 SDK on this runner"
+            exit 1
+          fi
+          echo "Building against $SDK"
           rm -rf build
           cmake -DCMAKE_BUILD_TYPE="${B_BUILD_TYPE}" -S input-leap -B build -G Ninja \
                 -DCMAKE_UNITY_BUILD=1 \
                 -DOpenSSL_ROOT=${{env.OpenSSL_Install_Path}} \
-                -DCMAKE_OSX_SYSROOT="$(xcrun --show-sdk-path)" \
+                -DOPENSSL_ROOT_DIR=${{env.OpenSSL_Install_Path}} \
+                -DCMAKE_OSX_SYSROOT="$SDK" \
                 -DCMAKE_OSX_DEPLOYMENT_TARGET=${{matrix.min-macOS-version}} -DCMAKE_UNITY_BUILD=1 \
                 -DQT_DEFAULT_MAJOR_VERSION=$(echo ${{matrix.qt-version}} | cut -c -1) \
                 -DINPUTLEAP_VERSION_DESC=git \
