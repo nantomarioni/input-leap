@@ -44,4 +44,11 @@ private:
     int m_dimmingPercentage;
 };
 
+// Called first on the client's event-loop thread, the one that posts every
+// injected mouse and key event. CGEventPost waits for WindowServer, which
+// serves requests by their thread's QoS; at the default QoS a busy
+// WindowServer (a Zoom meeting, a Spaces switch) answers late and the shared
+// cursor lags while the local trackpad stays smooth.
+void fork_raiseInputThreadPriority();
+
 } // namespace inputleap

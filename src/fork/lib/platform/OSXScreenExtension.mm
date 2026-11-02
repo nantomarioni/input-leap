@@ -17,6 +17,7 @@
 #include "OSXScreenExtension.h"
 #include "platform/OSXScreen.h"
 #include <cstdio>
+#include <pthread.h>
 
 #include "base/LogExtension.h"
 
@@ -165,6 +166,11 @@ void OSXScreenExtension::fork_setOptions(const OptionsList& options) {    for (s
 			if (m_dimmingPercentage > 100) m_dimmingPercentage = 100;
 		}
 	}
+}
+
+void fork_raiseInputThreadPriority() {
+    const int rc = pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+    FORK_LOG("input thread QoS set to user-interactive: %s", rc == 0 ? "ok" : "failed");
 }
 
 } // namespace inputleap

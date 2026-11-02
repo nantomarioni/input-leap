@@ -1,0 +1,1 @@
+On a macOS client, the shared mouse and keyboard should lag less while the Mac is busy drawing (a Zoom meeting, switching desktops): the client now asks macOS to handle the input it injects with the same priority as foreground apps.

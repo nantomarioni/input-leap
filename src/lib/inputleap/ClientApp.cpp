@@ -442,7 +442,10 @@ ClientApp::mainLoop()
 
 #if defined(MAC_OS_X_VERSION_10_7)
 
-    Thread thread([this](){ run_events_loop(); });
+    Thread thread([this](){
+        fork_raiseInputThreadPriority();
+        run_events_loop();
+    });
 
     // wait until carbon loop is ready
     OSXScreen* screen = dynamic_cast<OSXScreen*>(
