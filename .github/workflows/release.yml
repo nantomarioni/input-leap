@@ -50,12 +50,19 @@ jobs:
         run: |
           echo "OpenSSL_Install_Path=$HOME/.cache/input-leap-ci/openssl-${OpenSSL_Version}" >> "$GITHUB_ENV"
 
+      # actions/setup-python installs under /Users/runner, which a
+      # self-hosted runner cannot write: give aqtinstall its own venv.
+      - name: Python for the Qt installer
+        run: |
+          python3 -m venv "$RUNNER_TEMP/qt-venv"
+          echo "$RUNNER_TEMP/qt-venv/bin" >> "$GITHUB_PATH"
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
           version: ${{matrix.qt-version}}
           modules: ${{matrix.qt-modules}}
+          setup-python: false
           cache: true
           cache-key-prefix: macOS-${{matrix.os}}-Qt${{matrix.qt-version}}
 
