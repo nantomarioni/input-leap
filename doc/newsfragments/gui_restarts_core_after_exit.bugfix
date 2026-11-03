@@ -1,0 +1,1 @@
+When the client or server stopped on its own (for example when the server went to sleep), the app said it would restart it in a second but never did, and stayed on "starting" until you stopped and started it by hand. It now restarts it.

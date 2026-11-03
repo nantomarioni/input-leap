@@ -215,6 +215,9 @@ AppController::AppController(QObject* parent) :
     });
     connect(m_restartTimer, &QTimer::timeout, this, [this]() {
         if (m_wantRunning && m_core->state() == CoreProcess::Stopped) {
+            // onCoreExited (or restart's stop) left Starting or Stopping, which
+            // start() takes for a run in progress and skips
+            setRunState(Stopped);
             start();
         }
     });
